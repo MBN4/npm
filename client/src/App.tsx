@@ -79,7 +79,7 @@ export const AppContent: React.FC = () => {
     <div className="app-shell">
       <Sidebar currentView={currentView} onNavigate={setCurrentView} />
       <div className="main-content">
-        <Header />
+        <Header currentView={currentView} onNavigate={setCurrentView} />
         {renderView()}
       </div>
     </div>

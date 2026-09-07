@@ -1,12 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext.js';
-import { Moon, Sun, LogOut, Bell, Check, AlertTriangle, Info, Ban, KeyRound, Eye, EyeOff, X } from 'lucide-react';
+import { Moon, Sun, LogOut, Bell, Check, AlertTriangle, Info, Ban, KeyRound, Eye, EyeOff, X, BookOpen } from 'lucide-react';
+import { AdminGuideModal } from './AdminGuideModal.js';
+import { NavView } from './Sidebar.js';
 
-export const Header: React.FC = () => {
+interface HeaderProps {
+  currentView?: NavView;
+  onNavigate?: (view: NavView) => void;
+}
+
+export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate }) => {
   const { user, logout, theme, toggleTheme, token } = useAuth();
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [showDropdown, setShowDropdown] = useState<boolean>(false);
+
+  // Operations Guide State
+  const [showGuideModal, setShowGuideModal] = useState<boolean>(false);
 
   // Change Password Modal State
   const [showPasswordModal, setShowPasswordModal] = useState<boolean>(false);
@@ -48,24 +58,28 @@ export const Header: React.FC = () => {
   }, [token]);
 
   const handleMarkAsRead = async (id: number) => {
+    // Optimistically mark single notification as read
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: 1 } : n));
+    setUnreadCount(prev => Math.max(0, prev - 1));
     try {
       await fetch(`/api/notifications/${id}/read`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}` }
       });
-      fetchNotifications();
     } catch (err) {
       console.error(err);
     }
   };
 
   const handleMarkAllRead = async () => {
+    // Optimistically clear unread count and badges
+    setUnreadCount(0);
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: 1 })));
     try {
       await fetch('/api/notifications/read-all', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });
-      fetchNotifications();
     } catch (err) {
       console.error(err);
     }
@@ -131,7 +145,18 @@ export const Header: React.FC = () => {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {/* Operations Guide Button */}
+          <button
+            onClick={() => setShowGuideModal(true)}
+            className="btn btn-primary btn-sm"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.45rem 0.85rem', fontWeight: 700 }}
+            title="Open Step-by-Step Operations Manual for Current Tab"
+          >
+            <BookOpen size={15} />
+            <span>📖 Manual & Guide</span>
+          </button>
+
           {/* Notifications Center */}
           <div style={{ position: 'relative' }}>
             <button
@@ -505,6 +530,14 @@ export const Header: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* OPERATIONS GUIDE MODAL */}
+      <AdminGuideModal
+        isOpen={showGuideModal}
+        onClose={() => setShowGuideModal(false)}
+        initialTab={currentView}
+        onNavigateToTab={onNavigate}
+      />
     </>
   );
 };

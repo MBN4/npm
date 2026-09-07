@@ -39,14 +39,16 @@ notificationRouter.post('/generate', authenticateToken, (req: AuthenticatedReque
     INSERT INTO notifications (title, message, type, link) VALUES (?, ?, ?, ?)
   `);
 
-  // Check expired batches
+  // Check expired batches (do not re-insert within 24 hours if already alerted)
   const expiredCountRow = db.prepare(`
     SELECT COUNT(*) as cnt FROM batches WHERE expiry_date <= date('now') AND quantity > 0
   `).get() as { cnt: number };
 
   if (expiredCountRow && expiredCountRow.cnt > 0) {
     const existing = db.prepare(`
-      SELECT id FROM notifications WHERE title = 'Expired Stock Alert' AND is_read = 0
+      SELECT id FROM notifications 
+      WHERE title = 'Expired Stock Alert' 
+      AND created_at >= datetime('now', '-24 hours')
     `).get();
 
     if (!existing) {
@@ -59,14 +61,16 @@ notificationRouter.post('/generate', authenticateToken, (req: AuthenticatedReque
     }
   }
 
-  // Check near-expiry batches
+  // Check near-expiry batches (do not re-insert within 24 hours if already alerted)
   const nearCountRow = db.prepare(`
     SELECT COUNT(*) as cnt FROM batches WHERE expiry_date > date('now') AND expiry_date <= date('now', '+90 days') AND quantity > 0
   `).get() as { cnt: number };
 
   if (nearCountRow && nearCountRow.cnt > 0) {
     const existing = db.prepare(`
-      SELECT id FROM notifications WHERE title = 'Near-Expiry Stock Warning' AND is_read = 0
+      SELECT id FROM notifications 
+      WHERE title = 'Near-Expiry Stock Warning' 
+      AND created_at >= datetime('now', '-24 hours')
     `).get();
 
     if (!existing) {
