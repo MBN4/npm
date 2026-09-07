@@ -1,0 +1,12 @@
+{
+  "name": "nmp-pharmacy-system",
+  "version": "1.0.0",
+  "description": "Naveed Medical Pharmacy (NMP) Management System",
+  "scripts": {
+    "server:dev": "npm --prefix server run dev",
+    "server:seed": "npm --prefix server run seed",
+    "server:test": "npm --prefix server run test",
+    "client:dev": "npm --prefix client run dev",
+    "client:build": "npm --prefix client run build"
+  }
+}
