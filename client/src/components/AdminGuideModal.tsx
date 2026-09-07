@@ -515,13 +515,14 @@ export const AdminGuideModal: React.FC<AdminGuideModalProps> = ({
           </button>
         </div>
 
-        {/* Tab Strip */}
+        {/* Tab Strip - Clean Wrapping Pills (No Horizonal Scrollbar Obscurity) */}
         <div
+          className="no-scrollbar"
           style={{
             display: 'flex',
-            overflowX: 'auto',
-            padding: '0.5rem 1rem',
-            gap: '0.4rem',
+            flexWrap: 'wrap',
+            padding: '0.75rem 1.25rem',
+            gap: '0.45rem',
             borderBottom: '1px solid var(--border)',
             backgroundColor: 'var(--bg-surface)'
           }}
@@ -534,15 +535,16 @@ export const AdminGuideModal: React.FC<AdminGuideModalProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.4rem',
-                padding: '0.5rem 0.85rem',
+                padding: '0.45rem 0.85rem',
                 borderRadius: 'var(--radius-md)',
                 border: selectedTab === g.id ? '1px solid var(--primary-border)' : '1px solid transparent',
                 backgroundColor: selectedTab === g.id ? 'var(--primary-light)' : 'transparent',
                 color: selectedTab === g.id ? 'var(--primary)' : 'var(--text-secondary)',
                 fontWeight: selectedTab === g.id ? 700 : 500,
-                fontSize: '0.8rem',
+                fontSize: '0.78rem',
                 cursor: 'pointer',
-                whiteSpace: 'nowrap'
+                whiteSpace: 'nowrap',
+                transition: 'all 0.15s ease'
               }}
             >
               {g.icon}
@@ -551,8 +553,8 @@ export const AdminGuideModal: React.FC<AdminGuideModalProps> = ({
           ))}
         </div>
 
-        {/* Guide Content Body */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        {/* Guide Content Body with Sleek Padding */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem 1.75rem 1.75rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           {/* Guide Title & Summary Card */}
           <div
             style={{
