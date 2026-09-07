@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext.js';
-import { Pill, Lock, User as UserIcon, AlertCircle } from 'lucide-react';
+import { Pill, Lock, User as UserIcon, AlertCircle, ShieldCheck } from 'lucide-react';
 
 export const LoginView: React.FC = () => {
   const { login } = useAuth();
@@ -22,12 +22,6 @@ export const LoginView: React.FC = () => {
     }
   };
 
-  const handleQuickFill = (u: string, p: string) => {
-    setUsername(u);
-    setPassword(p);
-    setErrorMessage(null);
-  };
-
   return (
     <div
       style={{
@@ -35,20 +29,19 @@ export const LoginView: React.FC = () => {
         minHeight: '100vh',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #090d16 0%, #0f172a 50%, #0284c7 100%)',
+        backgroundColor: '#090d16',
         padding: '1.5rem'
       }}
     >
       <div
-        className="card"
         style={{
           width: '100%',
           maxWidth: '440px',
           padding: '2.5rem',
-          backgroundColor: 'var(--bg-surface)',
-          borderRadius: 'var(--radius-lg)',
-          boxShadow: '0 20px 40px rgba(0, 0, 0, 0.4)',
-          border: '1px solid var(--border)'
+          backgroundColor: '#111827',
+          borderRadius: '14px',
+          boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6)',
+          border: '1px solid #1f2937'
         }}
       >
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
@@ -56,23 +49,23 @@ export const LoginView: React.FC = () => {
             style={{
               width: '56px',
               height: '56px',
-              borderRadius: 'var(--radius-md)',
-              background: 'linear-gradient(135deg, #0284c7, #2563eb)',
-              color: '#fff',
+              borderRadius: '12px',
+              backgroundColor: '#1e293b',
+              color: '#38bdf8',
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
               marginBottom: '1rem',
-              boxShadow: '0 8px 20px rgba(2, 132, 199, 0.4)'
+              border: '1px solid #334155'
             }}
           >
             <Pill size={28} />
           </div>
-          <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+          <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f9fafb', letterSpacing: '-0.02em' }}>
             Naveed Medical Pharmacy
           </h1>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-            Enterprise POS & Inventory Management System
+          <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.25rem' }}>
+            Enterprise POS, Inventory & Management System
           </p>
         </div>
 
@@ -80,15 +73,15 @@ export const LoginView: React.FC = () => {
           <div
             style={{
               padding: '0.75rem 1rem',
-              backgroundColor: 'var(--danger-light)',
-              color: 'var(--danger-text)',
-              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'rgba(239, 68, 68, 0.15)',
+              color: '#fca5a5',
+              borderRadius: '8px',
               fontSize: '0.85rem',
               marginBottom: '1.25rem',
               display: 'flex',
               alignItems: 'center',
               gap: '0.5rem',
-              border: '1px solid rgba(239, 68, 68, 0.2)'
+              border: '1px solid rgba(239, 68, 68, 0.3)'
             }}
           >
             <AlertCircle size={16} />
@@ -98,7 +91,7 @@ export const LoginView: React.FC = () => {
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem', color: 'var(--text-secondary)' }}>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem', color: '#cbd5e1' }}>
               Username
             </label>
             <div style={{ position: 'relative' }}>
@@ -109,14 +102,14 @@ export const LoginView: React.FC = () => {
                 onChange={e => setUsername(e.target.value)}
                 placeholder="Enter username"
                 required
-                style={{ paddingLeft: '2.5rem' }}
+                style={{ paddingLeft: '2.5rem', backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }}
               />
-              <UserIcon size={16} style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <UserIcon size={16} style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
             </div>
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem', color: 'var(--text-secondary)' }}>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem', color: '#cbd5e1' }}>
               Password
             </label>
             <div style={{ position: 'relative' }}>
@@ -127,9 +120,9 @@ export const LoginView: React.FC = () => {
                 onChange={e => setPassword(e.target.value)}
                 placeholder="Enter password"
                 required
-                style={{ paddingLeft: '2.5rem' }}
+                style={{ paddingLeft: '2.5rem', backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }}
               />
-              <Lock size={16} style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <Lock size={16} style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
             </div>
           </div>
 
@@ -139,48 +132,29 @@ export const LoginView: React.FC = () => {
             disabled={isLoading}
             style={{ width: '100%', padding: '0.75rem', marginTop: '0.5rem', fontSize: '0.95rem' }}
           >
-            {isLoading ? 'Authenticating...' : 'Sign In to Terminal'}
+            {isLoading ? 'Authenticating...' : 'Sign In as Administrator'}
           </button>
         </form>
 
-        {/* Quick Demo Test Buttons */}
-        <div style={{ marginTop: '2rem', paddingTop: '1.25rem', borderTop: '1px solid var(--border)' }}>
-          <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.6rem', textAlign: 'center' }}>
-            QUICK ROLE SWITCH (FOR MANUAL PHASE TESTING)
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-            <button
-              type="button"
-              onClick={() => handleQuickFill('admin', 'admin123')}
-              className="btn btn-secondary btn-sm"
-              style={{ fontSize: '0.75rem' }}
-            >
-              👑 Admin
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickFill('pharmacist', 'pharma123')}
-              className="btn btn-secondary btn-sm"
-              style={{ fontSize: '0.75rem' }}
-            >
-              💊 Pharmacist
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickFill('cashier', 'cash123')}
-              className="btn btn-secondary btn-sm"
-              style={{ fontSize: '0.75rem' }}
-            >
-              🛒 Cashier
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickFill('inventory', 'inv123')}
-              className="btn btn-secondary btn-sm"
-              style={{ fontSize: '0.75rem' }}
-            >
-              📦 Inventory Staff
-            </button>
+        {/* Administrator Credentials & Security Badge */}
+        <div
+          style={{
+            marginTop: '2rem',
+            paddingTop: '1.25rem',
+            borderTop: '1px solid #1f2937',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            color: '#94a3b8',
+            fontSize: '0.75rem'
+          }}
+        >
+          <ShieldCheck size={20} style={{ color: '#10b981', flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 700, color: '#f1f5f9' }}>Administrator Role (All Capabilities)</div>
+            <div style={{ color: '#64748b', marginTop: '0.15rem' }}>
+              Credentials: <code style={{ color: '#38bdf8' }}>admin</code> / <code style={{ color: '#38bdf8' }}>admin123</code> with unrestricted access to POS, Inventory, Accounts, Purchases, AI & Backups.
+            </div>
           </div>
         </div>
       </div>

@@ -32,6 +32,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
   };
 
+  async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
+    try {
+      return await fetch(url, options);
+    } catch (err) {
+      if (url.startsWith('/api')) {
+        return await fetch(`http://127.0.0.1:5000${url}`, options);
+      }
+      throw err;
+    }
+  }
+
   useEffect(() => {
     async function verifyAuth() {
       if (!token) {
@@ -40,7 +51,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       try {
-        const res = await fetch('/api/auth/me', {
+        const res = await apiFetch('/api/auth/me', {
           headers: { Authorization: `Bearer ${token}` }
         });
 
@@ -65,7 +76,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await apiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
