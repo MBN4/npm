@@ -7,7 +7,10 @@ import {
   AlertTriangle,
   MapPin,
   RefreshCw,
-  X
+  X,
+  Barcode,
+  Printer,
+  Sparkles
 } from 'lucide-react';
 
 export interface Medicine {
@@ -46,6 +49,11 @@ export const MedicinesView: React.FC = () => {
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
+  // Barcode sticker print state
+  const [stickerMed, setStickerMed] = useState<Medicine | null>(null);
+  const [stickerCopies, setStickerCopies] = useState<number>(4);
+  const [stickerSize, setStickerSize] = useState<'standard' | 'shelf' | 'vial'>('standard');
+
   // New medicine form state
   const [newMed, setNewMed] = useState({
     brandName: '',
@@ -56,6 +64,7 @@ export const MedicinesView: React.FC = () => {
     dosageForm: 'Tablet',
     packSize: '1',
     barcode: '',
+    customBarcode: '',
     rackLocation: '',
     minStockLevel: '10',
     reorderLevel: '20',
@@ -138,6 +147,7 @@ export const MedicinesView: React.FC = () => {
           dosageForm: newMed.dosageForm,
           packSize: Number(newMed.packSize) || 1,
           barcode: newMed.barcode.trim() || null,
+          customBarcode: newMed.customBarcode.trim() || null,
           rackLocation: newMed.rackLocation.trim() || null,
           minStockLevel: Number(newMed.minStockLevel) || 10,
           reorderLevel: Number(newMed.reorderLevel) || 20,
@@ -163,6 +173,7 @@ export const MedicinesView: React.FC = () => {
         dosageForm: 'Tablet',
         packSize: '1',
         barcode: '',
+        customBarcode: '',
         rackLocation: '',
         minStockLevel: '10',
         reorderLevel: '20',
@@ -260,12 +271,13 @@ export const MedicinesView: React.FC = () => {
                 <th>Rack / Shelf</th>
                 <th>Stock Status</th>
                 <th>Retail Price</th>
+                <th style={{ textAlign: 'center' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {medicines.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                     No medicines match the search criteria.
                   </td>
                 </tr>
@@ -292,7 +304,25 @@ export const MedicinesView: React.FC = () => {
                         {m.manufacturer_name || '—'}
                       </td>
                       <td>
-                        <code style={{ fontSize: '0.78rem' }}>{m.barcode || m.custom_barcode || '—'}</code>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          {m.barcode && (
+                            <code style={{ fontSize: '0.74rem' }} title="Manufacturer EAN-13">
+                              {m.barcode}
+                            </code>
+                          )}
+                          {m.custom_barcode && (
+                            <span
+                              className="badge badge-primary"
+                              style={{ fontSize: '0.68rem', fontFamily: 'monospace', width: 'fit-content' }}
+                              title="Internal Store Barcode"
+                            >
+                              🏷️ {m.custom_barcode}
+                            </span>
+                          )}
+                          {!m.barcode && !m.custom_barcode && (
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>—</span>
+                          )}
+                        </div>
                       </td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem' }}>
@@ -314,6 +344,17 @@ export const MedicinesView: React.FC = () => {
                       </td>
                       <td style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
                         {m.current_sale_price ? `Rs. ${Number(m.current_sale_price).toFixed(2)}` : 'No Active Batch'}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button
+                          onClick={() => { setStickerMed(m); setStickerCopies(4); }}
+                          className="btn btn-secondary btn-sm"
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                          title="Print Barcode Shelf / Box Stickers"
+                        >
+                          <Barcode size={13} style={{ color: 'var(--primary)' }} />
+                          <span>Sticker</span>
+                        </button>
                       </td>
                     </tr>
                   );
@@ -429,16 +470,45 @@ export const MedicinesView: React.FC = () => {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Barcode / EAN</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Manufacturer Barcode (EAN)</label>
+                  </div>
                   <input
                     className="input"
-                    placeholder="Scan or enter"
+                    placeholder="Scan or enter box barcode"
                     value={newMed.barcode}
                     onChange={e => setNewMed({ ...newMed, barcode: e.target.value })}
                   />
                 </div>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Custom Store Barcode</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const code = `NMP-${Math.floor(100000 + Math.random() * 900000)}`;
+                        setNewMed({ ...newMed, customBarcode: code });
+                      }}
+                      className="btn btn-secondary btn-sm"
+                      style={{ padding: '0.1rem 0.4rem', fontSize: '0.68rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+                      title="Generate unique custom barcode"
+                    >
+                      <Sparkles size={11} style={{ color: 'var(--primary)' }} />
+                      <span>Auto-Generate</span>
+                    </button>
+                  </div>
+                  <input
+                    className="input"
+                    placeholder="e.g. NMP-849201"
+                    value={newMed.customBarcode}
+                    onChange={e => setNewMed({ ...newMed, customBarcode: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Rack Location</label>
                   <input
@@ -446,6 +516,15 @@ export const MedicinesView: React.FC = () => {
                     placeholder="e.g. Shelf A-2"
                     value={newMed.rackLocation}
                     onChange={e => setNewMed({ ...newMed, rackLocation: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Min Stock Level</label>
+                  <input
+                    type="number"
+                    className="input"
+                    value={newMed.minStockLevel}
+                    onChange={e => setNewMed({ ...newMed, minStockLevel: e.target.value })}
                   />
                 </div>
                 <div>
@@ -480,6 +559,170 @@ export const MedicinesView: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Barcode Sticker Print Modal */}
+      {stickerMed && (
+        <div className="modal-overlay" style={{ zIndex: 1000 }}>
+          <div className="modal-content" style={{ maxWidth: '650px' }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <Barcode size={22} style={{ color: 'var(--primary)' }} />
+                <div>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>
+                    Print Barcode Sticker
+                  </h3>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    {stickerMed.brand_name} {stickerMed.strength} ({stickerMed.dosage_form})
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => setStickerMed(null)} className="btn btn-secondary btn-sm" style={{ padding: '0.3rem' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* Controls */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '1rem', alignItems: 'flex-end' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Number of Copies</label>
+                  <input
+                    type="number"
+                    className="input"
+                    min={1}
+                    max={50}
+                    value={stickerCopies}
+                    onChange={e => setStickerCopies(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Sticker Size</label>
+                  <select
+                    className="select"
+                    value={stickerSize}
+                    onChange={e => setStickerSize(e.target.value as any)}
+                  >
+                    <option value="standard">Standard (38 x 25 mm)</option>
+                    <option value="shelf">Shelf Tag (50 x 30 mm)</option>
+                    <option value="vial">Small Vial / Strip (25 x 15 mm)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="btn btn-primary"
+                    style={{ height: '38px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                  >
+                    <Printer size={16} />
+                    <span>Print Now</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Live Preview Area */}
+              <div style={{ border: '1px dashed var(--border)', borderRadius: 'var(--radius-md)', padding: '1rem', backgroundColor: 'var(--bg-card)' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Sticker Print Preview ({stickerCopies} {stickerCopies === 1 ? 'copy' : 'copies'})
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.75rem', maxHeight: '280px', overflowY: 'auto', padding: '0.25rem' }}>
+                  {Array.from({ length: stickerCopies }).map((_, idx) => {
+                    const code = stickerMed.barcode || stickerMed.custom_barcode || `NMP-${stickerMed.id.toString().padStart(6, '0')}`;
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          backgroundColor: '#ffffff',
+                          color: '#000000',
+                          padding: '0.6rem',
+                          borderRadius: '4px',
+                          border: '1px solid #cbd5e1',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          textAlign: 'center',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                        }}
+                      >
+                        <div style={{ fontSize: '0.62rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#0f172a' }}>
+                          Naveed Medical Pharmacy
+                        </div>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 800, marginTop: '2px', color: '#1e293b' }}>
+                          {stickerMed.brand_name} {stickerMed.strength}
+                        </div>
+                        <div style={{ fontSize: '0.6rem', color: '#64748b' }}>
+                          {stickerMed.generic_name || stickerMed.dosage_form}
+                        </div>
+
+                        {/* Barcode Graphic Simulation */}
+                        <div style={{ margin: '0.35rem 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                          <svg width="130" height="26" viewBox="0 0 130 26">
+                            <rect x="0" y="0" width="2" height="26" fill="#000" />
+                            <rect x="4" y="0" width="1" height="26" fill="#000" />
+                            <rect x="7" y="0" width="3" height="26" fill="#000" />
+                            <rect x="12" y="0" width="2" height="26" fill="#000" />
+                            <rect x="16" y="0" width="4" height="26" fill="#000" />
+                            <rect x="22" y="0" width="1" height="26" fill="#000" />
+                            <rect x="25" y="0" width="3" height="26" fill="#000" />
+                            <rect x="30" y="0" width="2" height="26" fill="#000" />
+                            <rect x="34" y="0" width="4" height="26" fill="#000" />
+                            <rect x="40" y="0" width="2" height="26" fill="#000" />
+                            <rect x="44" y="0" width="3" height="26" fill="#000" />
+                            <rect x="49" y="0" width="1" height="26" fill="#000" />
+                            <rect x="52" y="0" width="3" height="26" fill="#000" />
+                            <rect x="57" y="0" width="4" height="26" fill="#000" />
+                            <rect x="63" y="0" width="2" height="26" fill="#000" />
+                            <rect x="67" y="0" width="2" height="26" fill="#000" />
+                            <rect x="71" y="0" width="4" height="26" fill="#000" />
+                            <rect x="77" y="0" width="2" height="26" fill="#000" />
+                            <rect x="81" y="0" width="3" height="26" fill="#000" />
+                            <rect x="86" y="0" width="2" height="26" fill="#000" />
+                            <rect x="90" y="0" width="4" height="26" fill="#000" />
+                            <rect x="96" y="0" width="2" height="26" fill="#000" />
+                            <rect x="100" y="0" width="3" height="26" fill="#000" />
+                            <rect x="105" y="0" width="1" height="26" fill="#000" />
+                            <rect x="108" y="0" width="4" height="26" fill="#000" />
+                            <rect x="114" y="0" width="2" height="26" fill="#000" />
+                            <rect x="118" y="0" width="3" height="26" fill="#000" />
+                            <rect x="123" y="0" width="2" height="26" fill="#000" />
+                            <rect x="127" y="0" width="3" height="26" fill="#000" />
+                          </svg>
+                          <div style={{ fontSize: '0.65rem', letterSpacing: '1.5px', fontFamily: 'monospace', fontWeight: 700, marginTop: '1px' }}>
+                            {code}
+                          </div>
+                        </div>
+
+                        <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', fontWeight: 700, color: '#0f172a', borderTop: '1px dashed #cbd5e1', paddingTop: '3px' }}>
+                          <span>{stickerMed.current_sale_price ? `Rs. ${Number(stickerMed.current_sale_price).toFixed(2)}` : 'MRP'}</span>
+                          <span>{stickerMed.rack_location ? `RACK: ${stickerMed.rack_location}` : 'A-1'}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Scannable with standard 1D/2D USB & Bluetooth POS barcode scanners.
+                </span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button onClick={() => setStickerMed(null)} className="btn btn-secondary">
+                    Close
+                  </button>
+                  <button onClick={() => window.print()} className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Printer size={16} />
+                    <span>Print ({stickerCopies})</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

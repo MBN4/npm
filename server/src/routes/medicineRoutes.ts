@@ -134,6 +134,19 @@ medicineRouter.post('/', authenticateToken, requirePermission('manage_medicines'
     }
   }
 
+  // Handle custom barcode or auto-generate one if neither barcode is provided
+  let finalCustomBarcode = customBarcode && customBarcode.trim() ? customBarcode.trim() : null;
+  if (finalCustomBarcode) {
+    const existing = db.prepare('SELECT id FROM medicines WHERE custom_barcode = ? OR barcode = ?').get(finalCustomBarcode, finalCustomBarcode);
+    if (existing) {
+      res.status(400).json({ error: 'Custom barcode is already assigned to another medicine' });
+      return;
+    }
+  } else if (!barcode || !barcode.trim()) {
+    // Auto-generate internal store barcode: NMP-XXXXXX
+    finalCustomBarcode = `NMP-${Math.floor(100000 + Math.random() * 900000)}`;
+  }
+
   try {
     const result = db.prepare(`
       INSERT INTO medicines (
@@ -150,7 +163,7 @@ medicineRouter.post('/', authenticateToken, requirePermission('manage_medicines'
       dosageForm || 'Tablet',
       packSize || 1,
       barcode ? barcode.trim() : null,
-      customBarcode ? customBarcode.trim() : null,
+      finalCustomBarcode,
       rackLocation || null,
       minStockLevel != null ? Number(minStockLevel) : 10,
       reorderLevel != null ? Number(reorderLevel) : 20,

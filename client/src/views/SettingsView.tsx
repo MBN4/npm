@@ -48,6 +48,7 @@ interface MedicineOption {
   strength: string;
   dosage_form: string;
   barcode: string | null;
+  custom_barcode?: string | null;
   batches?: {
     id: number;
     batch_number: string;
@@ -814,7 +815,7 @@ export const SettingsView: React.FC = () => {
                       <rect x="151" y="0" width="3" height="30" fill="#000" />
                     </svg>
                     <div style={{ fontSize: '0.65rem', letterSpacing: '2px', fontFamily: 'monospace' }}>
-                      {selectedMed?.barcode || '896400011223'}
+                      {selectedMed?.barcode || selectedMed?.custom_barcode || `NMP-${String(selectedMed?.id || 1).padStart(5, '0')}`}
                     </div>
                   </div>
 

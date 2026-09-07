@@ -415,9 +415,31 @@ export const PosView: React.FC = () => {
               <input
                 ref={searchInputRef}
                 className="input"
-                placeholder="Scan barcode (EAN-13) or search brand / generic name (F2)..."
+                placeholder="Scan barcode (EAN-13, Custom NMP) or search brand / generic (F2)..."
                 value={query}
                 onChange={e => setQuery(e.target.value)}
+                onKeyDown={async (e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (searchResults.length > 0) {
+                      handleAddToCart(searchResults[0]);
+                    } else if (query.trim()) {
+                      try {
+                        const res = await fetch(`/api/pos/search?q=${encodeURIComponent(query.trim())}`, {
+                          headers: { Authorization: `Bearer ${token}` }
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          if (data.results && data.results.length > 0) {
+                            handleAddToCart(data.results[0]);
+                          }
+                        }
+                      } catch (err) {
+                        console.error('Direct barcode lookup error:', err);
+                      }
+                    }
+                  }
+                }}
                 autoFocus
                 style={{ paddingLeft: '2.5rem', fontSize: '0.95rem', height: '44px' }}
               />
