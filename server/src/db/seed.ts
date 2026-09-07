@@ -80,7 +80,7 @@ export function seedDatabase() {
     const cashPass = bcrypt.hashSync('cash123', saltRounds);
     const invPass = bcrypt.hashSync('inv123', saltRounds);
 
-    insertUser.run(1, 'admin', 'admin@nmp.local', adminPass, 'Dr. Naveed (Chief Pharmacist/Admin)', 1, '0300-1112233');
+    insertUser.run(1, 'admin', 'bn73147@gmail.com', adminPass, 'Dr. Naveed (Chief Pharmacist/Admin)', 1, '0300-1112233');
     insertUser.run(2, 'pharmacist', 'pharma@nmp.local', pharmaPass, 'Farhan Ali (Pharmacist)', 2, '0301-2223344');
     insertUser.run(3, 'cashier', 'cashier@nmp.local', cashPass, 'Zainab Bibi (Billing Cashier)', 3, '0302-3334455');
     insertUser.run(4, 'inventory', 'inventory@nmp.local', invPass, 'Tariq Mehmood (Store Incharge)', 4, '0303-4445566');

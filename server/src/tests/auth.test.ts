@@ -79,4 +79,47 @@ describe('Phase 1 - Foundation & Auth Test Suite', () => {
     expect(res.body.logs.length).toBeGreaterThan(0);
     expect(res.body.logs.some((l: any) => l.action === 'LOGIN')).toBe(true);
   });
+
+  it('POST /api/auth/forgot-password generates OTP strictly for bn73147@gmail.com', async () => {
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ usernameOrEmail: 'admin' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.targetEmail).toBe('bn73147@gmail.com');
+    expect(res.body).toHaveProperty('otpPreview');
+    expect(res.body.otpPreview).toMatch(/^\d{6}$/);
+  });
+
+  it('POST /api/auth/verify-reset-password resets password using valid OTP', async () => {
+    // 1. Request OTP
+    const forgotRes = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ usernameOrEmail: 'admin' });
+    const otp = forgotRes.body.otpPreview;
+
+    // 2. Submit new password with OTP
+    const resetRes = await request(app)
+      .post('/api/auth/verify-reset-password')
+      .send({ otp, newPassword: 'newAdminPassword2026' });
+
+    expect(resetRes.status).toBe(200);
+    expect(resetRes.body.message).toContain('successfully updated');
+
+    // 3. Verify login works with new password
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ username: 'admin', password: 'newAdminPassword2026' });
+
+    expect(loginRes.status).toBe(200);
+    expect(loginRes.body.token).toBeDefined();
+
+    // Revert back to admin123 for consistency
+    const revertRes = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ usernameOrEmail: 'admin' });
+    await request(app)
+      .post('/api/auth/verify-reset-password')
+      .send({ otp: revertRes.body.otpPreview, newPassword: 'admin123' });
+  });
 });

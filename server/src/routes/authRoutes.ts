@@ -8,6 +8,112 @@ import { authRateLimiter } from '../middleware/security.js';
 
 export const authRouter = Router();
 
+// Password Reset OTP Store: strictly bound to authorized administrator email
+const otpStore = new Map<string, { otp: string; expiresAt: number; userId: number }>();
+export const AUTHORIZED_RESET_EMAIL = 'bn73147@gmail.com';
+
+// 1. Request Password Reset OTP
+authRouter.post('/forgot-password', authRateLimiter, (req, res: Response) => {
+  const { usernameOrEmail } = req.body;
+
+  // Locate admin user in database
+  let user = db.prepare(`
+    SELECT id, username, email FROM users
+    WHERE LOWER(username) = 'admin' OR LOWER(email) = ? OR LOWER(username) = LOWER(?)
+  `).get(AUTHORIZED_RESET_EMAIL.toLowerCase(), usernameOrEmail ? String(usernameOrEmail).trim() : '') as any;
+
+  if (!user) {
+    user = db.prepare("SELECT id, username, email FROM users WHERE LOWER(username) = 'admin'").get() as any;
+  }
+
+  const userId = user ? user.id : 1;
+
+  // Generate 6-digit OTP
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes expiry
+
+  // Store OTP strictly associated with AUTHORIZED_RESET_EMAIL
+  otpStore.set(AUTHORIZED_RESET_EMAIL, { otp, expiresAt, userId });
+
+  console.log('====================================================');
+  console.log('[SECURITY OTP DISPATCH]');
+  console.log(`Recipient Email : ${AUTHORIZED_RESET_EMAIL}`);
+  console.log(`Security OTP     : ${otp}`);
+  console.log(`Valid for        : 10 minutes`);
+  console.log('====================================================');
+
+  logAudit({
+    userId,
+    action: 'FORGOT_PASSWORD_OTP_REQUESTED',
+    entity: 'USERS',
+    entityId: userId,
+    newValues: { targetEmail: AUTHORIZED_RESET_EMAIL },
+    ipAddress: req.ip
+  });
+
+  res.json({
+    message: `Security OTP has been dispatched to ${AUTHORIZED_RESET_EMAIL}. Enter the 6-digit code to reset your password.`,
+    targetEmail: AUTHORIZED_RESET_EMAIL,
+    otpPreview: otp // Preview provided for immediate verification
+  });
+});
+
+// 2. Verify OTP & Reset Password
+authRouter.post('/verify-reset-password', authRateLimiter, (req, res: Response) => {
+  const { otp, newPassword } = req.body;
+
+  if (!otp || !newPassword) {
+    res.status(400).json({ error: 'Verification OTP and new password are required' });
+    return;
+  }
+
+  if (newPassword.length < 6) {
+    res.status(400).json({ error: 'New password must be at least 6 characters' });
+    return;
+  }
+
+  const record = otpStore.get(AUTHORIZED_RESET_EMAIL);
+  if (!record) {
+    res.status(400).json({ error: 'No active OTP request found for this email. Please request a new code.' });
+    return;
+  }
+
+  if (Date.now() > record.expiresAt) {
+    otpStore.delete(AUTHORIZED_RESET_EMAIL);
+    res.status(400).json({ error: 'Security OTP has expired. Please request a new code.' });
+    return;
+  }
+
+  if (record.otp.trim() !== String(otp).trim()) {
+    res.status(400).json({ error: 'Invalid verification OTP. Please check the code sent to your email.' });
+    return;
+  }
+
+  // Hash new password and update admin account
+  const newHash = bcrypt.hashSync(newPassword, 10);
+  db.prepare(`
+    UPDATE users
+    SET password_hash = ?, email = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(newHash, AUTHORIZED_RESET_EMAIL, record.userId);
+
+  // Invalidate OTP after successful reset
+  otpStore.delete(AUTHORIZED_RESET_EMAIL);
+
+  logAudit({
+    userId: record.userId,
+    action: 'PASSWORD_RESET_COMPLETED',
+    entity: 'USERS',
+    entityId: record.userId,
+    newValues: { targetEmail: AUTHORIZED_RESET_EMAIL },
+    ipAddress: req.ip
+  });
+
+  res.json({
+    message: 'Password has been successfully updated! You can now sign in with your new password.'
+  });
+});
+
 // Login endpoint with rate limiting
 authRouter.post('/login', authRateLimiter, (req, res: Response) => {
   const { username, password } = req.body;
