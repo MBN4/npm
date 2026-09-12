@@ -29,31 +29,30 @@ chunks.push(Buffer.from(padBetween('Cashier: Admin', 'Pay: CASH', 42) + '\n', 'u
 chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
 
 // 4. Items Table
-chunks.push(Buffer.from(padBetween('Item', 'Price   Total', 42) + '\n', 'utf8'));
+chunks.push(Buffer.from(padBetween('#  Description', 'Qty   Price     Total', 42) + '\n', 'utf8'));
 chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
 
 // Item 1
-chunks.push(Buffer.from('1x Augmentin 625mg Tablet\n', 'utf8'));
-chunks.push(Buffer.from('  B#:AUG-26-01  Exp:2026-10\n', 'utf8'));
-chunks.push(Buffer.from(padBetween('  1 x 52.00', 'Rs. 52.00', 42) + '\n', 'utf8'));
+chunks.push(Buffer.from('1  Augmentin 625mg Tablet\n', 'utf8'));
+chunks.push(Buffer.from(padBetween('     1 x 52.00', '52.00', 42) + '\n', 'utf8'));
 
 // Item 2
-chunks.push(Buffer.from('10x Panadol Extra 500mg\n', 'utf8'));
-chunks.push(Buffer.from('  B#:PAN-402   Exp:2028-06\n', 'utf8'));
-chunks.push(Buffer.from(padBetween('  10 x 4.00', 'Rs. 40.00', 42) + '\n', 'utf8'));
+chunks.push(Buffer.from('2  Panadol Extra 500mg\n', 'utf8'));
+chunks.push(Buffer.from(padBetween('     10 x 4.00', '40.00', 42) + '\n', 'utf8'));
 
 // 5. Totals Breakdown
 chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
-chunks.push(Buffer.from(padBetween('Total Items: 2 (11 Units)', 'Subtotal: Rs. 92.00', 42) + '\n', 'utf8'));
-chunks.push(Buffer.from(padBetween('Receipt Fee:', 'Rs.  2.00', 42) + '\n', 'utf8'));
-chunks.push(Buffer.from(padBetween('Discount:', '-Rs.  0.00', 42) + '\n', 'utf8'));
+chunks.push(Buffer.from(padBetween('Total Qty: 11', 'Total Amount:    92.00', 42) + '\n', 'utf8'));
+chunks.push(Buffer.from(padBetween('', 'Sales Tax:         0.00', 42) + '\n', 'utf8'));
+chunks.push(Buffer.from(padBetween('', 'Discount:         -0.00', 42) + '\n', 'utf8'));
+chunks.push(Buffer.from(padBetween('', 'POS Service Fee:   2.00', 42) + '\n', 'utf8'));
 chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
 
 chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold On
-chunks.push(Buffer.from(padBetween('NET TOTAL:', 'Rs. 94.00', 42) + '\n', 'utf8'));
+chunks.push(Buffer.from(padBetween('Payable:', '94.00', 42) + '\n', 'utf8'));
 chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold Off
-chunks.push(Buffer.from(padBetween('Cash Tendered:', 'Rs. 100.00', 42) + '\n', 'utf8'));
-chunks.push(Buffer.from(padBetween('Change Return:', 'Rs.   6.00', 42) + '\n', 'utf8'));
+chunks.push(Buffer.from(padBetween('Cash Tendered:', '100.00', 42) + '\n', 'utf8'));
+chunks.push(Buffer.from(padBetween('Change Return:', '6.00', 42) + '\n', 'utf8'));
 chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
 
 // 6. Footer (Centered)

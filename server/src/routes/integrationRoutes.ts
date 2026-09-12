@@ -203,50 +203,46 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
 
     const saleDate = new Date(sale.created_at || Date.now());
     const dateStr = saleDate.toLocaleDateString();
-    const timeStr = saleDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timeStr = saleDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-    chunks.push(Buffer.from(padBetween(`Invoice: #${sale.invoice_number}`, `${dateStr} ${timeStr}`, 42) + '\n', 'utf8'));
-    chunks.push(Buffer.from(padBetween(`Cashier: ${(sale.cashier_name || 'Admin').slice(0, 14)}`, `Pay: ${sale.payment_method || 'CASH'}`, 42) + '\n', 'utf8'));
-    if (sale.customer_name) {
-      chunks.push(Buffer.from(`Customer: ${sale.customer_name}\n`, 'utf8'));
-    }
+    chunks.push(Buffer.from(padBetween(`Invoice #: ${sale.invoice_number}`, `POS No.: 01`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(`Cashier: ${sale.cashier_name || 'Dr. Naveed'}\n`, 'utf8'));
+    chunks.push(Buffer.from(padBetween(`Mode of Payment: ${sale.payment_method || 'CASH'}`, `${dateStr} ${timeStr}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(`Customer: ${sale.customer_name || 'CASH SALES-WALKING CUSTOMER A/C'}\n`, 'utf8'));
     chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
-    chunks.push(Buffer.from(padBetween('Item', 'Price   Total', 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('#  Description', 'Qty   Price     Total', 42) + '\n', 'utf8'));
     chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
 
     let totalUnits = 0;
-    items.forEach(it => {
+    items.forEach((it, idx) => {
       totalUnits += (it.quantity || 1);
-      const fullName = `${it.quantity}x ${it.brand_name || ''} ${it.strength || ''} ${it.dosage_form || ''}`.trim();
-      chunks.push(Buffer.from(`${fullName}\n`, 'utf8'));
+      const itemTitle = `${idx + 1}  ${it.brand_name || ''} ${it.strength || ''} ${it.dosage_form || ''}`.trim();
+      chunks.push(Buffer.from(`${itemTitle}\n`, 'utf8'));
 
-      if (it.batch_number) {
-        chunks.push(Buffer.from(`  B#:${it.batch_number}  Exp:${it.expiry_date?.slice(0, 7) || 'N/A'}\n`, 'utf8'));
-      }
-
-      const qtyPrice = `  ${it.quantity} x ${Number(it.unit_price).toFixed(2)}`;
-      const lineTotalStr = `Rs. ${Number(it.line_total).toFixed(2)}`;
+      const qtyPrice = `     ${it.quantity} x ${Number(it.unit_price).toFixed(2)}`;
+      const lineTotalStr = `${Number(it.line_total).toFixed(2)}`;
       chunks.push(Buffer.from(padBetween(qtyPrice, lineTotalStr, 42) + '\n', 'utf8'));
     });
 
     chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
-    chunks.push(Buffer.from(padBetween(`Total Items: ${items.length} (${totalUnits} Units)`, `Subtotal: Rs. ${Number(sale.subtotal).toFixed(2)}`, 42) + '\n', 'utf8'));
-    chunks.push(Buffer.from(padBetween('Receipt Fee:', `Rs. ${printFee.toFixed(2)}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween(`Total Qty: ${totalUnits}`, `Total Amount:    ${Number(sale.subtotal).toFixed(2)}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('', `Sales Tax:         0.00`, 42) + '\n', 'utf8'));
     if (Number(sale.discount) > 0) {
-      chunks.push(Buffer.from(padBetween('Discount:', `-Rs. ${Number(sale.discount).toFixed(2)}`, 42) + '\n', 'utf8'));
+      chunks.push(Buffer.from(padBetween('', `Discount:         -${Number(sale.discount).toFixed(2)}`, 42) + '\n', 'utf8'));
     }
+    chunks.push(Buffer.from(padBetween('', `POS Service Fee:   ${printFee.toFixed(2)}`, 42) + '\n', 'utf8'));
     chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
 
     chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
-    chunks.push(Buffer.from(padBetween('NET TOTAL:', `Rs. ${Number(sale.total_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('Payable:', `${Number(sale.total_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
     chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
 
-    chunks.push(Buffer.from(padBetween('Cash Tendered:', `Rs. ${Number(sale.paid_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('Cash Tendered:', `${Number(sale.paid_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
     if (Number(sale.change_amount) > 0) {
-      chunks.push(Buffer.from(padBetween('Change Return:', `Rs. ${Number(sale.change_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
+      chunks.push(Buffer.from(padBetween('Change Return:', `${Number(sale.change_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
     }
     if (Number(sale.remaining_amount) > 0) {
-      chunks.push(Buffer.from(padBetween('Balance Due:', `Rs. ${Number(sale.remaining_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
+      chunks.push(Buffer.from(padBetween('Balance Due:', `${Number(sale.remaining_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
     }
     chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
 
@@ -294,24 +290,23 @@ integrationRouter.post('/print-test-direct', authenticateToken, async (req: Requ
       Buffer.from(padBetween(`INV: #TEST-${Date.now().toString().slice(-4)}`, new Date().toLocaleDateString(), 42) + '\n', 'utf8'),
       Buffer.from(padBetween('Cashier: Admin', 'Pay: CASH', 42) + '\n', 'utf8'),
       Buffer.from('------------------------------------------\n', 'utf8'),
-      Buffer.from(padBetween('Item', 'Price   Total', 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('#  Description', 'Qty   Price     Total', 42) + '\n', 'utf8'),
       Buffer.from('------------------------------------------\n', 'utf8'),
-      Buffer.from('1x Augmentin 625mg Tablet\n', 'utf8'),
-      Buffer.from('  B#:AUG-991  Exp:2027-12\n', 'utf8'),
-      Buffer.from(padBetween('  1 x 52.00', 'Rs. 52.00', 42) + '\n', 'utf8'),
-      Buffer.from('10x Panadol Extra 500mg\n', 'utf8'),
-      Buffer.from('  B#:PAN-402  Exp:2028-06\n', 'utf8'),
-      Buffer.from(padBetween('  10 x 4.00', 'Rs. 40.00', 42) + '\n', 'utf8'),
+      Buffer.from('1  Augmentin 625mg Tablet\n', 'utf8'),
+      Buffer.from(padBetween('     1 x 52.00', '52.00', 42) + '\n', 'utf8'),
+      Buffer.from('2  Panadol Extra 500mg\n', 'utf8'),
+      Buffer.from(padBetween('     10 x 4.00', '40.00', 42) + '\n', 'utf8'),
       Buffer.from('------------------------------------------\n', 'utf8'),
-      Buffer.from(padBetween('Total Items: 2 (11 Units)', 'Subtotal: Rs. 92.00', 42) + '\n', 'utf8'),
-      Buffer.from(padBetween('Receipt Fee:', 'Rs.  2.00', 42) + '\n', 'utf8'),
-      Buffer.from(padBetween('Discount:', '-Rs.  0.00', 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('Total Qty: 11', 'Total Amount:    92.00', 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('', 'Sales Tax:         0.00', 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('', 'Discount:         -0.00', 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('', 'POS Service Fee:   2.00', 42) + '\n', 'utf8'),
       Buffer.from('------------------------------------------\n', 'utf8'),
       Buffer.from([0x1B, 0x45, 0x01]),
-      Buffer.from(padBetween('NET TOTAL:', 'Rs. 94.00', 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('Payable:', '94.00', 42) + '\n', 'utf8'),
       Buffer.from([0x1B, 0x45, 0x00]),
-      Buffer.from(padBetween('Cash Tendered:', 'Rs. 100.00', 42) + '\n', 'utf8'),
-      Buffer.from(padBetween('Change Return:', 'Rs.   6.00', 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('Cash Tendered:', '100.00', 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('Change Return:', '6.00', 42) + '\n', 'utf8'),
       Buffer.from('------------------------------------------\n', 'utf8'),
       Buffer.from([0x1B, 0x61, 0x01]),
       Buffer.from('Thank you for choosing NMP! Get well soon!\n', 'utf8'),

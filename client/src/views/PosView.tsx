@@ -1282,19 +1282,13 @@ export const PosView: React.FC = () => {
                 <div style={{ fontSize: '1.05rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY (NMP)'}
                 </div>
-                {settings['receipt_header_subtitle'] && (
-                  <div style={{ fontSize: '0.7rem', color: '#444' }}>{settings['receipt_header_subtitle']}</div>
-                )}
                 <div style={{ fontSize: '0.72rem', color: '#333' }}>
-                  {settings['pharmacy_address'] || '31 32 chowk chohan road outfall, near tariq pan shop, Islampura, Lahore, 54000'}
+                  {settings['pharmacy_address'] || '31 32 Chowk Chohan Road Outfall, Near Tariq Pan Shop, Islampura, Lahore'}
                 </div>
                 <div style={{ fontSize: '0.72rem', color: '#333' }}>
-                  Phone: {settings['pharmacy_phone'] || '03454142863'}
+                  Ph: {settings['pharmacy_phone'] || '03454142863'}
                   {settings['license_number'] ? ` | DSL: ${settings['license_number']}` : ''}
                 </div>
-                {settings['tax_number'] && (
-                  <div style={{ fontSize: '0.7rem', color: '#333' }}>NTN: {settings['tax_number']}</div>
-                )}
                 <div style={{ fontSize: '0.75rem', marginTop: '0.2rem', letterSpacing: '-1px' }}>
                   ------------------------------------------
                 </div>
@@ -1302,25 +1296,26 @@ export const PosView: React.FC = () => {
 
               <div style={{ fontSize: '0.75rem', marginBottom: '0.4rem', lineHeight: 1.4 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Invoice: <strong>#{lastInvoice.invoiceNumber}</strong></span>
-                  <span>{new Date(lastInvoice.createdAt).toLocaleDateString()} {new Date(lastInvoice.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span>Invoice #: <strong>{lastInvoice.invoiceNumber}</strong></span>
+                  <span>POS No.: 01</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Cashier: {lastInvoice.cashierName}</span>
-                  <span>Payment: {lastInvoice.paymentMethod || paymentMethod}</span>
+                  <span>{new Date(lastInvoice.createdAt).toLocaleDateString()} {new Date(lastInvoice.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                 </div>
-                {lastInvoice.customer && (
-                  <div style={{ borderTop: '1px dotted #ccc', marginTop: '0.2rem', paddingTop: '0.2rem' }}>
-                    Customer: <strong>{lastInvoice.customer.name}</strong> {lastInvoice.customer.mobile ? `(${lastInvoice.customer.mobile})` : ''}
-                  </div>
-                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Mode of Payment: {lastInvoice.paymentMethod || paymentMethod}</span>
+                </div>
+                <div style={{ borderTop: '1px dotted #ccc', marginTop: '0.2rem', paddingTop: '0.2rem' }}>
+                  Customer: <strong>{lastInvoice.customer ? `${lastInvoice.customer.name} (${lastInvoice.customer.mobile || ''})` : 'CASH SALES-WALKING CUSTOMER A/C'}</strong>
+                </div>
               </div>
 
               <div style={{ borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '0.35rem 0', marginBottom: '0.5rem' }}>
                 <table style={{ width: '100%', fontSize: '0.72rem', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid #000' }}>
-                      <th style={{ textAlign: 'left', background: 'transparent', padding: '0.1rem 0' }}>Item</th>
+                      <th style={{ textAlign: 'left', background: 'transparent', padding: '0.1rem 0' }}># Description</th>
                       <th style={{ textAlign: 'center', background: 'transparent', padding: '0.1rem 0' }}>Qty</th>
                       <th style={{ textAlign: 'right', background: 'transparent', padding: '0.1rem 0' }}>Price</th>
                       <th style={{ textAlign: 'right', background: 'transparent', padding: '0.1rem 0' }}>Total</th>
@@ -1330,14 +1325,11 @@ export const PosView: React.FC = () => {
                     {lastInvoice.items.map((it: any, i: number) => (
                       <tr key={i} style={{ borderBottom: i < lastInvoice.items.length - 1 ? '1px dotted #e0e0e0' : 'none' }}>
                         <td style={{ padding: '0.25rem 0', verticalAlign: 'top' }}>
-                          <div style={{ fontWeight: 700 }}>{it.quantity}x {it.brandName} {it.strength || ''}</div>
-                          <div style={{ fontSize: '0.65rem', color: '#555' }}>
-                            {it.batchNumber ? `B#:${it.batchNumber}` : ''} {it.discount > 0 ? `(Disc: ${it.discount}%)` : ''}
-                          </div>
+                          <div style={{ fontWeight: 700 }}>{i + 1}  {it.brandName} {it.strength || ''}</div>
                         </td>
                         <td style={{ textAlign: 'center', padding: '0.25rem 0', verticalAlign: 'top' }}>{it.quantity}</td>
                         <td style={{ textAlign: 'right', padding: '0.25rem 0', verticalAlign: 'top' }}>{(it.unitPrice || (it.lineTotal / (it.quantity || 1)))?.toFixed(2)}</td>
-                        <td style={{ textAlign: 'right', padding: '0.25rem 0', verticalAlign: 'top', fontWeight: 600 }}>Rs. {it.lineTotal.toFixed(2)}</td>
+                        <td style={{ textAlign: 'right', padding: '0.25rem 0', verticalAlign: 'top', fontWeight: 600 }}>{it.lineTotal.toFixed(2)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1346,21 +1338,25 @@ export const PosView: React.FC = () => {
 
               <div style={{ fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>
-                  <span>Total Items: {lastInvoice.items.length} ({lastInvoice.items.reduce((sum: number, it: any) => sum + (it.quantity || 0), 0)} Units)</span>
-                  <span>Subtotal: Rs. {lastInvoice.subtotal.toFixed(2)}</span>
+                  <span>Total Qty: {lastInvoice.items.reduce((sum: number, it: any) => sum + (it.quantity || 0), 0)}</span>
+                  <span>Total Amount: {lastInvoice.subtotal.toFixed(2)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>
-                  <span>Receipt / Print Fee:</span>
-                  <span>Rs. {(lastInvoice.tax || 2.00).toFixed(2)}</span>
+                  <span>Sales Tax:</span>
+                  <span>0.00</span>
                 </div>
                 {lastInvoice.discount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: '#000' }}>
                     <span>Discount:</span>
-                    <span>-Rs. {lastInvoice.discount.toFixed(2)}</span>
+                    <span>-{lastInvoice.discount.toFixed(2)}</span>
                   </div>
                 )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>
+                  <span>POS Service Fee:</span>
+                  <span>{(lastInvoice.tax || 2.00).toFixed(2)}</span>
+                </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '0.95rem', borderTop: '1px solid #000', paddingTop: '0.25rem', marginTop: '0.1rem' }}>
-                  <span>NET TOTAL:</span>
+                  <span>Payable:</span>
                   <span>Rs. {lastInvoice.totalAmount.toFixed(2)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -1373,7 +1369,7 @@ export const PosView: React.FC = () => {
                 </div>
                 {lastInvoice.totalAmount > lastInvoice.paidAmount && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: '#b91c1c' }}>
-                    <span>Credit / Balance Due:</span>
+                    <span>Balance Due:</span>
                     <span>Rs. {(lastInvoice.totalAmount - lastInvoice.paidAmount).toFixed(2)}</span>
                   </div>
                 )}
