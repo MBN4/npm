@@ -70,16 +70,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => 
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <div className="brand-icon">
+        <div style={{ width: '42px', height: '42px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: '1px solid rgba(255, 255, 255, 0.15)', backgroundColor: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <img
             src="/logo.jpeg"
-            alt="NMP"
-            className="brand-logo-img"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = 'none';
-            }}
+            alt="Naveed Medical Pharmacy Logo"
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
-          <span style={{ fontSize: '0.85rem', fontWeight: 800 }}>NMP</span>
         </div>
         <div className="brand-info">
           <h1>Naveed Pharmacy</h1>

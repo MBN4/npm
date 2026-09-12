@@ -252,10 +252,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
             <img
               src="/logo.jpeg"
               alt="NMP Logo"
-              style={{ width: '38px', height: '38px', borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--border)', flexShrink: 0 }}
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = 'none';
-              }}
+              style={{ width: '38px', height: '38px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--border)', backgroundColor: '#ffffff', flexShrink: 0 }}
             />
             <div>
               <h2 style={{ fontSize: '0.98rem', fontWeight: 800, letterSpacing: '-0.01em', lineHeight: 1.2, margin: 0 }}>
