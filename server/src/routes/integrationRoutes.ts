@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
+import { printToWindowsPrinter } from '../services/printerService.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -137,7 +138,7 @@ integrationRouter.get('/receipt-escpos/:invoiceNumber', authenticateToken, (req:
 });
 
 // Direct Hardware Thermal Printing (Windows Spooler / Out-Printer)
-integrationRouter.post('/print-receipt-direct', authenticateToken, (req: Request, res: Response) => {
+integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { invoiceNumber, printerName } = req.body;
     const targetPrinter = printerName || 'Speed-X 400UL';
@@ -216,29 +217,16 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, (req: Request
     lines.push('\r\n\r\n\r\n');
 
     const slipText = lines.join('\r\n');
-
-    // On Windows, send directly to printer via Out-Printer
-    if (process.platform === 'win32') {
-      const tempPath = path.join(os.tmpdir(), `nmp_slip_${Date.now()}.txt`);
-      fs.writeFileSync(tempPath, slipText, 'utf8');
-      const psCmd = `Get-Content -Path "${tempPath}" -Raw | Out-Printer -Name "${targetPrinter}"`;
-      exec(`powershell.exe -Command "${psCmd}"`, (err) => {
-        try { fs.unlinkSync(tempPath); } catch (_) {}
-        if (err) {
-          return res.status(500).json({ error: 'Direct Windows print failed', details: err.message });
-        }
-        return res.json({ success: true, message: `Receipt sent to ${targetPrinter} successfully` });
-      });
-    } else {
-      res.json({ success: true, message: 'Receipt simulated for non-Windows environment', slipText });
-    }
+    await printToWindowsPrinter(slipText, targetPrinter);
+    res.json({ success: true, message: `Receipt sent to ${targetPrinter} successfully` });
   } catch (err: any) {
+    console.error('Direct print receipt error:', err);
     res.status(500).json({ error: 'Direct print failed', details: err.message });
   }
 });
 
 // Direct Hardware Test Slip Print
-integrationRouter.post('/print-test-direct', authenticateToken, (req: Request, res: Response) => {
+integrationRouter.post('/print-test-direct', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { printerName } = req.body;
     const targetPrinter = printerName || 'Speed-X 400UL';
@@ -270,21 +258,10 @@ integrationRouter.post('/print-test-direct', authenticateToken, (req: Request, r
       '\r\n\r\n\r\n'
     ].join('\r\n');
 
-    if (process.platform === 'win32') {
-      const tempPath = path.join(os.tmpdir(), `nmp_test_slip_${Date.now()}.txt`);
-      fs.writeFileSync(tempPath, testSlip, 'utf8');
-      const psCmd = `Get-Content -Path "${tempPath}" -Raw | Out-Printer -Name "${targetPrinter}"`;
-      exec(`powershell.exe -Command "${psCmd}"`, (err) => {
-        try { fs.unlinkSync(tempPath); } catch (_) {}
-        if (err) {
-          return res.status(500).json({ error: 'Direct Windows print failed', details: err.message });
-        }
-        return res.json({ success: true, message: `Test receipt printed on ${targetPrinter} successfully!` });
-      });
-    } else {
-      res.json({ success: true, message: 'Test print simulated', testSlip });
-    }
+    await printToWindowsPrinter(testSlip, targetPrinter);
+    res.json({ success: true, message: `Test receipt printed on ${targetPrinter} successfully!` });
   } catch (err: any) {
+    console.error('Direct test print error:', err);
     res.status(500).json({ error: 'Direct test print failed', details: err.message });
   }
 });
