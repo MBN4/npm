@@ -2,6 +2,10 @@ import { Router, Request, Response } from 'express';
 import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { exec } from 'child_process';
 
 export const integrationRouter = Router();
 
@@ -129,6 +133,107 @@ integrationRouter.get('/receipt-escpos/:invoiceNumber', authenticateToken, (req:
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to generate ESC/POS receipt', details: err.message });
+  }
+});
+
+// Direct Hardware Thermal Printing (Windows Spooler / Out-Printer)
+integrationRouter.post('/print-receipt-direct', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const { invoiceNumber, printerName } = req.body;
+    const targetPrinter = printerName || 'Speed-X 400UL';
+
+    const sale = db.prepare(`
+      SELECT s.*, u.username as cashier_name, c.name as customer_name, c.mobile as customer_mobile
+      FROM sales s
+      JOIN users u ON s.cashier_id = u.id
+      LEFT JOIN customers c ON s.customer_id = c.id
+      WHERE s.invoice_number = ?
+    `).get(invoiceNumber) as any;
+
+    if (!sale) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    const items = db.prepare(`
+      SELECT si.*, m.brand_name, m.dosage_form, b.batch_number, b.expiry_date
+      FROM sale_items si
+      JOIN medicines m ON si.medicine_id = m.id
+      JOIN batches b ON si.batch_id = b.id
+      WHERE si.sale_id = ?
+    `).all(sale.id) as any[];
+
+    // Fetch store settings
+    const settingsRows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'pharmacy_%' OR key LIKE 'receipt_%' OR key LIKE 'license_%' OR key LIKE 'tax_%'").all() as any[];
+    const settingsMap: Record<string, string> = {};
+    settingsRows.forEach(r => { settingsMap[r.key] = r.value; });
+
+    const pharmacyName = settingsMap['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY';
+    const address = settingsMap['pharmacy_address'] || 'Main Bazar, Hospital Road, Gujranwala';
+    const phone = settingsMap['pharmacy_phone'] || '0300-1112233';
+    const footer = settingsMap['receipt_footer'] || 'Get well soon! Returns accepted within 7 days with bill.';
+
+    const lines: string[] = [];
+    lines.push('================================================');
+    lines.push(`          ${pharmacyName}`);
+    lines.push(`       ${address}`);
+    lines.push(`           Tel: ${phone}`);
+    lines.push('================================================');
+    lines.push(`Invoice: #${sale.invoice_number}   Date: ${sale.created_at}`);
+    lines.push(`Cashier: ${sale.cashier_name}   Payment: ${sale.payment_method}`);
+    if (sale.customer_name) {
+      lines.push(`Customer: ${sale.customer_name} ${sale.customer_mobile || ''}`);
+    }
+    lines.push('------------------------------------------------');
+    lines.push('Item                     Qty    Rate      Total');
+    lines.push('------------------------------------------------');
+    items.forEach(it => {
+      const name = (it.brand_name + ' ' + (it.dosage_form || '')).slice(0, 22).padEnd(23, ' ');
+      const qty = String(it.quantity).padStart(4, ' ');
+      const rate = it.unit_price.toFixed(2).padStart(8, ' ');
+      const total = it.line_total.toFixed(2).padStart(10, ' ');
+      lines.push(`${name}${qty} ${rate} ${total}`);
+      if (it.batch_number) {
+        lines.push(`  Batch: ${it.batch_number} Exp: ${it.expiry_date || 'N/A'}`);
+      }
+    });
+    lines.push('------------------------------------------------');
+    lines.push(`Subtotal:                            Rs. ${sale.subtotal.toFixed(2)}`);
+    if (sale.discount > 0) {
+      lines.push(`Discount:                           -Rs. ${sale.discount.toFixed(2)}`);
+    }
+    lines.push(`NET TOTAL:                           Rs. ${sale.total_amount.toFixed(2)}`);
+    lines.push(`Paid Tendered:                       Rs. ${sale.paid_amount.toFixed(2)}`);
+    if (sale.change_amount > 0) {
+      lines.push(`Change Due:                          Rs. ${sale.change_amount.toFixed(2)}`);
+    }
+    if (sale.remaining_amount > 0) {
+      lines.push(`Credit Due:                          Rs. ${sale.remaining_amount.toFixed(2)}`);
+    }
+    lines.push('------------------------------------------------');
+    lines.push(footer);
+    lines.push('Keep medicines stored below 30°C in dry place.');
+    lines.push('================================================');
+    lines.push('\r\n\r\n\r\n');
+
+    const slipText = lines.join('\r\n');
+
+    // On Windows, send directly to printer via Out-Printer
+    if (process.platform === 'win32') {
+      const tempPath = path.join(os.tmpdir(), `nmp_slip_${Date.now()}.txt`);
+      fs.writeFileSync(tempPath, slipText, 'utf8');
+      const psCmd = `Get-Content -Path "${tempPath}" -Raw | Out-Printer -Name "${targetPrinter}"`;
+      exec(`powershell.exe -Command "${psCmd}"`, (err) => {
+        try { fs.unlinkSync(tempPath); } catch (_) {}
+        if (err) {
+          return res.status(500).json({ error: 'Direct Windows print failed', details: err.message });
+        }
+        return res.json({ success: true, message: `Receipt sent to ${targetPrinter} successfully` });
+      });
+    } else {
+      res.json({ success: true, message: 'Receipt simulated for non-Windows environment', slipText });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: 'Direct print failed', details: err.message });
   }
 });
 
