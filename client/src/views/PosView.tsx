@@ -1376,7 +1376,7 @@ export const PosView: React.FC = () => {
               </div>
 
               <div style={{ textAlign: 'center', marginTop: '0.85rem', fontSize: '0.68rem', borderTop: '1px dashed #000', paddingTop: '0.4rem', lineHeight: 1.3 }}>
-                <div>{settings['receipt_footer'] || 'Get well soon! Returns accepted within 7 days with bill.'}</div>
+                <div>{settings['receipt_footer'] || 'Thank you for choosing NMP. Get well soon!'}</div>
                 <div style={{ fontSize: '0.62rem', color: '#555', marginTop: '0.2rem' }}>Keep all medicines stored below 30°C in dry place.</div>
                 <div style={{ fontWeight: 800, marginTop: '0.35rem', letterSpacing: '0.5px' }}>
                   *** {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY (NMP)'} ***

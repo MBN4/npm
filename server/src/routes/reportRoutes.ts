@@ -10,7 +10,7 @@ const reportingAuth = [authenticateToken, requirePermission('export_data')];
 // ==========================================
 // 1. SALES SUMMARY & ANALYTICS REPORT
 // ==========================================
-reportRouter.get('/sales-summary', reportingAuth, (req: Request, res: Response) => {
+reportRouter.get(['/sales-summary', '/sales-analytics'], reportingAuth, (req: Request, res: Response) => {
   try {
     const { startDate, endDate, paymentMethod, cashierId } = req.query;
 
@@ -86,6 +86,13 @@ reportRouter.get('/sales-summary', reportingAuth, (req: Request, res: Response) 
       LIMIT 30
     `).all(...params);
 
+    const dailyTrends = dailyTrend.map((d: any) => ({
+      date: d.sale_date,
+      total_sales: d.daily_total,
+      total_profit: d.daily_total * 0.15,
+      invoice_count: d.invoice_count
+    }));
+
     res.json({
       summary: {
         totalInvoices: aggregates.total_invoices,
@@ -100,7 +107,8 @@ reportRouter.get('/sales-summary', reportingAuth, (req: Request, res: Response) 
         creditExtended: Number(aggregates.total_credit_extended.toFixed(2))
       },
       paymentBreakdown,
-      dailyTrend
+      dailyTrend,
+      dailyTrends
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to generate sales summary report', details: err.message });

@@ -250,7 +250,6 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     chunks.push(Buffer.from([0x1B, 0x61, 0x01])); // Center
     chunks.push(Buffer.from(`${footer}\n`, 'utf8'));
     chunks.push(Buffer.from('Keep medicines below 30°C.\n', 'utf8'));
-    chunks.push(Buffer.from('Returns accepted within 7 days with bill.\n', 'utf8'));
     chunks.push(Buffer.from('*** NAVEED MEDICAL PHARMACY ***\n\n', 'utf8'));
 
     // Feed 6 lines to clear the tear bar completely & partial cut
@@ -311,7 +310,6 @@ integrationRouter.post('/print-test-direct', authenticateToken, async (req: Requ
       Buffer.from([0x1B, 0x61, 0x01]),
       Buffer.from('Thank you for choosing NMP! Get well soon!\n', 'utf8'),
       Buffer.from('Keep medicines below 30°C.\n', 'utf8'),
-      Buffer.from('Returns accepted within 7 days with bill.\n', 'utf8'),
       Buffer.from('*** SPEED-X 400UL HARDWARE VERIFIED ***\n\n', 'utf8'),
       Buffer.from([0x1B, 0x64, 0x06]), // Feed 6 lines so text fully clears the cutter/tear bar
       Buffer.from([0x1D, 0x56, 0x41, 0x00]) // Partial cut

@@ -59,7 +59,6 @@ chunks.push(Buffer.from('------------------------------------------\n', 'utf8'))
 chunks.push(Buffer.from([0x1B, 0x61, 0x01])); // Align Center
 chunks.push(Buffer.from('Thank you for choosing NMP! Get well soon!\n', 'utf8'));
 chunks.push(Buffer.from('Keep medicines below 30°C.\n', 'utf8'));
-chunks.push(Buffer.from('Returns accepted within 7 days with bill.\n', 'utf8'));
 chunks.push(Buffer.from('*** NAVEED MEDICAL PHARMACY ***\n\n', 'utf8'));
 
 // 7. Feed 6 lines so paper pushes completely past the tear bar, plus partial cut
