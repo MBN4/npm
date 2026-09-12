@@ -247,18 +247,28 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
     <>
       <header className="top-header">
         {/* Left: Branding & Global Search Box */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-          <div>
-            <h2 style={{ fontSize: '1.05rem', fontWeight: 700, letterSpacing: '-0.01em' }}>
-              Naveed Medical Pharmacy
-            </h2>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              Hospital Road Branch • Counter 01
-            </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+            <img
+              src="/logo.jpeg"
+              alt="NMP Logo"
+              style={{ width: '38px', height: '38px', borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--border)', flexShrink: 0 }}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+              }}
+            />
+            <div>
+              <h2 style={{ fontSize: '0.98rem', fontWeight: 800, letterSpacing: '-0.01em', lineHeight: 1.2, margin: 0 }}>
+                Naveed Medical Pharmacy
+              </h2>
+              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.2, margin: 0, marginTop: '2px' }}>
+                Hospital Road Branch • Counter 01
+              </p>
+            </div>
           </div>
 
           {/* Global Search Bar */}
-          <div ref={searchContainerRef} style={{ position: 'relative', width: '320px' }}>
+          <div ref={searchContainerRef} style={{ position: 'relative', width: '280px' }}>
             <div style={{ position: 'relative' }}>
               <Search size={15} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
@@ -384,7 +394,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
         </div>
 
         {/* Right Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexShrink: 0 }}>
           {/* Real-Time Online / Offline Status Badge */}
           <div
             style={{
@@ -432,7 +442,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
             title="Open Step-by-Step Operations Manual"
           >
             <BookOpen size={15} />
-            <span>📖 Manual</span>
+            <span>Manual</span>
           </button>
 
           {/* Notifications Center */}

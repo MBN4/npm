@@ -70,7 +70,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => 
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <div className="brand-icon">NMP</div>
+        <div className="brand-icon">
+          <img
+            src="/logo.jpeg"
+            alt="NMP"
+            className="brand-logo-img"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = 'none';
+            }}
+          />
+          <span style={{ fontSize: '0.85rem', fontWeight: 800 }}>NMP</span>
+        </div>
         <div className="brand-info">
           <h1>Naveed Pharmacy</h1>
           <span>Management System</span>
