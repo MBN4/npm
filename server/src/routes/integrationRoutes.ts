@@ -237,6 +237,58 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, (req: Request
   }
 });
 
+// Direct Hardware Test Slip Print
+integrationRouter.post('/print-test-direct', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const { printerName } = req.body;
+    const targetPrinter = printerName || 'Speed-X 400UL';
+
+    const testSlip = [
+      '================================================',
+      '          NAVEED MEDICAL PHARMACY',
+      '       Main Bazar, Hospital Road, Gujranwala',
+      '           Tel: 0300-1112233',
+      '================================================',
+      `INV: #TEST-${Date.now().toString().slice(-6)}    ${new Date().toLocaleDateString()}`,
+      'Cashier: Admin (POS Counter 01)',
+      '------------------------------------------------',
+      'Item                     Qty    Rate      Total',
+      '------------------------------------------------',
+      'Augmentin 625mg Tab        2   28.50      57.00',
+      '  Batch: AUG-991 Exp: 2027-12',
+      'Panadol Extra 500mg       10    3.50      35.00',
+      '  Batch: PAN-402 Exp: 2028-06',
+      '------------------------------------------------',
+      'NET PAYABLE:                         Rs.  92.00',
+      'Cash Tendered:                       Rs. 100.00',
+      'Change Due:                          Rs.   8.00',
+      '------------------------------------------------',
+      'Thank you for choosing NMP. Get well soon!',
+      'Keep medicines stored below 30°C in dry place.',
+      '*** SPEED-X 400UL HARDWARE VERIFIED ***',
+      '================================================',
+      '\r\n\r\n\r\n'
+    ].join('\r\n');
+
+    if (process.platform === 'win32') {
+      const tempPath = path.join(os.tmpdir(), `nmp_test_slip_${Date.now()}.txt`);
+      fs.writeFileSync(tempPath, testSlip, 'utf8');
+      const psCmd = `Get-Content -Path "${tempPath}" -Raw | Out-Printer -Name "${targetPrinter}"`;
+      exec(`powershell.exe -Command "${psCmd}"`, (err) => {
+        try { fs.unlinkSync(tempPath); } catch (_) {}
+        if (err) {
+          return res.status(500).json({ error: 'Direct Windows print failed', details: err.message });
+        }
+        return res.json({ success: true, message: `Test receipt printed on ${targetPrinter} successfully!` });
+      });
+    } else {
+      res.json({ success: true, message: 'Test print simulated', testSlip });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: 'Direct test print failed', details: err.message });
+  }
+});
+
 // ==========================================
 // 2. BARCODE LABEL GENERATOR & SHELF TAGS
 // ==========================================

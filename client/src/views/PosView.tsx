@@ -65,6 +65,7 @@ export const PosView: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [settings, setSettings] = useState<Record<string, string>>({});
+  const [directPrinting, setDirectPrinting] = useState(false);
   const [autoPrint, setAutoPrint] = useState<boolean>(() => {
     return localStorage.getItem('nmp_autoprint') === 'true';
   });
@@ -109,6 +110,35 @@ export const PosView: React.FC = () => {
 
   const handlePrintReceipt = () => {
     printThermalElement('nmp-pos-receipt', (settings['printer_paper_width'] as any) || '80mm');
+  };
+
+  const handleDirectHardwarePrint = async (invNum?: string) => {
+    const num = invNum || lastInvoice?.invoiceNumber;
+    if (!num) return;
+    setDirectPrinting(true);
+    try {
+      const res = await fetch('/api/integrations/print-receipt-direct', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          invoiceNumber: num,
+          printerName: 'Speed-X 400UL'
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setInfoMessage('Receipt printed directly on Speed-X 400UL hardware!');
+      } else {
+        setErrorMessage(data.error || 'Direct print failed');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Direct print error');
+    } finally {
+      setDirectPrinting(false);
+    }
   };
 
   // Keyboard shortcut listener
@@ -1134,9 +1164,25 @@ export const PosView: React.FC = () => {
 
             <div style={{ padding: '1rem', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button onClick={handlePrintReceipt} className="btn btn-primary" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
+                <button
+                  onClick={() => handleDirectHardwarePrint()}
+                  disabled={directPrinting}
+                  className="btn btn-primary"
+                  style={{ flex: 1.4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontWeight: 700 }}
+                  title="Direct 1-Click Hardware Print to Speed-X (No Dialog)"
+                >
                   <Printer size={16} />
-                  <span>Print Receipt</span>
+                  <span>{directPrinting ? 'Printing...' : '⚡ Print to Speed-X (Direct)'}</span>
+                </button>
+
+                <button
+                  onClick={handlePrintReceipt}
+                  className="btn btn-secondary"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', fontSize: '0.78rem' }}
+                  title="Open standard browser print dialog"
+                >
+                  <Printer size={14} />
+                  <span>Dialog</span>
                 </button>
 
                 {/* WhatsApp Receipt Share Button */}
