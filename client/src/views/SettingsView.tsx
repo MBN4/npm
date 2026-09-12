@@ -602,61 +602,114 @@ export const SettingsView: React.FC = () => {
           </div>
 
           <div className="card">
-            <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Receipt size={18} style={{ color: 'var(--success)' }} />
-              <span>Thermal Receipt Live Format Preview</span>
-            </h3>
-            <div
-              style={{
-                fontFamily: 'monospace',
-                fontSize: '0.8rem',
-                background: 'var(--bg-app)',
-                padding: '1.25rem',
-                borderRadius: 'var(--radius-md)',
-                width: settings['printer_paper_width'] === '58mm' ? '280px' : '360px',
-                border: '1px dashed var(--border)',
-                lineHeight: 1.4,
-                boxShadow: 'var(--shadow-sm)'
-              }}
-            >
-              <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '0.95rem' }}>
-                {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY'}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Receipt size={18} style={{ color: 'var(--success)' }} />
+                <span>Thermal Receipt Live Format Preview</span>
+              </h3>
+
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="btn btn-secondary btn-sm"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700, backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)' }}
+                title="Send test receipt directly to Speed-X 400UL or default thermal printer"
+              >
+                <Printer size={14} />
+                <span>Print Test Receipt on Speed-X 400UL</span>
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              {/* Receipt Preview Box / Print Area */}
+              <div
+                className="printable-receipt"
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: '0.8rem',
+                  background: 'var(--bg-app)',
+                  padding: '1.25rem',
+                  borderRadius: 'var(--radius-md)',
+                  width: settings['printer_paper_width'] === '58mm' ? '280px' : '360px',
+                  border: '1px dashed var(--border)',
+                  lineHeight: 1.4,
+                  boxShadow: 'var(--shadow-sm)'
+                }}
+              >
+                <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '0.95rem' }}>
+                  {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY'}
+                </div>
+                <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  {settings['pharmacy_address'] || 'Main Bazar, Hospital Road, Gujranwala'}
+                </div>
+                <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Tel: {settings['pharmacy_phone'] || '0300-1112233'} | DSL: {settings['license_number'] || '05-352-DSL'}
+                </div>
+                <div style={{ borderTop: '1px dashed var(--border)', margin: '0.5rem 0' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                  <span>INV: #TEST-2026-0001</span>
+                  <span>{new Date().toLocaleDateString()}</span>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  Cashier: {user?.fullName || 'Admin'} • Counter 01
+                </div>
+                <div style={{ borderTop: '1px dashed var(--border)', margin: '0.5rem 0' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+                  <span>ITEM</span>
+                  <span>QTY x PRICE</span>
+                  <span>TOTAL</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.3rem' }}>
+                  <span>Augmentin 625mg</span>
+                  <span>2 x 28.50</span>
+                  <span>Rs. 57.00</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.2rem' }}>
+                  <span>Panadol Extra 500mg</span>
+                  <span>10 x 3.50</span>
+                  <span>Rs. 35.00</span>
+                </div>
+                <div style={{ borderTop: '1px dashed var(--border)', margin: '0.5rem 0' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                  <span>NET PAYABLE:</span>
+                  <span>Rs. 92.00</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                  <span>Cash Tendered:</span>
+                  <span>Rs. 100.00</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600 }}>
+                  <span>Change Due:</span>
+                  <span>Rs. 8.00</span>
+                </div>
+                <div style={{ borderTop: '1px dashed var(--border)', margin: '0.5rem 0' }} />
+                <div style={{ textAlign: 'center', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                  {settings['receipt_footer'] || 'Thank you for choosing NMP. Get well soon! Keep medicines below 30°C.'}
+                </div>
+                <div style={{ textAlign: 'center', fontSize: '0.65rem', fontWeight: 700, marginTop: '0.25rem' }}>
+                  *** SPEED-X 400UL HARDWARE VERIFIED ***
+                </div>
               </div>
-              <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                {settings['pharmacy_address'] || 'Main Hospital Road, Rawalpindi'}
-              </div>
-              <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Tel: {settings['pharmacy_phone'] || '+92-51-5551234'} | DSL: {settings['license_number'] || '05-352-DSL'}
-              </div>
-              <div style={{ borderTop: '1px dashed var(--border)', margin: '0.5rem 0' }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
-                <span>INV: #INV-2026-0089</span>
-                <span>07-Sep-2026</span>
-              </div>
-              <div style={{ borderTop: '1px dashed var(--border)', margin: '0.5rem 0' }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
-                <span>ITEM</span>
-                <span>QTY x PRICE</span>
-                <span>TOTAL</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.3rem' }}>
-                <span>Augmentin 625mg</span>
-                <span>2 x 28.50</span>
-                <span>Rs. 57.00</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.2rem' }}>
-                <span>Panadol 500mg</span>
-                <span>10 x 3.50</span>
-                <span>Rs. 35.00</span>
-              </div>
-              <div style={{ borderTop: '1px dashed var(--border)', margin: '0.5rem 0' }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-                <span>NET PAYABLE:</span>
-                <span>Rs. 92.00</span>
-              </div>
-              <div style={{ borderTop: '1px dashed var(--border)', margin: '0.5rem 0' }} />
-              <div style={{ textAlign: 'center', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                {settings['receipt_footer'] || 'Thank you for choosing NMP. Get well soon!'}
+
+              {/* Speed-X 400UL Setup Guide Card */}
+              <div style={{ flex: 1, minWidth: '280px', padding: '1rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', fontSize: '0.8rem', lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 800, color: 'var(--primary)', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Printer size={15} />
+                  <span>Speed-X 400UL Quick Configuration Checklist</span>
+                </div>
+                <ul style={{ paddingLeft: '1.2rem', color: 'var(--text-secondary)' }}>
+                  <li><strong>Driver</strong>: Install the Speed-X / Xprinter 80mm driver via USB.</li>
+                  <li><strong>Paper Width</strong>: Select <strong>80mm</strong> in settings above.</li>
+                  <li><strong>Browser Print Dialogue</strong>:
+                    <ul style={{ paddingLeft: '1rem', marginTop: '0.2rem' }}>
+                      <li>Destination: Select <em>Speed-X 400UL</em> / <em>POS-80</em></li>
+                      <li>Paper Size: <code>80mm x 297mm</code> or <code>Roll Paper 80 x Receipt</code></li>
+                      <li>Margins: Set to <strong>None</strong></li>
+                      <li>Options: Uncheck <em>Headers and footers</em></li>
+                    </ul>
+                  </li>
+                  <li><strong>Auto-Cutter</strong>: Speed-X 400UL executes partial cut automatically upon sale completion.</li>
+                </ul>
               </div>
             </div>
           </div>

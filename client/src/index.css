@@ -482,18 +482,75 @@ tr:hover td {
   color: var(--text-muted);
 }
 
-/* Thermal Printer Styling */
+/* Thermal Printer & Speed-X 400UL / 80mm / 58mm Styling */
 @media print {
+  @page {
+    size: auto;
+    margin: 0mm !important;
+  }
+
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
   body * {
     visibility: hidden;
   }
-  .printable-receipt, .printable-receipt * {
+
+  .printable-receipt,
+  .printable-receipt *,
+  #printable-barcode-sheet,
+  #printable-barcode-sheet *,
+  #printable-practice-rx,
+  #printable-practice-rx * {
     visibility: visible;
   }
+
   .printable-receipt {
     position: absolute;
     left: 0;
     top: 0;
-    width: 80mm;
+    width: 76mm;
+    max-width: 80mm;
+    margin: 0 auto;
+    padding: 2mm 3mm 12mm 3mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: 'JetBrains Mono', 'Courier New', Courier, monospace !important;
+    font-size: 11px !important;
+    line-height: 1.35 !important;
+    box-sizing: border-box;
+    page-break-inside: avoid;
+  }
+
+  .printable-receipt.receipt-58mm {
+    width: 54mm !important;
+    max-width: 58mm !important;
+    font-size: 9.5px !important;
+  }
+
+  #printable-barcode-sheet {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 4mm;
+  }
+
+  #printable-practice-rx {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 6mm;
+    background: #ffffff !important;
+    color: #000000 !important;
   }
 }

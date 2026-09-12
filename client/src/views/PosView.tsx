@@ -58,21 +58,27 @@ export const PosView: React.FC = () => {
   const [heldBills, setHeldBills] = useState<any[]>([]);
   const [showHeldModal, setShowHeldModal] = useState(false);
 
-  // Receipt modal state
+  // Receipt modal & settings state
   const [lastInvoice, setLastInvoice] = useState<any>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [settings, setSettings] = useState<Record<string, string>>({});
+  const [autoPrint, setAutoPrint] = useState<boolean>(() => {
+    return localStorage.getItem('nmp_autoprint') === 'true';
+  });
 
-  // Fetch customers on load
+  // Fetch customers & pharmacy settings on load
   useEffect(() => {
-    async function loadCustomers() {
+    async function loadInitialData() {
       try {
-        const res = await fetch('/api/patients', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const data = await res.json();
+        const [patientsRes, settingsRes] = await Promise.all([
+          fetch('/api/patients', { headers: { Authorization: `Bearer ${token}` } }),
+          fetch('/api/settings', { headers: { Authorization: `Bearer ${token}` } })
+        ]);
+
+        if (patientsRes.ok) {
+          const data = await patientsRes.json();
           setCustomers(data.patients || []);
         } else {
           // Fallback if patients route is not yet up
@@ -84,12 +90,19 @@ export const PosView: React.FC = () => {
             ]);
           }
         }
+
+        if (settingsRes.ok) {
+          const sData = await settingsRes.json();
+          if (sData.settings) {
+            setSettings(sData.settings);
+          }
+        }
       } catch (err) {
-        console.error(err);
+        console.error('POS initialization error:', err);
       }
     }
 
-    loadCustomers();
+    loadInitialData();
     fetchHeldBills();
   }, [token]);
 
@@ -381,13 +394,21 @@ export const PosView: React.FC = () => {
       }
 
       const data = await res.json();
-      setLastInvoice({
+      const invoiceData = {
         ...data.invoice,
         customer: customers.find(c => String(c.id) === selectedCustomerId),
-        cashierName: user?.fullName || 'Cashier'
-      });
+        cashierName: user?.fullName || 'Cashier',
+        paymentMethod
+      };
+      setLastInvoice(invoiceData);
       setShowReceiptModal(true);
       handleClearCart();
+
+      if (autoPrint) {
+        setTimeout(() => {
+          window.print();
+        }, 350);
+      }
     } catch (err: any) {
       // Offline fallback
       if (!navigator.onLine || err.message.includes('fetch') || err.message.includes('Network') || err.message.includes('Failed to fetch')) {
@@ -413,7 +434,7 @@ export const PosView: React.FC = () => {
           notes: ''
         });
 
-        setLastInvoice({
+        const offlineInvoiceData = {
           invoiceNumber: offlineRecord.offlineId,
           isOffline: true,
           totalAmount: grandTotal,
@@ -424,11 +445,20 @@ export const PosView: React.FC = () => {
           items: cart,
           customer: customers.find(c => String(c.id) === selectedCustomerId),
           cashierName: user?.fullName || 'Cashier',
+          paymentMethod,
           createdAt: new Date().toISOString()
-        });
+        };
+
+        setLastInvoice(offlineInvoiceData);
         setInfoMessage('Offline Mode Active: Sale saved locally in queue. It will automatically synchronize when network is restored.');
         setShowReceiptModal(true);
         handleClearCart();
+
+        if (autoPrint) {
+          setTimeout(() => {
+            window.print();
+          }, 350);
+        }
       } else {
         setErrorMessage(err.message || 'Checkout failed');
       }
@@ -459,7 +489,19 @@ export const PosView: React.FC = () => {
           <div><span className="kbd">F9</span> Tender / Pay</div>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {lastInvoice && (
+            <button
+              onClick={() => setShowReceiptModal(true)}
+              className="btn btn-secondary btn-sm"
+              style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem', color: 'var(--primary)' }}
+              title="View & Reprint Last Receipt on Speed-X 400UL"
+            >
+              <Printer size={14} />
+              <span>Reprint #{lastInvoice.invoiceNumber}</span>
+            </button>
+          )}
+
           <button
             onClick={startCameraScanner}
             className="btn btn-secondary btn-sm"
@@ -870,6 +912,23 @@ export const PosView: React.FC = () => {
               )}
             </div>
 
+            {/* Auto-print toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.2rem 0', fontSize: '0.75rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', cursor: 'pointer', userSelect: 'none', color: 'var(--text-secondary)' }}>
+                <input
+                  type="checkbox"
+                  checked={autoPrint}
+                  onChange={e => {
+                    setAutoPrint(e.target.checked);
+                    localStorage.setItem('nmp_autoprint', String(e.target.checked));
+                  }}
+                  style={{ cursor: 'pointer' }}
+                />
+                <span style={{ fontWeight: 600 }}>Auto-print receipt on Speed-X 400UL</span>
+              </label>
+              <span className="badge badge-info" style={{ fontSize: '0.65rem' }}>80mm ESC/POS</span>
+            </div>
+
             {/* Checkout Action Button */}
             <button
               type="submit"
@@ -937,11 +996,11 @@ export const PosView: React.FC = () => {
       {/* 80mm ESC/POS Thermal Receipt Modal & WhatsApp Sharing */}
       {showReceiptModal && lastInvoice && (
         <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '380px' }}>
-            <div style={{ padding: '1rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="modal-content" style={{ maxWidth: '420px' }}>
+            <div style={{ padding: '0.85rem 1rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                 {lastInvoice.isOffline && <span className="badge badge-warning" style={{ fontSize: '0.65rem' }}>OFFLINE QUEUED</span>}
-                <span>Sale Receipt Ready</span>
+                <span>Receipt • Speed-X 400UL (80mm)</span>
               </span>
               <button onClick={() => setShowReceiptModal(false)} className="btn btn-secondary btn-sm" style={{ padding: '0.2rem' }}>
                 <X size={15} />
@@ -949,74 +1008,121 @@ export const PosView: React.FC = () => {
             </div>
 
             {/* Printable Area */}
-            <div className="printable-receipt" style={{ padding: '1.25rem', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>
-              <div style={{ textAlign: 'center', marginBottom: '0.85rem' }}>
-                <h2 style={{ fontSize: '1.1rem', fontWeight: 800 }}>NAVEED MEDICAL PHARMACY</h2>
-                <div style={{ fontSize: '0.72rem' }}>Main Bazar, Hospital Road, Gujranwala</div>
-                <div style={{ fontSize: '0.72rem' }}>Phone: 0300-1112233</div>
-                <div style={{ fontSize: '0.72rem', marginTop: '0.25rem' }}>================================</div>
+            <div
+              className={`printable-receipt ${settings['printer_paper_width'] === '58mm' ? 'receipt-58mm' : ''}`}
+              style={{
+                padding: '1.25rem',
+                fontFamily: "'JetBrains Mono', 'Courier New', Courier, monospace",
+                fontSize: '0.78rem',
+                lineHeight: 1.35,
+                background: '#ffffff',
+                color: '#000000',
+                margin: '0 auto'
+              }}
+            >
+              <div style={{ textAlign: 'center', marginBottom: '0.5rem' }}>
+                <div style={{ fontSize: '1.05rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY'}
+                </div>
+                {settings['receipt_header_subtitle'] && (
+                  <div style={{ fontSize: '0.7rem', color: '#444' }}>{settings['receipt_header_subtitle']}</div>
+                )}
+                <div style={{ fontSize: '0.72rem', color: '#333' }}>
+                  {settings['pharmacy_address'] || 'Main Bazar, Hospital Road, Gujranwala'}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#333' }}>
+                  Phone: {settings['pharmacy_phone'] || '0300-1112233'}
+                  {settings['license_number'] ? ` | DSL: ${settings['license_number']}` : ''}
+                </div>
+                {settings['tax_number'] && (
+                  <div style={{ fontSize: '0.7rem', color: '#333' }}>NTN: {settings['tax_number']}</div>
+                )}
+                <div style={{ fontSize: '0.75rem', marginTop: '0.2rem', letterSpacing: '-1px' }}>
+                  ------------------------------------------
+                </div>
               </div>
 
-              <div style={{ fontSize: '0.75rem', marginBottom: '0.6rem' }}>
-                <div>Invoice: <strong>#{lastInvoice.invoiceNumber}</strong></div>
-                <div>Date: {new Date(lastInvoice.createdAt).toLocaleString()}</div>
-                <div>Cashier: {lastInvoice.cashierName}</div>
-                {lastInvoice.customer && <div>Customer: {lastInvoice.customer.name}</div>}
+              <div style={{ fontSize: '0.75rem', marginBottom: '0.4rem', lineHeight: 1.4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Invoice: <strong>#{lastInvoice.invoiceNumber}</strong></span>
+                  <span>{new Date(lastInvoice.createdAt).toLocaleDateString()} {new Date(lastInvoice.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Cashier: {lastInvoice.cashierName}</span>
+                  <span>Payment: {lastInvoice.paymentMethod || paymentMethod}</span>
+                </div>
+                {lastInvoice.customer && (
+                  <div style={{ borderTop: '1px dotted #ccc', marginTop: '0.2rem', paddingTop: '0.2rem' }}>
+                    Customer: <strong>{lastInvoice.customer.name}</strong> {lastInvoice.customer.mobile ? `(${lastInvoice.customer.mobile})` : ''}
+                  </div>
+                )}
               </div>
 
-              <div style={{ borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '0.4rem 0', marginBottom: '0.6rem' }}>
-                <table style={{ width: '100%', fontSize: '0.72rem' }}>
+              <div style={{ borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '0.35rem 0', marginBottom: '0.5rem' }}>
+                <table style={{ width: '100%', fontSize: '0.72rem', borderCollapse: 'collapse' }}>
                   <thead>
-                    <tr>
-                      <th style={{ textAlign: 'left', background: 'transparent', padding: 0 }}>Item</th>
-                      <th style={{ textAlign: 'center', background: 'transparent', padding: 0 }}>Qty</th>
-                      <th style={{ textAlign: 'right', background: 'transparent', padding: 0 }}>Total</th>
+                    <tr style={{ borderBottom: '1px solid #000' }}>
+                      <th style={{ textAlign: 'left', background: 'transparent', padding: '0.1rem 0' }}>Item</th>
+                      <th style={{ textAlign: 'center', background: 'transparent', padding: '0.1rem 0' }}>Qty</th>
+                      <th style={{ textAlign: 'right', background: 'transparent', padding: '0.1rem 0' }}>Price</th>
+                      <th style={{ textAlign: 'right', background: 'transparent', padding: '0.1rem 0' }}>Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {lastInvoice.items.map((it: any, i: number) => (
-                      <tr key={i}>
-                        <td style={{ padding: '0.2rem 0' }}>
-                          <div>{it.brandName}</div>
-                          <div style={{ fontSize: '0.65rem', color: '#666' }}>Batch: {it.batchNumber || 'N/A'}</div>
+                      <tr key={i} style={{ borderBottom: i < lastInvoice.items.length - 1 ? '1px dotted #e0e0e0' : 'none' }}>
+                        <td style={{ padding: '0.25rem 0', verticalAlign: 'top' }}>
+                          <div style={{ fontWeight: 700 }}>{it.brandName} {it.strength || ''}</div>
+                          <div style={{ fontSize: '0.65rem', color: '#555' }}>
+                            {it.batchNumber ? `B#:${it.batchNumber}` : ''} {it.discount > 0 ? `(Disc: ${it.discount}%)` : ''}
+                          </div>
                         </td>
-                        <td style={{ textAlign: 'center', padding: '0.2rem 0' }}>{it.quantity}</td>
-                        <td style={{ textAlign: 'right', padding: '0.2rem 0' }}>Rs. {it.lineTotal.toFixed(2)}</td>
+                        <td style={{ textAlign: 'center', padding: '0.25rem 0', verticalAlign: 'top' }}>{it.quantity}</td>
+                        <td style={{ textAlign: 'right', padding: '0.25rem 0', verticalAlign: 'top' }}>{(it.unitPrice || (it.lineTotal / (it.quantity || 1)))?.toFixed(2)}</td>
+                        <td style={{ textAlign: 'right', padding: '0.25rem 0', verticalAlign: 'top', fontWeight: 600 }}>Rs. {it.lineTotal.toFixed(2)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              <div style={{ fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Subtotal:</span>
-                  <span>Rs. {lastInvoice.subtotal.toFixed(2)}</span>
+              <div style={{ fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>
+                  <span>Total Items: {lastInvoice.items.length} ({lastInvoice.items.reduce((sum: number, it: any) => sum + (it.quantity || 0), 0)} Units)</span>
+                  <span>Subtotal: Rs. {lastInvoice.subtotal.toFixed(2)}</span>
                 </div>
                 {lastInvoice.discount > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#000' }}>
                     <span>Discount:</span>
                     <span>-Rs. {lastInvoice.discount.toFixed(2)}</span>
                   </div>
                 )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '0.9rem', borderTop: '1px solid #000', paddingTop: '0.2rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '0.95rem', borderTop: '1px solid #000', paddingTop: '0.25rem', marginTop: '0.1rem' }}>
                   <span>NET TOTAL:</span>
                   <span>Rs. {lastInvoice.totalAmount.toFixed(2)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Paid:</span>
+                  <span>Cash Tendered:</span>
                   <span>Rs. {lastInvoice.paidAmount.toFixed(2)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-                  <span>Change:</span>
-                  <span>Rs. {lastInvoice.changeAmount.toFixed(2)}</span>
+                  <span>Change Return:</span>
+                  <span>Rs. {(lastInvoice.changeAmount || 0).toFixed(2)}</span>
                 </div>
+                {lastInvoice.totalAmount > lastInvoice.paidAmount && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: '#b91c1c' }}>
+                    <span>Credit / Balance Due:</span>
+                    <span>Rs. {(lastInvoice.totalAmount - lastInvoice.paidAmount).toFixed(2)}</span>
+                  </div>
+                )}
               </div>
 
-              <div style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.68rem', borderTop: '1px dashed #000', paddingTop: '0.5rem' }}>
-                <div>Get well soon! Keep medicines below 30°C.</div>
-                <div>Returns accepted within 7 days with bill.</div>
-                <div style={{ fontWeight: 700, marginTop: '0.2rem' }}>NAVEED MEDICAL PHARMACY — NMP</div>
+              <div style={{ textAlign: 'center', marginTop: '0.85rem', fontSize: '0.68rem', borderTop: '1px dashed #000', paddingTop: '0.4rem', lineHeight: 1.3 }}>
+                <div>{settings['receipt_footer'] || 'Get well soon! Returns accepted within 7 days with bill.'}</div>
+                <div style={{ fontSize: '0.62rem', color: '#555', marginTop: '0.2rem' }}>Keep all medicines stored below 30°C in dry place.</div>
+                <div style={{ fontWeight: 800, marginTop: '0.35rem', letterSpacing: '0.5px' }}>
+                  *** {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY'} ***
+                </div>
               </div>
             </div>
 
@@ -1031,7 +1137,7 @@ export const PosView: React.FC = () => {
                 <button
                   onClick={() => {
                     const phone = (lastInvoice?.customer?.mobile || '').replace(/[^0-9]/g, '');
-                    const invoiceSummary = `*NAVEED MEDICAL PHARMACY (NMP)*%0AInvoice: %23${lastInvoice.invoiceNumber}%0ADate: ${new Date(lastInvoice.createdAt).toLocaleString()}%0ANet Total: Rs. ${lastInvoice.totalAmount}%0APaid: Rs. ${lastInvoice.paidAmount}%0AThank you for choosing NMP!`;
+                    const invoiceSummary = `*${settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY'}*%0AInvoice: %23${lastInvoice.invoiceNumber}%0ADate: ${new Date(lastInvoice.createdAt).toLocaleString()}%0ANet Total: Rs. ${lastInvoice.totalAmount}%0APaid: Rs. ${lastInvoice.paidAmount}%0AThank you for choosing NMP!`;
                     window.open(`https://wa.me/${phone ? '92' + phone.slice(-10) : ''}?text=${invoiceSummary}`, '_blank');
                   }}
                   className="btn btn-secondary"
