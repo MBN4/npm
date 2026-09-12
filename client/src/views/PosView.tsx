@@ -288,9 +288,10 @@ export const PosView: React.FC = () => {
   };
 
   // Financial Calculations
+  const printFee = cart.length > 0 ? 1.00 : 0.00;
   const subtotal = cart.reduce((acc, it) => acc + it.lineTotal, 0);
   const discountVal = Number(billDiscount) || 0;
-  const grandTotal = Math.max(0, subtotal - discountVal);
+  const grandTotal = cart.length > 0 ? Math.max(0, subtotal + printFee - discountVal) : 0;
   const numericPaid = paidAmount === '' ? (paymentMethod === 'CREDIT' ? 0 : grandTotal) : Number(paidAmount);
   const change = Math.max(0, numericPaid - grandTotal);
   const remaining = Math.max(0, grandTotal - numericPaid);
@@ -415,7 +416,7 @@ export const PosView: React.FC = () => {
           })),
           subtotal,
           discount: discountVal,
-          tax: 0,
+          tax: printFee,
           totalAmount: grandTotal,
           paidAmount: numericPaid,
           paymentMethod,
@@ -431,6 +432,7 @@ export const PosView: React.FC = () => {
       const data = await res.json();
       const invoiceData = {
         ...data.invoice,
+        tax: printFee,
         customer: customers.find(c => String(c.id) === selectedCustomerId),
         cashierName: user?.fullName || 'Cashier',
         paymentMethod
@@ -462,7 +464,7 @@ export const PosView: React.FC = () => {
           })),
           subtotal,
           discount: discountVal,
-          tax: 0,
+          tax: printFee,
           totalAmount: grandTotal,
           paidAmount: numericPaid,
           paymentMethod,
@@ -476,6 +478,7 @@ export const PosView: React.FC = () => {
           paidAmount: numericPaid,
           changeAmount: change,
           subtotal,
+          tax: printFee,
           discount: discountVal,
           items: cart,
           customer: customers.find(c => String(c.id) === selectedCustomerId),
@@ -919,6 +922,10 @@ export const PosView: React.FC = () => {
                 <span>Subtotal:</span>
                 <span>Rs. {subtotal.toFixed(2)}</span>
               </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                <span>Print / Receipt Fee:</span>
+                <span>Rs. {printFee.toFixed(2)}</span>
+              </div>
               {discountVal > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--danger)' }}>
                   <span>Discount:</span>
@@ -1058,16 +1065,16 @@ export const PosView: React.FC = () => {
             >
               <div style={{ textAlign: 'center', marginBottom: '0.5rem' }}>
                 <div style={{ fontSize: '1.05rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY'}
+                  {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY (NMP)'}
                 </div>
                 {settings['receipt_header_subtitle'] && (
                   <div style={{ fontSize: '0.7rem', color: '#444' }}>{settings['receipt_header_subtitle']}</div>
                 )}
                 <div style={{ fontSize: '0.72rem', color: '#333' }}>
-                  {settings['pharmacy_address'] || 'Main Bazar, Hospital Road, Gujranwala'}
+                  {settings['pharmacy_address'] || '31 32 chowk chohan road outfall, near tariq pan shop, Islampura, Lahore, 54000'}
                 </div>
                 <div style={{ fontSize: '0.72rem', color: '#333' }}>
-                  Phone: {settings['pharmacy_phone'] || '0300-1112233'}
+                  Phone: {settings['pharmacy_phone'] || '03454142863'}
                   {settings['license_number'] ? ` | DSL: ${settings['license_number']}` : ''}
                 </div>
                 {settings['tax_number'] && (
@@ -1126,6 +1133,10 @@ export const PosView: React.FC = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>
                   <span>Total Items: {lastInvoice.items.length} ({lastInvoice.items.reduce((sum: number, it: any) => sum + (it.quantity || 0), 0)} Units)</span>
                   <span>Subtotal: Rs. {lastInvoice.subtotal.toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>
+                  <span>Receipt / Print Fee:</span>
+                  <span>Rs. {(lastInvoice.tax || 1.00).toFixed(2)}</span>
                 </div>
                 {lastInvoice.discount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: '#000' }}>

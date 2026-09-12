@@ -679,13 +679,13 @@ export const SettingsView: React.FC = () => {
                 }}
               >
                 <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '0.95rem' }}>
-                  {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY'}
+                  {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY (NMP)'}
                 </div>
                 <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  {settings['pharmacy_address'] || 'Main Bazar, Hospital Road, Gujranwala'}
+                  {settings['pharmacy_address'] || '31 32 chowk chohan road outfall, near tariq pan shop, Islampura, Lahore, 54000'}
                 </div>
                 <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  Tel: {settings['pharmacy_phone'] || '0300-1112233'} | DSL: {settings['license_number'] || '05-352-DSL'}
+                  Tel: {settings['pharmacy_phone'] || '03454142863'} | DSL: {settings['license_number'] || '05-352-DSL'}
                 </div>
                 <div style={{ borderTop: '1px dashed var(--border)', margin: '0.5rem 0' }} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
@@ -712,9 +712,17 @@ export const SettingsView: React.FC = () => {
                   <span>Rs. 35.00</span>
                 </div>
                 <div style={{ borderTop: '1px dashed var(--border)', margin: '0.5rem 0' }} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-                  <span>NET PAYABLE:</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                  <span>Subtotal:</span>
                   <span>Rs. 92.00</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                  <span>Print Fee:</span>
+                  <span>Rs. 1.00</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                  <span>NET TOTAL:</span>
+                  <span>Rs. 93.00</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
                   <span>Cash Tendered:</span>
@@ -722,7 +730,7 @@ export const SettingsView: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600 }}>
                   <span>Change Due:</span>
-                  <span>Rs. 8.00</span>
+                  <span>Rs. 7.00</span>
                 </div>
                 <div style={{ borderTop: '1px dashed var(--border)', margin: '0.5rem 0' }} />
                 <div style={{ textAlign: 'center', fontSize: '0.7rem', color: 'var(--text-muted)' }}>

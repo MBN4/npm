@@ -88,8 +88,8 @@ export function seedDatabase() {
     // 4. Default Settings
     const insertSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value, description) VALUES (?, ?, ?)');
     insertSetting.run('pharmacy_name', 'Naveed Medical Pharmacy (NMP)', 'Store legal brand name');
-    insertSetting.run('pharmacy_address', 'Main Bazar, Hospital Road, Gujranwala', 'Store physical address');
-    insertSetting.run('pharmacy_phone', '+92 55 1234567 / 0300-1112233', 'Contact phone numbers');
+    insertSetting.run('pharmacy_address', '31 32 chowk chohan road outfall, near tariq pan shop, Islampura, Lahore, 54000', 'Store physical address');
+    insertSetting.run('pharmacy_phone', '03454142863', 'Contact phone numbers');
     insertSetting.run('currency_symbol', 'Rs.', 'Default currency notation');
     insertSetting.run('tax_rate_percent', '0', 'Default sales tax percentage (if applicable)');
     insertSetting.run('receipt_footer', 'Thank you for choosing NMP. Get well soon! Keep medicines below 30°C.', 'Thermal receipt footer');
