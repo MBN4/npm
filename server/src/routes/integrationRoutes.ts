@@ -137,45 +137,16 @@ integrationRouter.get('/receipt-escpos/:invoiceNumber', authenticateToken, (req:
   }
 });
 
-function padCenter(str: string, width: number = 32): string {
-  const s = str.trim().slice(0, width);
-  const totalPad = Math.max(0, width - s.length);
-  const leftPad = Math.floor(totalPad / 2);
-  const rightPad = totalPad - leftPad;
-  return ' '.repeat(leftPad) + s + ' '.repeat(rightPad);
-}
+import { printRawToPrinter } from '../services/printerService.js';
 
-function padBetween(left: string, right: string, width: number = 32): string {
+function padBetween(left: string, right: string, width: number = 42): string {
+  const l = left.trim();
   const r = right.trim();
-  const available = Math.max(0, width - r.length - 1);
-  const l = left.trim().slice(0, available);
   const spaces = Math.max(1, width - l.length - r.length);
   return l + ' '.repeat(spaces) + r;
 }
 
-function wrapCenter(text: string, width: number = 32): string[] {
-  if (!text) return [];
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let currentLine = '';
-
-  for (const word of words) {
-    if (!currentLine) {
-      currentLine = word;
-    } else if (currentLine.length + 1 + word.length <= width) {
-      currentLine += ' ' + word;
-    } else {
-      lines.push(padCenter(currentLine, width));
-      currentLine = word;
-    }
-  }
-  if (currentLine) {
-    lines.push(padCenter(currentLine, width));
-  }
-  return lines;
-}
-
-// Direct Hardware Thermal Printing (Windows Spooler / Out-Printer)
+// Direct Hardware Thermal Printing (Windows WinSpool RAW / ESC/POS)
 integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { invoiceNumber, printerName } = req.body;
@@ -207,73 +178,90 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     settingsRows.forEach(r => { settingsMap[r.key] = r.value; });
 
     const pharmacyName = settingsMap['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY (NMP)';
-    const address = settingsMap['pharmacy_address'] || '31 32 chowk chohan road outfall, near tariq pan shop, Islampura, Lahore, 54000';
     const phone = settingsMap['pharmacy_phone'] || '03454142863';
-    const footer = settingsMap['receipt_footer'] || 'Get well soon! Keep meds < 30C.';
+    const footer = settingsMap['receipt_footer'] || 'Thank you for choosing NMP. Get well soon!';
     const printFee = 1.00; // Rs. 1 additional fee on each receipt print
 
-    const lines: string[] = [];
-    lines.push('================================');
-    lines.push(padCenter(pharmacyName, 32));
-    wrapCenter(address, 32).forEach(addrLine => lines.push(addrLine));
-    lines.push(padCenter(`Phone: ${phone}`, 32));
+    const chunks: Buffer[] = [
+      Buffer.from([0x1B, 0x40]), // ESC @ - Initialize
+      Buffer.from([0x1B, 0x61, 0x01]), // ESC a 1 - Center
+      Buffer.from([0x1B, 0x45, 0x01]), // ESC E 1 - Bold On
+      Buffer.from(`${pharmacyName}\n`, 'utf8'),
+      Buffer.from([0x1B, 0x45, 0x00]), // ESC E 0 - Bold Off
+      Buffer.from('31 32 Chowk Chohan Road Outfall,\n', 'utf8'),
+      Buffer.from('Near Tariq Pan Shop, Islampura, Lahore\n', 'utf8'),
+      Buffer.from(`Phone: ${phone}\n`, 'utf8')
+    ];
+
     if (settingsMap['license_number']) {
-      lines.push(padCenter(`DSL: ${settingsMap['license_number']}`, 32));
+      chunks.push(Buffer.from(`DSL: ${settingsMap['license_number']}\n`, 'utf8'));
     }
-    lines.push('--------------------------------');
-    
+
+    chunks.push(Buffer.from([0x1B, 0x61, 0x00])); // ESC a 0 - Left align
+    chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
+
     const saleDate = new Date(sale.created_at || Date.now());
     const dateStr = saleDate.toLocaleDateString();
     const timeStr = saleDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    lines.push(`Invoice: #${sale.invoice_number}`);
-    lines.push(padBetween(`Date: ${dateStr}`, timeStr, 32));
-    lines.push(padBetween(`Cashier: ${(sale.cashier_name || 'Admin').slice(0, 10)}`, `Pay: ${sale.payment_method || 'CASH'}`, 32));
+    chunks.push(Buffer.from(padBetween(`Invoice: #${sale.invoice_number}`, `${dateStr} ${timeStr}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween(`Cashier: ${(sale.cashier_name || 'Admin').slice(0, 14)}`, `Pay: ${sale.payment_method || 'CASH'}`, 42) + '\n', 'utf8'));
     if (sale.customer_name) {
-      lines.push(`Customer: ${sale.customer_name.slice(0, 22)}`);
+      chunks.push(Buffer.from(`Customer: ${sale.customer_name}\n`, 'utf8'));
     }
-    lines.push('--------------------------------');
-    lines.push('Item                Price  Total');
-    lines.push('--------------------------------');
+    chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('Item', 'Price   Total', 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
 
     let totalUnits = 0;
     items.forEach(it => {
       totalUnits += (it.quantity || 1);
       const fullName = `${it.brand_name || ''} ${it.strength || ''} ${it.dosage_form || ''}`.trim();
-      lines.push(fullName.slice(0, 32));
-      
-      const batchExp = `  B#:${it.batch_number || 'N/A'}  Exp:${it.expiry_date?.slice(0, 7) || 'N/A'}`;
-      lines.push(batchExp.slice(0, 32));
+      chunks.push(Buffer.from(`${fullName}\n`, 'utf8'));
+
+      if (it.batch_number) {
+        chunks.push(Buffer.from(`  B#:${it.batch_number}  Exp:${it.expiry_date?.slice(0, 7) || 'N/A'}\n`, 'utf8'));
+      }
 
       const qtyPrice = `  ${it.quantity} x ${Number(it.unit_price).toFixed(2)}`;
       const lineTotalStr = `Rs. ${Number(it.line_total).toFixed(2)}`;
-      lines.push(padBetween(qtyPrice, lineTotalStr, 32));
+      chunks.push(Buffer.from(padBetween(qtyPrice, lineTotalStr, 42) + '\n', 'utf8'));
     });
 
-    lines.push('--------------------------------');
-    lines.push(padBetween(`Total Items: ${items.length} (${totalUnits} Units)`, '', 32).trimEnd());
-    lines.push(padBetween('Subtotal:', `Rs. ${Number(sale.subtotal).toFixed(2)}`, 32));
-    lines.push(padBetween('Print Fee:', `Rs. ${printFee.toFixed(2)}`, 32));
+    chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween(`Total Items: ${items.length} (${totalUnits} Units)`, `Subtotal: Rs. ${Number(sale.subtotal).toFixed(2)}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('Receipt Fee:', `Rs. ${printFee.toFixed(2)}`, 42) + '\n', 'utf8'));
     if (Number(sale.discount) > 0) {
-      lines.push(padBetween('Discount:', `-Rs. ${Number(sale.discount).toFixed(2)}`, 32));
+      chunks.push(Buffer.from(padBetween('Discount:', `-Rs. ${Number(sale.discount).toFixed(2)}`, 42) + '\n', 'utf8'));
     }
-    lines.push('--------------------------------');
-    lines.push(padBetween('NET TOTAL:', `Rs. ${Number(sale.total_amount).toFixed(2)}`, 32));
-    lines.push(padBetween('Cash Tendered:', `Rs. ${Number(sale.paid_amount).toFixed(2)}`, 32));
+    chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
+
+    chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
+    chunks.push(Buffer.from(padBetween('NET TOTAL:', `Rs. ${Number(sale.total_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
+
+    chunks.push(Buffer.from(padBetween('Cash Tendered:', `Rs. ${Number(sale.paid_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
     if (Number(sale.change_amount) > 0) {
-      lines.push(padBetween('Change Return:', `Rs. ${Number(sale.change_amount).toFixed(2)}`, 32));
+      chunks.push(Buffer.from(padBetween('Change Return:', `Rs. ${Number(sale.change_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
     }
     if (Number(sale.remaining_amount) > 0) {
-      lines.push(padBetween('Balance Due:', `Rs. ${Number(sale.remaining_amount).toFixed(2)}`, 32));
+      chunks.push(Buffer.from(padBetween('Balance Due:', `Rs. ${Number(sale.remaining_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
     }
-    lines.push('--------------------------------');
-    wrapCenter(footer, 32).forEach(fLine => lines.push(fLine));
-    lines.push(padCenter('Returns with bill in 7 days', 32));
-    lines.push(padCenter('*** NAVEED MEDICAL PHARMACY ***', 32));
-    lines.push('================================');
+    chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
 
-    const slipText = lines.join('\r\n');
-    await printToWindowsPrinter(slipText, targetPrinter);
+    // Footer
+    chunks.push(Buffer.from([0x1B, 0x61, 0x01])); // Center
+    chunks.push(Buffer.from(`${footer}\n`, 'utf8'));
+    chunks.push(Buffer.from('Keep medicines below 30°C.\n', 'utf8'));
+    chunks.push(Buffer.from('Returns accepted within 7 days with bill.\n', 'utf8'));
+    chunks.push(Buffer.from('*** NAVEED MEDICAL PHARMACY ***\n\n', 'utf8'));
+
+    // Feed 6 lines to clear the tear bar completely & partial cut
+    chunks.push(Buffer.from([0x1B, 0x64, 0x06]));
+    chunks.push(Buffer.from([0x1D, 0x56, 0x41, 0x00]));
+
+    const finalBuffer = Buffer.concat(chunks);
+    await printRawToPrinter(finalBuffer, targetPrinter);
     res.json({ success: true, message: `Receipt sent to ${targetPrinter} successfully` });
   } catch (err: any) {
     console.error('Direct print receipt error:', err);
@@ -287,41 +275,50 @@ integrationRouter.post('/print-test-direct', authenticateToken, async (req: Requ
     const { printerName } = req.body;
     const targetPrinter = printerName || 'Speed-X 400UL';
 
-    const testSlipLines: string[] = [
-      '================================',
-      padCenter('NAVEED MEDICAL PHARMACY (NMP)', 32),
-      ...wrapCenter('31 32 chowk chohan road outfall, near tariq pan shop, Islampura, Lahore, 54000', 32),
-      padCenter('Phone: 03454142863', 32),
-      '--------------------------------',
-      padBetween(`INV: #TEST-${Date.now().toString().slice(-4)}`, new Date().toLocaleDateString(), 32),
-      padBetween('Cashier: Admin', 'Pay: CASH', 32),
-      '--------------------------------',
-      'Item                Price  Total',
-      '--------------------------------',
-      'Augmentin 625mg Tablet',
-      '  B#:AUG-991  Exp:2027-12',
-      padBetween('  1 x 52.00', 'Rs. 52.00', 32),
-      'Panadol Extra 500mg',
-      '  B#:PAN-402  Exp:2028-06',
-      padBetween('  10 x 4.00', 'Rs. 40.00', 32),
-      '--------------------------------',
-      padBetween('Subtotal:', 'Rs. 92.00', 32),
-      padBetween('Print Fee:', 'Rs.  1.00', 32),
-      padBetween('Discount:', '-Rs.  0.00', 32),
-      '--------------------------------',
-      padBetween('NET TOTAL:', 'Rs. 93.00', 32),
-      padBetween('Cash Tendered:', 'Rs. 100.00', 32),
-      padBetween('Change Return:', 'Rs.   7.00', 32),
-      '--------------------------------',
-      padCenter('Thank you for choosing NMP!', 32),
-      padCenter('Keep medicines below 30 deg C.', 32),
-      padCenter('Returns with bill in 7 days', 32),
-      padCenter('*** SPEED-X 400UL VERIFIED ***', 32),
-      '================================'
+    const chunks: Buffer[] = [
+      Buffer.from([0x1B, 0x40]), // ESC @ - Initialize
+      Buffer.from([0x1B, 0x61, 0x01]), // Center
+      Buffer.from([0x1B, 0x45, 0x01]), // Bold On
+      Buffer.from('NAVEED MEDICAL PHARMACY (NMP)\n', 'utf8'),
+      Buffer.from([0x1B, 0x45, 0x00]), // Bold Off
+      Buffer.from('31 32 Chowk Chohan Road Outfall,\n', 'utf8'),
+      Buffer.from('Near Tariq Pan Shop, Islampura, Lahore\n', 'utf8'),
+      Buffer.from('Phone: 03454142863\n', 'utf8'),
+      Buffer.from([0x1B, 0x61, 0x00]), // Left
+      Buffer.from('------------------------------------------\n', 'utf8'),
+      Buffer.from(padBetween(`INV: #TEST-${Date.now().toString().slice(-4)}`, new Date().toLocaleDateString(), 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('Cashier: Admin', 'Pay: CASH', 42) + '\n', 'utf8'),
+      Buffer.from('------------------------------------------\n', 'utf8'),
+      Buffer.from(padBetween('Item', 'Price   Total', 42) + '\n', 'utf8'),
+      Buffer.from('------------------------------------------\n', 'utf8'),
+      Buffer.from('Augmentin 625mg Tablet\n', 'utf8'),
+      Buffer.from('  B#:AUG-991  Exp:2027-12\n', 'utf8'),
+      Buffer.from(padBetween('  1 x 52.00', 'Rs. 52.00', 42) + '\n', 'utf8'),
+      Buffer.from('Panadol Extra 500mg\n', 'utf8'),
+      Buffer.from('  B#:PAN-402  Exp:2028-06\n', 'utf8'),
+      Buffer.from(padBetween('  10 x 4.00', 'Rs. 40.00', 42) + '\n', 'utf8'),
+      Buffer.from('------------------------------------------\n', 'utf8'),
+      Buffer.from(padBetween('Total Items: 2 (11 Units)', 'Subtotal: Rs. 92.00', 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('Receipt Fee:', 'Rs.  1.00', 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('Discount:', '-Rs.  0.00', 42) + '\n', 'utf8'),
+      Buffer.from('------------------------------------------\n', 'utf8'),
+      Buffer.from([0x1B, 0x45, 0x01]),
+      Buffer.from(padBetween('NET TOTAL:', 'Rs. 93.00', 42) + '\n', 'utf8'),
+      Buffer.from([0x1B, 0x45, 0x00]),
+      Buffer.from(padBetween('Cash Tendered:', 'Rs. 100.00', 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('Change Return:', 'Rs.   7.00', 42) + '\n', 'utf8'),
+      Buffer.from('------------------------------------------\n', 'utf8'),
+      Buffer.from([0x1B, 0x61, 0x01]),
+      Buffer.from('Thank you for choosing NMP! Get well soon!\n', 'utf8'),
+      Buffer.from('Keep medicines below 30°C.\n', 'utf8'),
+      Buffer.from('Returns accepted within 7 days with bill.\n', 'utf8'),
+      Buffer.from('*** SPEED-X 400UL HARDWARE VERIFIED ***\n\n', 'utf8'),
+      Buffer.from([0x1B, 0x64, 0x06]), // Feed 6 lines so text fully clears the cutter/tear bar
+      Buffer.from([0x1D, 0x56, 0x41, 0x00]) // Partial cut
     ];
 
-    const testSlip = testSlipLines.join('\r\n');
-    await printToWindowsPrinter(testSlip, targetPrinter);
+    const finalBuffer = Buffer.concat(chunks);
+    await printRawToPrinter(finalBuffer, targetPrinter);
     res.json({ success: true, message: `Test receipt printed on ${targetPrinter} successfully!` });
   } catch (err: any) {
     console.error('Direct test print error:', err);
