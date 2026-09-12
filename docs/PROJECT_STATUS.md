@@ -31,7 +31,8 @@
 
 ## Key System Metrics & Technical Invariants
 
-- **Backend Test Suite**: 12 test files, 63 automated integration tests (100% pass rate).
+- **Official Repository**: [https://github.com/naveedmedicalpharmacy-ship-it/nmp](https://github.com/naveedmedicalpharmacy-ship-it/nmp)
+- **Backend Test Suite**: 12 test files, **67 automated integration tests (100% pass rate)**.
 - **Frontend Build**: Clean Vite production bundle (`npm run build` succeeds with 0 errors).
 - **Database Engine**: SQLite 3.44+ in WAL mode (`PRAGMA journal_mode = WAL`, `PRAGMA foreign_keys = ON`, `PRAGMA busy_timeout = 5000`).
 - **Data Integrity Guarantee**:
