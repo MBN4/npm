@@ -14,6 +14,7 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { saveOfflineSale } from '../services/offlineSync.js';
+import { printThermalElement } from '../utils/thermalPrinter.js';
 
 export interface CartItem {
   medicineId: number;
@@ -105,6 +106,10 @@ export const PosView: React.FC = () => {
     loadInitialData();
     fetchHeldBills();
   }, [token]);
+
+  const handlePrintReceipt = () => {
+    printThermalElement('nmp-pos-receipt', (settings['printer_paper_width'] as any) || '80mm');
+  };
 
   // Keyboard shortcut listener
   useEffect(() => {
@@ -406,7 +411,7 @@ export const PosView: React.FC = () => {
 
       if (autoPrint) {
         setTimeout(() => {
-          window.print();
+          handlePrintReceipt();
         }, 350);
       }
     } catch (err: any) {
@@ -456,7 +461,7 @@ export const PosView: React.FC = () => {
 
         if (autoPrint) {
           setTimeout(() => {
-            window.print();
+            handlePrintReceipt();
           }, 350);
         }
       } else {
@@ -1009,6 +1014,7 @@ export const PosView: React.FC = () => {
 
             {/* Printable Area */}
             <div
+              id="nmp-pos-receipt"
               className={`printable-receipt ${settings['printer_paper_width'] === '58mm' ? 'receipt-58mm' : ''}`}
               style={{
                 padding: '1.25rem',
@@ -1128,7 +1134,7 @@ export const PosView: React.FC = () => {
 
             <div style={{ padding: '1rem', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button onClick={() => window.print()} className="btn btn-primary" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
+                <button onClick={handlePrintReceipt} className="btn btn-primary" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
                   <Printer size={16} />
                   <span>Print Receipt</span>
                 </button>

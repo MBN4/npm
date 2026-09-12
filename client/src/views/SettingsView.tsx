@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   HardDrive
 } from 'lucide-react';
+import { printThermalElement } from '../utils/thermalPrinter.js';
 
 interface BackupItem {
   filename: string;
@@ -610,7 +611,7 @@ export const SettingsView: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => window.print()}
+                onClick={() => printThermalElement('nmp-settings-receipt-preview', (settings['printer_paper_width'] as any) || '80mm')}
                 className="btn btn-secondary btn-sm"
                 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700, backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)' }}
                 title="Send test receipt directly to Speed-X 400UL or default thermal printer"
@@ -623,6 +624,7 @@ export const SettingsView: React.FC = () => {
             <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
               {/* Receipt Preview Box / Print Area */}
               <div
+                id="nmp-settings-receipt-preview"
                 className="printable-receipt"
                 style={{
                   fontFamily: 'monospace',
