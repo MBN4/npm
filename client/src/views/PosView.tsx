@@ -53,7 +53,7 @@ export const PosView: React.FC = () => {
   const [customers, setCustomers] = useState<{ id: number; name: string; mobile?: string; current_balance: number }[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [billDiscount, setBillDiscount] = useState<string>('0');
-  const [discountType, setDiscountType] = useState<'RS' | 'PERCENT'>('RS');
+  const [discountType, setDiscountType] = useState<'RS' | 'PERCENT'>('PERCENT');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'JAZZCASH' | 'AL_HABIB' | 'CREDIT'>('CASH');
   const [activeQrModal, setActiveQrModal] = useState<'JAZZCASH' | 'AL_HABIB' | null>(null);
   const [paidAmount, setPaidAmount] = useState<string>('');

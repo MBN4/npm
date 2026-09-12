@@ -218,7 +218,9 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
       totalUnits += (it.quantity || 1);
       let brand = (it.brand_name || '').trim();
       const strength = (it.strength || '').trim();
-      if (strength && !brand.toLowerCase().includes(strength.toLowerCase())) {
+      const normBrand = brand.toLowerCase().replace(/[\s\-_]/g, '');
+      const normStrength = strength.toLowerCase().replace(/[\s\-_]/g, '');
+      if (normStrength && !normBrand.includes(normStrength)) {
         brand += ` ${strength}`;
       }
       const itemTitle = `${idx + 1}  ${brand}`.trim();
@@ -253,8 +255,8 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
 
     // Footer
     chunks.push(Buffer.from([0x1B, 0x61, 0x01])); // Center
-    chunks.push(Buffer.from(`${footer}\n`, 'utf8'));
-    chunks.push(Buffer.from('Keep medicines below 30°C.\n', 'utf8'));
+    chunks.push(Buffer.from('Thank you for choosing NMP. Get well soon!\n', 'utf8'));
+    chunks.push(Buffer.from('Keep medicines below 30°C in dry place.\n', 'utf8'));
     chunks.push(Buffer.from('*** NAVEED MEDICAL PHARMACY ***\n\n', 'utf8'));
 
     // Feed 6 lines to clear the tear bar completely & partial cut
