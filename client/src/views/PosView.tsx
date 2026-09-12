@@ -106,13 +106,18 @@ export const PosView: React.FC = () => {
         })
       });
       const data = await res.json();
-      if (res.ok) {
-        setInfoMessage('Receipt printed directly on Speed-X 400UL hardware!');
+      if (data.success) {
+        setInfoMessage(data.message || 'Receipt printed directly on Speed-X 400UL hardware!');
+      } else if (data.fallbackToDialog) {
+        setInfoMessage('Direct thermal printer not connected on this terminal. Opening print dialog...');
+        handlePrintReceipt();
       } else {
-        setErrorMessage(data.error || 'Direct print failed');
+        setErrorMessage(data.error || data.message || 'Direct print failed');
+        handlePrintReceipt();
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Direct print error');
+      setErrorMessage(err.message || 'Direct print error. Opening print dialog...');
+      handlePrintReceipt();
     } finally {
       setDirectPrinting(false);
     }

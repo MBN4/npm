@@ -96,8 +96,8 @@ integrationRouter.get('/receipt-escpos/:invoiceNumber', authenticateToken, (req:
       '\\x1B\\x40', // Initialize printer
       '\\x1B\\x61\\x01', // Center alignment
       '\\x1B\\x45\\x01' + 'NAVEED MEDICAL PHARMACY\\n' + '\\x1B\\x45\\x00',
-      'Main Bazar, Hospital Road, Gujranwala\\n',
-      'Tel: +92 55 1234567 | Lic: DL-GUJ-2026-9812\\n',
+      '31 32 Chowk Chohan Road Outfall, Near Tariq Pan Shop, Islampura, Lahore\\n',
+      'Phone: 03454142863\\n',
       '------------------------------------------------\\n',
       `\\x1B\\x61\\x00Invoice: ${sale.invoice_number}    Date: ${sale.created_at}\\n`,
       `Cashier: ${sale.cashier_name}    Customer: ${sale.customer_name || 'Walk-in'}\\n`,
@@ -262,11 +262,15 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     chunks.push(Buffer.from([0x1D, 0x56, 0x41, 0x00]));
 
     const finalBuffer = Buffer.concat(chunks);
-    await printRawToPrinter(finalBuffer, targetPrinter);
-    res.json({ success: true, message: `Receipt sent to ${targetPrinter} successfully` });
+    const printRes = await printRawToPrinter(finalBuffer, targetPrinter);
+    if (printRes.success) {
+      res.json({ success: true, message: `Receipt sent to ${printRes.printerName || targetPrinter} successfully` });
+    } else {
+      res.json({ success: false, fallbackToDialog: true, message: printRes.reason || 'Thermal hardware printer not detected on this system' });
+    }
   } catch (err: any) {
     console.error('Direct print receipt error:', err);
-    res.status(500).json({ error: 'Direct print failed', details: err.message });
+    res.json({ success: false, fallbackToDialog: true, message: err.message || 'Direct print failed, using dialog fallback' });
   }
 });
 
@@ -319,11 +323,15 @@ integrationRouter.post('/print-test-direct', authenticateToken, async (req: Requ
     ];
 
     const finalBuffer = Buffer.concat(chunks);
-    await printRawToPrinter(finalBuffer, targetPrinter);
-    res.json({ success: true, message: `Test receipt printed on ${targetPrinter} successfully!` });
+    const printRes = await printRawToPrinter(finalBuffer, targetPrinter);
+    if (printRes.success) {
+      res.json({ success: true, message: `Test receipt printed on ${printRes.printerName || targetPrinter} successfully!` });
+    } else {
+      res.json({ success: false, fallbackToDialog: true, message: printRes.reason || 'Hardware printer not available' });
+    }
   } catch (err: any) {
     console.error('Direct test print error:', err);
-    res.status(500).json({ error: 'Direct test print failed', details: err.message });
+    res.json({ success: false, fallbackToDialog: true, message: err.message || 'Direct test print failed' });
   }
 });
 

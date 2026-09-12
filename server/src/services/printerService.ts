@@ -3,14 +3,21 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
+export interface PrintResult {
+  success: boolean;
+  printerName?: string;
+  fallbackToDialog?: boolean;
+  reason?: string;
+}
+
 /**
  * Sends RAW ESC/POS byte buffers directly to Windows thermal printer via winspool.drv.
- * Bypasses Windows GDI text formatting, prevents double-column distortion, and enables hardware ESC/POS commands.
+ * Dynamically discovers Speed-X / Thermal / Default printers with safe fallback.
  */
-export function printRawToPrinter(buffer: Buffer, printerName: string = 'Speed-X 400UL'): Promise<boolean> {
-  return new Promise((resolve, reject) => {
+export function printRawToPrinter(buffer: Buffer, printerName: string = 'Speed-X 400UL'): Promise<PrintResult> {
+  return new Promise((resolve) => {
     if (process.platform !== 'win32') {
-      return resolve(true);
+      return resolve({ success: true, printerName: 'Non-Windows Dummy' });
     }
 
     try {
@@ -49,38 +56,61 @@ public class RawPrinterHelper {
     public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, int dwCount, out int dwWritten);
 
     public static bool SendFileToPrinter(string szPrinterName, string szFileName) {
-        byte[] bytes = File.ReadAllBytes(szFileName);
-        IntPtr hPrinter = IntPtr.Zero;
-        DOCINFOA di = new DOCINFOA();
-        di.pDocName = "NMP Thermal Receipt";
-        di.pDataType = "RAW";
-        if (OpenPrinter(szPrinterName, out hPrinter, IntPtr.Zero)) {
-            if (StartDocPrinter(hPrinter, 1, di)) {
-                if (StartPagePrinter(hPrinter)) {
-                    IntPtr pUnmanagedBytes = Marshal.AllocCoTaskMem(bytes.Length);
-                    Marshal.Copy(bytes, 0, pUnmanagedBytes, bytes.Length);
-                    int dwWritten = 0;
-                    bool success = WritePrinter(hPrinter, pUnmanagedBytes, bytes.Length, out dwWritten);
-                    Marshal.FreeCoTaskMem(pUnmanagedBytes);
-                    EndPagePrinter(hPrinter);
+        try {
+            byte[] bytes = File.ReadAllBytes(szFileName);
+            IntPtr hPrinter = IntPtr.Zero;
+            DOCINFOA di = new DOCINFOA();
+            di.pDocName = "NMP Thermal Receipt";
+            di.pDataType = "RAW";
+            if (OpenPrinter(szPrinterName, out hPrinter, IntPtr.Zero)) {
+                if (StartDocPrinter(hPrinter, 1, di)) {
+                    if (StartPagePrinter(hPrinter)) {
+                        IntPtr pUnmanagedBytes = Marshal.AllocCoTaskMem(bytes.Length);
+                        Marshal.Copy(bytes, 0, pUnmanagedBytes, bytes.Length);
+                        int dwWritten = 0;
+                        bool success = WritePrinter(hPrinter, pUnmanagedBytes, bytes.Length, out dwWritten);
+                        Marshal.FreeCoTaskMem(pUnmanagedBytes);
+                        EndPagePrinter(hPrinter);
+                        EndDocPrinter(hPrinter);
+                        ClosePrinter(hPrinter);
+                        return success;
+                    }
                     EndDocPrinter(hPrinter);
-                    ClosePrinter(hPrinter);
-                    return success;
                 }
-                EndDocPrinter(hPrinter);
+                ClosePrinter(hPrinter);
             }
-            ClosePrinter(hPrinter);
-        }
+        } catch { }
         return false;
     }
 }
 "@
 
-$res = [RawPrinterHelper]::SendFileToPrinter("${printerName}", "$([System.IO.Path]::GetFullPath('$TEMP_FILE'))")
-if ($res) {
-    Write-Output "SUCCESS"
+$target = "${printerName}"
+$allPrinters = Get-CimInstance Win32_Printer
+
+# 1. Exact match
+$printer = $allPrinters | Where-Object { $_.Name -eq $target }
+
+# 2. Thermal / POS fuzzy match
+if (-not $printer) {
+    $printer = $allPrinters | Where-Object { $_.Name -match 'Speed-X|POS|Thermal|Receipt|XP-|RP-|Xprinter|Epson|58|80' } | Select-Object -First 1
+}
+
+# 3. Default printer
+if (-not $printer) {
+    $printer = $allPrinters | Where-Object { $_.Default } | Select-Object -First 1
+}
+
+if ($printer) {
+    $chosenName = $printer.Name
+    $res = [RawPrinterHelper]::SendFileToPrinter($chosenName, "$([System.IO.Path]::GetFullPath('$TEMP_FILE'))")
+    if ($res) {
+        Write-Output "SUCCESS:$chosenName"
+    } else {
+        Write-Output "FAIL:Could not send RAW bytes to $chosenName"
+    }
 } else {
-    Write-Error "Failed to write RAW bytes to printer ${printerName}"
+    Write-Output "NO_PRINTER:No thermal or default printer found"
 }
 `;
 
@@ -91,19 +121,22 @@ if ($res) {
       const psPath = path.join(os.tmpdir(), `nmp_print_${Date.now()}_${Math.floor(Math.random() * 1000)}.ps1`);
       fs.writeFileSync(psPath, scriptWithFile);
 
-      exec(`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${psPath}"`, (err, stdout, stderr) => {
+      exec(`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${psPath}"`, (err, stdout) => {
         try {
           if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
           if (fs.existsSync(psPath)) fs.unlinkSync(psPath);
         } catch (_) {}
 
-        if (err || (stderr && stderr.trim().length > 0)) {
-          return reject(new Error(stderr || err?.message || 'Raw print failed'));
+        const out = (stdout || '').trim();
+        if (out.startsWith('SUCCESS:')) {
+          const chosen = out.replace('SUCCESS:', '').trim();
+          resolve({ success: true, printerName: chosen });
+        } else {
+          resolve({ success: false, fallbackToDialog: true, reason: out || err?.message || 'Printer unavailable' });
         }
-        resolve(true);
       });
-    } catch (err) {
-      reject(err);
+    } catch (err: any) {
+      resolve({ success: false, fallbackToDialog: true, reason: err.message });
     }
   });
 }
