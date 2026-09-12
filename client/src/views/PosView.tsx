@@ -53,6 +53,7 @@ export const PosView: React.FC = () => {
   const [customers, setCustomers] = useState<{ id: number; name: string; mobile?: string; current_balance: number }[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [billDiscount, setBillDiscount] = useState<string>('0');
+  const [discountType, setDiscountType] = useState<'RS' | 'PERCENT'>('RS');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'JAZZCASH' | 'AL_HABIB' | 'CREDIT'>('CASH');
   const [activeQrModal, setActiveQrModal] = useState<'JAZZCASH' | 'AL_HABIB' | null>(null);
   const [paidAmount, setPaidAmount] = useState<string>('');
@@ -107,17 +108,12 @@ export const PosView: React.FC = () => {
       });
       const data = await res.json();
       if (data.success) {
-        setInfoMessage(data.message || 'Receipt printed directly on Speed-X 400UL hardware!');
-      } else if (data.fallbackToDialog) {
-        setInfoMessage('Direct thermal printer not connected on this terminal. Opening print dialog...');
-        handlePrintReceipt();
+        setInfoMessage(data.message || 'Receipt printed directly on Speed-X hardware!');
       } else {
-        setErrorMessage(data.error || data.message || 'Direct print failed');
-        handlePrintReceipt();
+        setErrorMessage(data.message || 'Speed-X hardware printer not detected on this system. You can click "Dialog" if you want browser print.');
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Direct print error. Opening print dialog...');
-      handlePrintReceipt();
+      setErrorMessage(err.message || 'Direct print error.');
     } finally {
       setDirectPrinting(false);
     }
@@ -435,7 +431,8 @@ export const PosView: React.FC = () => {
   // Financial Calculations
   const printFee = cart.length > 0 ? 2.00 : 0.00;
   const subtotal = cart.reduce((acc, it) => acc + it.lineTotal, 0);
-  const discountVal = Number(billDiscount) || 0;
+  const rawDiscount = Number(billDiscount) || 0;
+  const discountVal = discountType === 'PERCENT' ? (subtotal * rawDiscount) / 100 : rawDiscount;
   const grandTotal = cart.length > 0 ? Math.max(0, subtotal + printFee - discountVal) : 0;
   const numericPaid = paidAmount === '' ? (paymentMethod === 'CREDIT' ? 0 : grandTotal) : Number(paidAmount);
   const change = Math.max(0, numericPaid - grandTotal);
@@ -588,7 +585,7 @@ export const PosView: React.FC = () => {
 
       if (autoPrint) {
         setTimeout(() => {
-          handlePrintReceipt();
+          handleDirectHardwarePrint();
         }, 350);
       }
     } catch (err: any) {
@@ -639,7 +636,7 @@ export const PosView: React.FC = () => {
 
         if (autoPrint) {
           setTimeout(() => {
-            handlePrintReceipt();
+            handleDirectHardwarePrint();
           }, 350);
         }
       } else {
@@ -1103,16 +1100,63 @@ export const PosView: React.FC = () => {
             {/* Bill Discount & Paid Amount */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                  Bill Discount (Rs.)
-                </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                    Discount {discountType === 'PERCENT' ? '(%)' : '(Rs.)'}
+                  </label>
+                  <div style={{ display: 'flex', borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDiscountType('RS');
+                        setBillDiscount('0');
+                      }}
+                      style={{
+                        padding: '0.1rem 0.35rem',
+                        fontSize: '0.65rem',
+                        fontWeight: 700,
+                        border: 'none',
+                        cursor: 'pointer',
+                        backgroundColor: discountType === 'RS' ? 'var(--primary)' : 'var(--bg-surface)',
+                        color: discountType === 'RS' ? '#fff' : 'var(--text-muted)'
+                      }}
+                    >
+                      Rs
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDiscountType('PERCENT');
+                        setBillDiscount('0');
+                      }}
+                      style={{
+                        padding: '0.1rem 0.35rem',
+                        fontSize: '0.65rem',
+                        fontWeight: 700,
+                        border: 'none',
+                        cursor: 'pointer',
+                        backgroundColor: discountType === 'PERCENT' ? 'var(--primary)' : 'var(--bg-surface)',
+                        color: discountType === 'PERCENT' ? '#fff' : 'var(--text-muted)'
+                      }}
+                    >
+                      %
+                    </button>
+                  </div>
+                </div>
                 <input
                   type="number"
                   className="input"
                   value={billDiscount}
                   onChange={e => setBillDiscount(e.target.value)}
                   min="0"
+                  max={discountType === 'PERCENT' ? '100' : undefined}
+                  placeholder={discountType === 'PERCENT' ? '0%' : 'Rs. 0'}
                 />
+                {discountType === 'PERCENT' && Number(billDiscount) > 0 && (
+                  <div style={{ fontSize: '0.68rem', color: 'var(--danger)', marginTop: '0.15rem' }}>
+                    = Rs. {discountVal.toFixed(2)} off
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1325,7 +1369,9 @@ export const PosView: React.FC = () => {
                     {lastInvoice.items.map((it: any, i: number) => (
                       <tr key={i} style={{ borderBottom: i < lastInvoice.items.length - 1 ? '1px dotted #e0e0e0' : 'none' }}>
                         <td style={{ padding: '0.25rem 0', verticalAlign: 'top' }}>
-                          <div style={{ fontWeight: 700 }}>{i + 1}  {it.brandName} {it.strength || ''}</div>
+                          <div style={{ fontWeight: 700 }}>
+                            {i + 1}  {it.brandName}{it.strength && !it.brandName?.toLowerCase().includes(it.strength.toLowerCase()) ? ` ${it.strength}` : ''}
+                          </div>
                         </td>
                         <td style={{ textAlign: 'center', padding: '0.25rem 0', verticalAlign: 'top' }}>{it.quantity}</td>
                         <td style={{ textAlign: 'right', padding: '0.25rem 0', verticalAlign: 'top' }}>{(it.unitPrice || (it.lineTotal / (it.quantity || 1)))?.toFixed(2)}</td>

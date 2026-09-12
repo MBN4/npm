@@ -216,7 +216,12 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     let totalUnits = 0;
     items.forEach((it, idx) => {
       totalUnits += (it.quantity || 1);
-      const itemTitle = `${idx + 1}  ${it.brand_name || ''} ${it.strength || ''} ${it.dosage_form || ''}`.trim();
+      let brand = (it.brand_name || '').trim();
+      const strength = (it.strength || '').trim();
+      if (strength && !brand.toLowerCase().includes(strength.toLowerCase())) {
+        brand += ` ${strength}`;
+      }
+      const itemTitle = `${idx + 1}  ${brand}`.trim();
       chunks.push(Buffer.from(`${itemTitle}\n`, 'utf8'));
 
       const qtyPrice = `     ${it.quantity} x ${Number(it.unit_price).toFixed(2)}`;

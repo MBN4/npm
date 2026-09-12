@@ -91,14 +91,14 @@ $allPrinters = Get-CimInstance Win32_Printer
 # 1. Exact match
 $printer = $allPrinters | Where-Object { $_.Name -eq $target }
 
-# 2. Thermal / POS fuzzy match
+# 2. Thermal / POS fuzzy match (matches Speed-X, POS, Thermal, Receipt, XP-, RP-, Xprinter, Epson, 58, 80)
 if (-not $printer) {
-    $printer = $allPrinters | Where-Object { $_.Name -match 'Speed-X|POS|Thermal|Receipt|XP-|RP-|Xprinter|Epson|58|80' } | Select-Object -First 1
+    $printer = $allPrinters | Where-Object { $_.Name -match 'Speed-X|POS|Thermal|Receipt|XP-|RP-|Xprinter|Epson|58|80' -and $_.Name -notmatch 'PDF|XPS|Fax|OneNote|Document' } | Select-Object -First 1
 }
 
-# 3. Default printer
+# 3. Default printer (ONLY if it is a real physical printer, not PDF/XPS/Fax/OneNote)
 if (-not $printer) {
-    $printer = $allPrinters | Where-Object { $_.Default } | Select-Object -First 1
+    $printer = $allPrinters | Where-Object { $_.Default -and $_.Name -notmatch 'PDF|XPS|Fax|OneNote|Document' } | Select-Object -First 1
 }
 
 if ($printer) {
@@ -110,7 +110,7 @@ if ($printer) {
         Write-Output "FAIL:Could not send RAW bytes to $chosenName"
     }
 } else {
-    Write-Output "NO_PRINTER:No thermal or default printer found"
+    Write-Output "NO_PRINTER:No physical thermal printer found. Please connect or map Speed-X printer."
 }
 `;
 
