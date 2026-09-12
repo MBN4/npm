@@ -682,7 +682,7 @@ export const SettingsView: React.FC = () => {
                   {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY (NMP)'}
                 </div>
                 <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  {settings['pharmacy_address'] || '31 32 chowk chohan road outfall, near tariq pan shop, Islampura, Lahore, 54000'}
+                  {settings['pharmacy_address'] || '31 32 chowk chohan road outfall, Islampura, Lahore, 54000'}
                 </div>
                 <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                   Tel: {settings['pharmacy_phone'] || '03454142863'} | DSL: {settings['license_number'] || '05-352-DSL'}

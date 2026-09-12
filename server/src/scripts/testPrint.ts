@@ -7,10 +7,20 @@ function padBetween(left: string, right: string, width: number = 42): string {
   return l + ' '.repeat(spaces) + r;
 }
 
-const chunks: Buffer[] = [];
+import path from 'path';
+import fs from 'fs';
 
-// 1. Initialize printer
-chunks.push(Buffer.from([0x1B, 0x40]));
+const chunks: Buffer[] = [
+  Buffer.from([0x1B, 0x40]) // 1. Initialize printer
+];
+
+const logoFile1 = path.resolve(process.cwd(), 'data/logo_escpos.bin');
+const logoFile2 = path.resolve(process.cwd(), 'server/data/logo_escpos.bin');
+if (fs.existsSync(logoFile1)) {
+  chunks.push(fs.readFileSync(logoFile1));
+} else if (fs.existsSync(logoFile2)) {
+  chunks.push(fs.readFileSync(logoFile2));
+}
 
 // 2. Header (Centered, Bold Store Name)
 chunks.push(Buffer.from([0x1B, 0x61, 0x01])); // Align Center
@@ -18,7 +28,7 @@ chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold On
 chunks.push(Buffer.from('NAVEED MEDICAL PHARMACY (NMP)\n', 'utf8'));
 chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold Off
 chunks.push(Buffer.from('31 32 Chowk Chohan Road Outfall,\n', 'utf8'));
-chunks.push(Buffer.from('Near Tariq Pan Shop, Islampura, Lahore\n', 'utf8'));
+chunks.push(Buffer.from('Islampura, Lahore\n', 'utf8'));
 chunks.push(Buffer.from('Phone: 03454142863\n', 'utf8'));
 
 // 3. Divider & Info (Left-aligned)

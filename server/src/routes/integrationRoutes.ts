@@ -96,7 +96,7 @@ integrationRouter.get('/receipt-escpos/:invoiceNumber', authenticateToken, (req:
       '\\x1B\\x40', // Initialize printer
       '\\x1B\\x61\\x01', // Center alignment
       '\\x1B\\x45\\x01' + 'NAVEED MEDICAL PHARMACY\\n' + '\\x1B\\x45\\x00',
-      '31 32 Chowk Chohan Road Outfall, Near Tariq Pan Shop, Islampura, Lahore\\n',
+      '31 32 Chowk Chohan Road Outfall, Islampura, Lahore\\n',
       'Phone: 03454142863\\n',
       '------------------------------------------------\\n',
       `\\x1B\\x61\\x00Invoice: ${sale.invoice_number}    Date: ${sale.created_at}\\n`,
@@ -190,7 +190,7 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
       Buffer.from(`${pharmacyName}\n`, 'utf8'),
       Buffer.from([0x1B, 0x45, 0x00]), // ESC E 0 - Bold Off
       Buffer.from('31 32 Chowk Chohan Road Outfall,\n', 'utf8'),
-      Buffer.from('Near Tariq Pan Shop, Islampura, Lahore\n', 'utf8'),
+      Buffer.from('Islampura, Lahore\n', 'utf8'),
       Buffer.from(`Phone: ${phone}\n`, 'utf8')
     ];
 
@@ -289,7 +289,7 @@ integrationRouter.post('/print-test-direct', authenticateToken, async (req: Requ
       Buffer.from('NAVEED MEDICAL PHARMACY (NMP)\n', 'utf8'),
       Buffer.from([0x1B, 0x45, 0x00]), // Bold Off
       Buffer.from('31 32 Chowk Chohan Road Outfall,\n', 'utf8'),
-      Buffer.from('Near Tariq Pan Shop, Islampura, Lahore\n', 'utf8'),
+      Buffer.from('Islampura, Lahore\n', 'utf8'),
       Buffer.from('Phone: 03454142863\n', 'utf8'),
       Buffer.from([0x1B, 0x61, 0x00]), // Left
       Buffer.from('------------------------------------------\n', 'utf8'),

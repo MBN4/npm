@@ -495,7 +495,7 @@ export const PrescriptionsView: React.FC = () => {
               <div style={{ borderBottom: '2px solid #000', paddingBottom: '0.75rem', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between' }}>
                 <div>
                   <h3 style={{ fontSize: '1.2rem', fontWeight: 800 }}>NAVEED MEDICAL PHARMACY</h3>
-                  <div style={{ fontSize: '0.8rem', color: '#444' }}>31 32 chowk chohan road outfall, near tariq pan shop, Islampura, Lahore, 54000</div>
+                  <div style={{ fontSize: '0.8rem', color: '#444' }}>31 32 chowk chohan road outfall, Islampura, Lahore, 54000</div>
                 </div>
                 <div style={{ textAlign: 'right', fontSize: '0.8rem' }}>
                   <div><strong>Doctor:</strong> {selectedRx.prescription.doctor_name || 'Attending Pharmacist'}</div>

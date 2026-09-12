@@ -18,7 +18,7 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
   // Search medicines that match barcode exactly or brand/generic partially
   const medicines = db.prepare(`
     SELECT 
-      m.id, m.brand_name, m.strength, m.dosage_form, m.barcode, m.custom_barcode,
+      m.id, m.brand_name, m.strength, m.dosage_form, m.pack_size, m.barcode, m.custom_barcode,
       m.rack_location, m.is_prescription_required,
       g.name as generic_name,
       c.name as category_name

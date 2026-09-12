@@ -2,7 +2,7 @@ import { db } from '../db/index.js';
 
 db.prepare(`
   INSERT OR REPLACE INTO settings (key, value, description)
-  VALUES ('pharmacy_address', '31 32 Chowk Chohan Road Outfall, Near Tariq Pan Shop, Islampura, Lahore, 54000', 'Store physical address')
+  VALUES ('pharmacy_address', '31 32 Chowk Chohan Road Outfall, Islampura, Lahore, 54000', 'Store physical address')
 `).run();
 
 db.prepare(`

@@ -22,6 +22,7 @@ export interface CartItem {
   brandName: string;
   strength?: string;
   dosageForm?: string;
+  packSize?: number;
   batchId: number;
   batchNumber: string;
   expiryDate: string;
@@ -152,7 +153,7 @@ export const PosView: React.FC = () => {
           totalAmount: total,
           paidAmount: eventData.amount,
           paymentMethod: method,
-          notes: `Auto QR Pay (TID: ${eventData.trxId})`
+          notes: `Auto-reconciled QR Payment TID: ${eventData.trxId}`
         })
       });
 
@@ -169,23 +170,31 @@ export const PosView: React.FC = () => {
         setShowReceiptModal(true);
         handleClearCart();
 
-        // Trigger hardware print to Speed-X directly!
-        await handleDirectHardwarePrint(data.invoice?.invoiceNumber);
+        if (autoPrint) {
+          setTimeout(() => {
+            handleDirectHardwarePrint(data.invoice?.invoiceNumber);
+          }, 400);
+        }
       }
-    } catch (err: any) {
-      console.error('Auto QR checkout error:', err);
+    } catch (err) {
+      console.error('QR Auto-checkout failed:', err);
     }
   };
 
-  // Real-time SSE listener for incoming physical QR payments
+  // Print Dialog Trigger for browser printing
+  const handlePrintReceipt = () => {
+    printThermalElement('nmp-printable-receipt', (settings['printer_paper_width'] as any) || '80mm');
+  };
+
+  // Setup Server-Sent Events (SSE) for Real-Time QR Payment Webhook Notifications
   useEffect(() => {
     let eventSource: EventSource | null = null;
     try {
-      eventSource = new EventSource('/api/integrations/qr-events');
+      eventSource = new EventSource('/api/integrations/qr/events');
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.type === 'CONNECTED') return;
+          if (data.type === 'HEARTBEAT') return;
 
           console.log('[REALTIME_QR_PAYMENT_ARRIVED]', data);
 
@@ -265,12 +274,12 @@ export const PosView: React.FC = () => {
 
         if (settingsRes.ok) {
           const sData = await settingsRes.json();
-          if (sData.settings) {
-            setSettings(sData.settings);
-          }
+          const map: Record<string, string> = {};
+          (sData.settings || []).forEach((s: any) => { map[s.key] = s.value; });
+          setSettings(map);
         }
       } catch (err) {
-        console.error('POS initialization error:', err);
+        console.error('Failed to load POS settings', err);
       }
     }
 
@@ -278,11 +287,7 @@ export const PosView: React.FC = () => {
     fetchHeldBills();
   }, [token]);
 
-  const handlePrintReceipt = () => {
-    printThermalElement('nmp-pos-receipt', (settings['printer_paper_width'] as any) || '80mm');
-  };
-
-  // Keyboard shortcut listener
+  // Handle Hotkeys (F1, F2, F4, F5, F9, ESC)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'F1') {
@@ -335,7 +340,7 @@ export const PosView: React.FC = () => {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const handleAddToCart = (product: any) => {
+  const handleAddToCart = (product: any, qtyToAdd: number = 1) => {
     setErrorMessage(null);
 
     if (!product.fefo_batch) {
@@ -344,33 +349,39 @@ export const PosView: React.FC = () => {
     }
 
     const batch = product.fefo_batch;
+    const packSize = Number(product.pack_size) > 1 ? Number(product.pack_size) : 10;
 
     // Check if already in cart
     const existingIndex = cart.findIndex(it => it.batchId === batch.batch_id);
     if (existingIndex > -1) {
       const updated = [...cart];
-      if (updated[existingIndex].quantity + 1 > batch.quantity) {
+      if (updated[existingIndex].quantity + qtyToAdd > batch.quantity) {
         setErrorMessage(`Cannot exceed available batch stock (${batch.quantity} units).`);
         return;
       }
-      updated[existingIndex].quantity += 1;
+      updated[existingIndex].quantity += qtyToAdd;
       updated[existingIndex].lineTotal = (updated[existingIndex].quantity * updated[existingIndex].unitPrice) - updated[existingIndex].discount;
       setCart(updated);
     } else {
+      if (qtyToAdd > batch.quantity) {
+        setErrorMessage(`Cannot exceed available batch stock (${batch.quantity} units).`);
+        return;
+      }
       const newItem: CartItem = {
         medicineId: product.id,
         brandName: product.brand_name,
         strength: product.strength,
         dosageForm: product.dosage_form,
+        packSize,
         batchId: batch.batch_id,
         batchNumber: batch.batch_number,
         expiryDate: batch.expiry_date,
         daysToExpiry: batch.days_to_expiry,
         unitPrice: Number(batch.sale_price),
         availableStock: batch.quantity,
-        quantity: 1,
+        quantity: qtyToAdd,
         discount: 0,
-        lineTotal: Number(batch.sale_price),
+        lineTotal: qtyToAdd * Number(batch.sale_price),
         availableBatches: product.available_batches
       };
       setCart([newItem, ...cart]);
@@ -846,7 +857,6 @@ export const PosView: React.FC = () => {
                 {searchResults.map((p) => (
                   <div
                     key={p.id}
-                    onClick={() => handleAddToCart(p)}
                     style={{
                       padding: '0.75rem 1rem',
                       borderBottom: '1px solid var(--border)',
@@ -857,7 +867,7 @@ export const PosView: React.FC = () => {
                     }}
                     className="hover-bg"
                   >
-                    <div>
+                    <div onClick={() => handleAddToCart(p, 1)} style={{ flex: 1 }}>
                       <div style={{ fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <span>{p.brand_name}</span>
                         {p.strength && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({p.strength})</span>}
@@ -870,13 +880,41 @@ export const PosView: React.FC = () => {
                       </div>
                     </div>
 
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-main)' }}>
-                        Rs. {p.fefo_batch ? p.fefo_batch.sale_price : 0}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--text-main)' }}>
+                          Rs. {p.fefo_batch ? Number(p.fefo_batch.sale_price).toFixed(2) : 0} <span style={{ fontSize: '0.68rem', fontWeight: 500, color: 'var(--text-muted)' }}>/ unit</span>
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                          Pack ({p.pack_size > 1 ? p.pack_size : 10}s): <strong>Rs. {((p.pack_size > 1 ? p.pack_size : 10) * (p.fefo_batch ? Number(p.fefo_batch.sale_price) : 0)).toFixed(2)}</strong>
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: p.total_stock > 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
+                          {p.total_stock > 0 ? `${p.total_stock} in stock` : 'Out of Stock'}
+                        </div>
                       </div>
-                      <div style={{ fontSize: '0.72rem', color: p.total_stock > 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
-                        {p.total_stock > 0 ? `${p.total_stock} in stock` : 'Out of Stock'}
-                      </div>
+
+                      {p.total_stock > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleAddToCart(p, 1)}
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '0.68rem', padding: '0.2rem 0.45rem', whiteSpace: 'nowrap' }}
+                            title="Add 1 single unit / tablet"
+                          >
+                            +1 Unit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAddToCart(p, p.pack_size > 1 ? p.pack_size : 10)}
+                            className="btn btn-primary btn-sm"
+                            style={{ fontSize: '0.68rem', padding: '0.2rem 0.45rem', whiteSpace: 'nowrap' }}
+                            title={`Add entire pack of ${p.pack_size > 1 ? p.pack_size : 10} units`}
+                          >
+                            +1 Pack ({p.pack_size > 1 ? p.pack_size : 10}s)
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -923,9 +961,17 @@ export const PosView: React.FC = () => {
                       <tr key={index} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '0.6rem 0.5rem' }}>
                           <div style={{ fontWeight: 700 }}>{item.brandName}</div>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                            {item.strength} • {item.dosageForm}
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <span>{item.strength} • {item.dosageForm}</span>
+                            <span style={{ fontSize: '0.65rem', padding: '0.05rem 0.3rem', borderRadius: '3px', background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+                              Pack: {item.packSize || 10}
+                            </span>
                           </div>
+                          {item.quantity >= (item.packSize || 10) && (
+                            <div style={{ fontSize: '0.68rem', color: 'var(--primary)', fontWeight: 700, marginTop: '0.15rem' }}>
+                              📦 {Math.floor(item.quantity / (item.packSize || 10))} Pack(s){item.quantity % (item.packSize || 10) > 0 ? ` + ${item.quantity % (item.packSize || 10)} units` : ''}
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: '0.6rem 0.5rem' }}>
                           <select
@@ -941,26 +987,57 @@ export const PosView: React.FC = () => {
                             ))}
                           </select>
                         </td>
-                        <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', fontWeight: 600 }}>
-                          Rs. {item.unitPrice.toFixed(2)}
+                        <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right' }}>
+                          <div style={{ fontWeight: 600 }}>Rs. {item.unitPrice.toFixed(2)}</div>
+                          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                            Rs. {((item.packSize || 10) * item.unitPrice).toFixed(2)}/pk
+                          </div>
                         </td>
                         <td style={{ padding: '0.6rem 0.5rem', textAlign: 'center' }}>
-                          <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
-                            <button
-                              onClick={() => handleUpdateQty(index, item.quantity - 1)}
-                              style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.5rem', cursor: 'pointer' }}
-                            >
-                              -
-                            </button>
-                            <span style={{ padding: '0.2rem 0.6rem', fontWeight: 700, fontSize: '0.85rem' }}>
-                              {item.quantity}
-                            </span>
-                            <button
-                              onClick={() => handleUpdateQty(index, item.quantity + 1)}
-                              style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.5rem', cursor: 'pointer' }}
-                            >
-                              +
-                            </button>
+                          <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+                              <button
+                                onClick={() => handleUpdateQty(index, item.quantity - 1)}
+                                style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.5rem', cursor: 'pointer' }}
+                                title="Decrease 1 unit"
+                              >
+                                -
+                              </button>
+                              <span style={{ padding: '0.2rem 0.5rem', fontWeight: 700, fontSize: '0.85rem', minWidth: '28px', textAlign: 'center' }}>
+                                {item.quantity}
+                              </span>
+                              <button
+                                onClick={() => handleUpdateQty(index, item.quantity + 1)}
+                                style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.5rem', cursor: 'pointer' }}
+                                title="Increase 1 unit"
+                              >
+                                +
+                              </button>
+                            </div>
+
+                            {/* Quick Add/Remove Full Pack */}
+                            <div style={{ display: 'flex', gap: '0.2rem' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateQty(index, item.quantity + (item.packSize || 10))}
+                                className="btn btn-secondary btn-sm"
+                                style={{ fontSize: '0.62rem', padding: '0.1rem 0.35rem', whiteSpace: 'nowrap' }}
+                                title={`Add +1 full pack (${item.packSize || 10} units)`}
+                              >
+                                +1 Pack
+                              </button>
+                              {item.quantity >= (item.packSize || 10) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateQty(index, Math.max(1, item.quantity - (item.packSize || 10)))}
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ fontSize: '0.62rem', padding: '0.1rem 0.35rem', whiteSpace: 'nowrap' }}
+                                  title={`Remove 1 full pack (${item.packSize || 10} units)`}
+                                >
+                                  -1 Pack
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </td>
                         <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', fontWeight: 800 }}>
@@ -1323,11 +1400,16 @@ export const PosView: React.FC = () => {
               }}
             >
               <div style={{ textAlign: 'center', marginBottom: '0.5rem' }}>
+                <img
+                  src="/logo.jpeg"
+                  alt="Pharmacy Logo"
+                  style={{ width: '46px', height: '46px', margin: '0 auto 0.35rem', display: 'block', objectFit: 'contain', borderRadius: '50%' }}
+                />
                 <div style={{ fontSize: '1.05rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY (NMP)'}
                 </div>
                 <div style={{ fontSize: '0.72rem', color: '#333' }}>
-                  {settings['pharmacy_address'] || '31 32 Chowk Chohan Road Outfall, Near Tariq Pan Shop, Islampura, Lahore'}
+                  {settings['pharmacy_address'] || '31 32 Chowk Chohan Road Outfall, Islampura, Lahore'}
                 </div>
                 <div style={{ fontSize: '0.72rem', color: '#333' }}>
                   Ph: {settings['pharmacy_phone'] || '03454142863'}
