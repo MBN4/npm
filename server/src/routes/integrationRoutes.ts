@@ -137,6 +137,22 @@ integrationRouter.get('/receipt-escpos/:invoiceNumber', authenticateToken, (req:
   }
 });
 
+function padCenter(str: string, width: number = 32): string {
+  const s = str.trim().slice(0, width);
+  const totalPad = Math.max(0, width - s.length);
+  const leftPad = Math.floor(totalPad / 2);
+  const rightPad = totalPad - leftPad;
+  return ' '.repeat(leftPad) + s + ' '.repeat(rightPad);
+}
+
+function padBetween(left: string, right: string, width: number = 32): string {
+  const r = right.trim();
+  const available = Math.max(0, width - r.length - 1);
+  const l = left.trim().slice(0, available);
+  const spaces = Math.max(1, width - l.length - r.length);
+  return l + ' '.repeat(spaces) + r;
+}
+
 // Direct Hardware Thermal Printing (Windows Spooler / Out-Printer)
 integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: Request, res: Response) => {
   try {
@@ -169,52 +185,55 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     settingsRows.forEach(r => { settingsMap[r.key] = r.value; });
 
     const pharmacyName = settingsMap['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY';
-    const address = settingsMap['pharmacy_address'] || 'Main Bazar, Hospital Road, Gujranwala';
+    const address = settingsMap['pharmacy_address'] || 'Main Bazar, Hospital Road, Guj';
     const phone = settingsMap['pharmacy_phone'] || '0300-1112233';
-    const footer = settingsMap['receipt_footer'] || 'Get well soon! Returns accepted within 7 days with bill.';
+    const footer = settingsMap['receipt_footer'] || 'Get well soon! Keep meds < 30C.';
 
     const lines: string[] = [];
-    lines.push('================================================');
-    lines.push(`          ${pharmacyName}`);
-    lines.push(`       ${address}`);
-    lines.push(`           Tel: ${phone}`);
-    lines.push('================================================');
-    lines.push(`Invoice: #${sale.invoice_number}   Date: ${sale.created_at}`);
-    lines.push(`Cashier: ${sale.cashier_name}   Payment: ${sale.payment_method}`);
-    if (sale.customer_name) {
-      lines.push(`Customer: ${sale.customer_name} ${sale.customer_mobile || ''}`);
+    lines.push('================================');
+    lines.push(padCenter(pharmacyName, 32));
+    lines.push(padCenter(address, 32));
+    lines.push(padCenter(`Tel: ${phone}`, 32));
+    if (settingsMap['license_number']) {
+      lines.push(padCenter(`DSL: ${settingsMap['license_number']}`, 32));
     }
-    lines.push('------------------------------------------------');
-    lines.push('Item                     Qty    Rate      Total');
-    lines.push('------------------------------------------------');
+    lines.push('================================');
+    lines.push(padBetween(`Inv: #${sale.invoice_number}`, new Date(sale.created_at).toLocaleDateString(), 32));
+    lines.push(padBetween(`Cashier: ${sale.cashier_name}`, `Pay: ${sale.payment_method}`, 32));
+    if (sale.customer_name) {
+      lines.push(`Customer: ${sale.customer_name.slice(0, 22)}`);
+    }
+    lines.push('--------------------------------');
+    lines.push('Item                Qty    Total');
+    lines.push('--------------------------------');
     items.forEach(it => {
-      const name = (it.brand_name + ' ' + (it.dosage_form || '')).slice(0, 22).padEnd(23, ' ');
-      const qty = String(it.quantity).padStart(4, ' ');
-      const rate = it.unit_price.toFixed(2).padStart(8, ' ');
+      const name = (it.brand_name + ' ' + (it.dosage_form || '')).slice(0, 18).padEnd(19, ' ');
+      const qty = String(it.quantity).padStart(3, ' ');
       const total = it.line_total.toFixed(2).padStart(10, ' ');
-      lines.push(`${name}${qty} ${rate} ${total}`);
+      lines.push(`${name}${qty}${total}`);
       if (it.batch_number) {
-        lines.push(`  Batch: ${it.batch_number} Exp: ${it.expiry_date || 'N/A'}`);
+        lines.push(`  B#:${it.batch_number} Exp:${it.expiry_date?.slice(0, 7) || 'N/A'}`);
       }
     });
-    lines.push('------------------------------------------------');
-    lines.push(`Subtotal:                            Rs. ${sale.subtotal.toFixed(2)}`);
+    lines.push('--------------------------------');
+    lines.push(padBetween('Subtotal:', `Rs. ${sale.subtotal.toFixed(2)}`, 32));
     if (sale.discount > 0) {
-      lines.push(`Discount:                           -Rs. ${sale.discount.toFixed(2)}`);
+      lines.push(padBetween('Discount:', `-Rs. ${sale.discount.toFixed(2)}`, 32));
     }
-    lines.push(`NET TOTAL:                           Rs. ${sale.total_amount.toFixed(2)}`);
-    lines.push(`Paid Tendered:                       Rs. ${sale.paid_amount.toFixed(2)}`);
+    lines.push(padBetween('NET TOTAL:', `Rs. ${sale.total_amount.toFixed(2)}`, 32));
+    lines.push(padBetween('Paid Cash:', `Rs. ${sale.paid_amount.toFixed(2)}`, 32));
     if (sale.change_amount > 0) {
-      lines.push(`Change Due:                          Rs. ${sale.change_amount.toFixed(2)}`);
+      lines.push(padBetween('Change Return:', `Rs. ${sale.change_amount.toFixed(2)}`, 32));
     }
     if (sale.remaining_amount > 0) {
-      lines.push(`Credit Due:                          Rs. ${sale.remaining_amount.toFixed(2)}`);
+      lines.push(padBetween('Credit Due:', `Rs. ${sale.remaining_amount.toFixed(2)}`, 32));
     }
-    lines.push('------------------------------------------------');
-    lines.push(footer);
-    lines.push('Keep medicines stored below 30°C in dry place.');
-    lines.push('================================================');
-    lines.push('\r\n\r\n\r\n');
+    lines.push('--------------------------------');
+    lines.push(padCenter(footer, 32));
+    lines.push(padCenter('Returns with bill in 7 days', 32));
+    lines.push('================================');
+    // Push 6 line feeds so the entire receipt comes all the way out past the tear bar
+    lines.push('\r\n\r\n\r\n\r\n\r\n\r\n');
 
     const slipText = lines.join('\r\n');
     await printToWindowsPrinter(slipText, targetPrinter);
@@ -232,30 +251,32 @@ integrationRouter.post('/print-test-direct', authenticateToken, async (req: Requ
     const targetPrinter = printerName || 'Speed-X 400UL';
 
     const testSlip = [
-      '================================================',
-      '          NAVEED MEDICAL PHARMACY',
-      '       Main Bazar, Hospital Road, Gujranwala',
-      '           Tel: 0300-1112233',
-      '================================================',
-      `INV: #TEST-${Date.now().toString().slice(-6)}    ${new Date().toLocaleDateString()}`,
-      'Cashier: Admin (POS Counter 01)',
-      '------------------------------------------------',
-      'Item                     Qty    Rate      Total',
-      '------------------------------------------------',
-      'Augmentin 625mg Tab        2   28.50      57.00',
-      '  Batch: AUG-991 Exp: 2027-12',
-      'Panadol Extra 500mg       10    3.50      35.00',
-      '  Batch: PAN-402 Exp: 2028-06',
-      '------------------------------------------------',
-      'NET PAYABLE:                         Rs.  92.00',
-      'Cash Tendered:                       Rs. 100.00',
-      'Change Due:                          Rs.   8.00',
-      '------------------------------------------------',
-      'Thank you for choosing NMP. Get well soon!',
-      'Keep medicines stored below 30°C in dry place.',
-      '*** SPEED-X 400UL HARDWARE VERIFIED ***',
-      '================================================',
-      '\r\n\r\n\r\n'
+      '================================',
+      padCenter('NAVEED MEDICAL PHARMACY', 32),
+      padCenter('Main Bazar, Hospital Rd, Guj', 32),
+      padCenter('Tel: 0300-1112233', 32),
+      '================================',
+      padBetween(`INV: #TEST-${Date.now().toString().slice(-4)}`, new Date().toLocaleDateString(), 32),
+      padBetween('Cashier: Admin', 'Counter: 01', 32),
+      '--------------------------------',
+      'Item                Qty    Total',
+      '--------------------------------',
+      padBetween('Augmentin 625mg Tab   2', 'Rs. 57.00', 32),
+      '  Batch: AUG-991  Exp: 2027-12',
+      padBetween('Panadol Extra 500mg  10', 'Rs. 35.00', 32),
+      '  Batch: PAN-402  Exp: 2028-06',
+      '--------------------------------',
+      padBetween('Subtotal:', 'Rs. 92.00', 32),
+      padBetween('Discount:', '-Rs.  0.00', 32),
+      padBetween('NET TOTAL:', 'Rs. 92.00', 32),
+      padBetween('Cash Tendered:', 'Rs. 100.00', 32),
+      padBetween('Change Due:', 'Rs.   8.00', 32),
+      '--------------------------------',
+      padCenter('Thank you for choosing NMP!', 32),
+      padCenter('Keep medicines below 30 deg C.', 32),
+      padCenter('*** SPEED-X 400UL VERIFIED ***', 32),
+      '================================',
+      '\r\n\r\n\r\n\r\n\r\n\r\n'
     ].join('\r\n');
 
     await printToWindowsPrinter(testSlip, targetPrinter);
