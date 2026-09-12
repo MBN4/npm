@@ -14,13 +14,12 @@ import {
   EyeOff,
   X,
   BookOpen,
-  Wifi,
-  WifiOff,
   RefreshCw,
   Search,
   Pill,
   Users,
-  FileText
+  FileText,
+  ChevronDown
 } from 'lucide-react';
 import { AdminGuideModal } from './AdminGuideModal.js';
 import { NavView } from './Sidebar.js';
@@ -36,6 +35,8 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [showDropdown, setShowDropdown] = useState<boolean>(false);
+  const [showUserMenu, setShowUserMenu] = useState<boolean>(false);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
 
   // Network & Sync State
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
@@ -133,11 +134,14 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
     return () => clearTimeout(timer);
   }, [globalSearchQuery, token]);
 
-  // Click outside to dismiss search results
+  // Click outside to dismiss search results and user menu
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
         setShowSearchResults(false);
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setShowUserMenu(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -246,152 +250,156 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
   return (
     <>
       <header className="top-header">
-        {/* Left: Branding & Global Search Box */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-            <img
-              src="/logo.jpeg"
-              alt="NMP Logo"
-              style={{ width: '38px', height: '38px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--border)', backgroundColor: '#ffffff', flexShrink: 0 }}
-            />
+        {/* Left: Branch & Terminal Pill */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              padding: '0.35rem 0.65rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'rgba(2, 132, 199, 0.08)',
+              border: '1px solid rgba(2, 132, 199, 0.2)',
+              fontSize: '0.75rem'
+            }}
+          >
+            <span style={{ fontSize: '0.9rem' }}>🏥</span>
             <div>
-              <h2 style={{ fontSize: '0.98rem', fontWeight: 800, letterSpacing: '-0.01em', lineHeight: 1.2, margin: 0 }}>
-                Naveed Medical Pharmacy
-              </h2>
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.2, margin: 0, marginTop: '2px' }}>
-                Hospital Road Branch • Counter 01
-              </p>
+              <div style={{ fontWeight: 700, lineHeight: 1.1, fontSize: '0.76rem' }}>Hospital Road Branch</div>
+              <div style={{ fontSize: '0.64rem', color: 'var(--text-muted)' }}>Counter 01 • Active</div>
             </div>
-          </div>
-
-          {/* Global Search Bar */}
-          <div ref={searchContainerRef} style={{ position: 'relative', width: '280px' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={15} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input
-                type="text"
-                className="input input-sm"
-                style={{ paddingLeft: '2rem', height: '34px', fontSize: '0.8rem' }}
-                placeholder="Global Search (Meds, Barcode, Inv, Patients)..."
-                value={globalSearchQuery}
-                onChange={e => setGlobalSearchQuery(e.target.value)}
-                onFocus={() => {
-                  if (globalSearchResults) setShowSearchResults(true);
-                }}
-              />
-              {isSearching && (
-                <div style={{ position: 'absolute', right: '0.65rem', top: '50%', transform: 'translateY(-50%)', width: '12px', height: '12px', border: '2px solid var(--primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-              )}
-            </div>
-
-            {/* Global Search Popup Dropdown */}
-            {showSearchResults && globalSearchResults && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '110%',
-                  left: 0,
-                  width: '420px',
-                  backgroundColor: 'var(--bg-surface)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-md)',
-                  boxShadow: 'var(--shadow-glass)',
-                  zIndex: 200,
-                  maxHeight: '400px',
-                  overflowY: 'auto',
-                  padding: '0.5rem'
-                }}
-              >
-                {/* Medicines */}
-                {globalSearchResults.medicines?.length > 0 && (
-                  <div style={{ marginBottom: '0.5rem' }}>
-                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', padding: '0.2rem 0.5rem' }}>
-                      Medicines & Barcodes
-                    </div>
-                    {globalSearchResults.medicines.map((m: any) => (
-                      <div
-                        key={m.id}
-                        onClick={() => {
-                          setShowSearchResults(false);
-                          if (onNavigate) onNavigate('medicines');
-                        }}
-                        style={{ padding: '0.4rem 0.5rem', borderRadius: '4px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}
-                        className="hover-bg"
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                          <Pill size={14} style={{ color: 'var(--primary)' }} />
-                          <div>
-                            <strong>{m.title}</strong> {m.strength} ({m.generic_name})
-                          </div>
-                        </div>
-                        <span style={{ fontSize: '0.72rem', color: m.total_stock > 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
-                          {m.total_stock} in stock
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Customers */}
-                {globalSearchResults.customers?.length > 0 && (
-                  <div style={{ marginBottom: '0.5rem' }}>
-                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', padding: '0.2rem 0.5rem' }}>
-                      Patients / Customers
-                    </div>
-                    {globalSearchResults.customers.map((c: any) => (
-                      <div
-                        key={c.id}
-                        onClick={() => {
-                          setShowSearchResults(false);
-                          if (onNavigate) onNavigate('patients');
-                        }}
-                        style={{ padding: '0.4rem 0.5rem', borderRadius: '4px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}
-                        className="hover-bg"
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                          <Users size={14} style={{ color: '#06b6d4' }} />
-                          <span><strong>{c.title}</strong> ({c.subtitle})</span>
-                        </div>
-                        <span style={{ fontSize: '0.72rem', color: c.current_balance > 0 ? 'var(--danger)' : 'var(--text-muted)', fontWeight: 600 }}>
-                          Udhar: Rs. {c.current_balance}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Invoices */}
-                {globalSearchResults.sales?.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', padding: '0.2rem 0.5rem' }}>
-                      Sales Invoices
-                    </div>
-                    {globalSearchResults.sales.map((s: any) => (
-                      <div
-                        key={s.id}
-                        onClick={() => {
-                          setShowSearchResults(false);
-                          if (onNavigate) onNavigate('pos');
-                        }}
-                        style={{ padding: '0.4rem 0.5rem', borderRadius: '4px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}
-                        className="hover-bg"
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                          <FileText size={14} style={{ color: '#8b5cf6' }} />
-                          <span><strong>{s.title}</strong> — {s.customer_name || 'Walk-in'}</span>
-                        </div>
-                        <span style={{ fontWeight: 700 }}>Rs. {s.total_amount}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
 
+        {/* Center: Flexible Global Search Bar */}
+        <div ref={searchContainerRef} style={{ position: 'relative', flex: 1, maxWidth: '440px', margin: '0 0.5rem' }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <input
+              type="text"
+              className="input input-sm"
+              style={{ paddingLeft: '2.1rem', paddingRight: '2rem', height: '36px', fontSize: '0.8rem', borderRadius: 'var(--radius-full)' }}
+              placeholder="Search Medicines, Barcode, Patients (F2)..."
+              value={globalSearchQuery}
+              onChange={e => setGlobalSearchQuery(e.target.value)}
+              onFocus={() => {
+                if (globalSearchResults) setShowSearchResults(true);
+              }}
+            />
+            {isSearching && (
+              <div style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', width: '12px', height: '12px', border: '2px solid var(--primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            )}
+          </div>
+
+          {/* Global Search Popup Dropdown */}
+          {showSearchResults && globalSearchResults && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '115%',
+                left: 0,
+                width: '100%',
+                minWidth: '380px',
+                backgroundColor: 'var(--bg-surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-md)',
+                boxShadow: 'var(--shadow-glass)',
+                zIndex: 200,
+                maxHeight: '400px',
+                overflowY: 'auto',
+                padding: '0.5rem'
+              }}
+            >
+              {/* Medicines */}
+              {globalSearchResults.medicines?.length > 0 && (
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', padding: '0.2rem 0.5rem' }}>
+                    Medicines & Barcodes
+                  </div>
+                  {globalSearchResults.medicines.map((m: any) => (
+                    <div
+                      key={m.id}
+                      onClick={() => {
+                        setShowSearchResults(false);
+                        if (onNavigate) onNavigate('medicines');
+                      }}
+                      style={{ padding: '0.4rem 0.5rem', borderRadius: '4px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}
+                      className="hover-bg"
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <Pill size={14} style={{ color: 'var(--primary)' }} />
+                        <div>
+                          <strong>{m.title}</strong> {m.strength} ({m.generic_name})
+                        </div>
+                      </div>
+                      <span style={{ fontSize: '0.72rem', color: m.total_stock > 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
+                        {m.total_stock} in stock
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Customers */}
+              {globalSearchResults.customers?.length > 0 && (
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', padding: '0.2rem 0.5rem' }}>
+                    Patients / Customers
+                  </div>
+                  {globalSearchResults.customers.map((c: any) => (
+                    <div
+                      key={c.id}
+                      onClick={() => {
+                        setShowSearchResults(false);
+                        if (onNavigate) onNavigate('patients');
+                      }}
+                      style={{ padding: '0.4rem 0.5rem', borderRadius: '4px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}
+                      className="hover-bg"
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <Users size={14} style={{ color: '#06b6d4' }} />
+                        <span><strong>{c.title}</strong> ({c.subtitle})</span>
+                      </div>
+                      <span style={{ fontSize: '0.72rem', color: c.current_balance > 0 ? 'var(--danger)' : 'var(--text-muted)', fontWeight: 600 }}>
+                        Udhar: Rs. {c.current_balance}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Invoices */}
+              {globalSearchResults.sales?.length > 0 && (
+                <div>
+                  <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', padding: '0.2rem 0.5rem' }}>
+                    Sales Invoices
+                  </div>
+                  {globalSearchResults.sales.map((s: any) => (
+                    <div
+                      key={s.id}
+                      onClick={() => {
+                        setShowSearchResults(false);
+                        if (onNavigate) onNavigate('pos');
+                      }}
+                      style={{ padding: '0.4rem 0.5rem', borderRadius: '4px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}
+                      className="hover-bg"
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <FileText size={14} style={{ color: '#8b5cf6' }} />
+                        <span><strong>{s.title}</strong> — {s.customer_name || 'Walk-in'}</span>
+                      </div>
+                      <span style={{ fontWeight: 700 }}>Rs. {s.total_amount}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Right Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
           {/* Real-Time Online / Offline Status Badge */}
           <div
             style={{
@@ -402,12 +410,12 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
               borderRadius: 'var(--radius-full)',
               backgroundColor: isOnline ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
               color: isOnline ? 'var(--success)' : 'var(--danger)',
-              fontSize: '0.75rem',
+              fontSize: '0.72rem',
               fontWeight: 700
             }}
             title={isOnline ? 'Connected to local/network server' : 'Running in Local Offline Mode'}
           >
-            {isOnline ? <Wifi size={13} /> : <WifiOff size={13} />}
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: isOnline ? 'var(--success)' : 'var(--danger)', boxShadow: isOnline ? '0 0 6px var(--success)' : 'none' }} />
             <span>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
           </div>
 
@@ -421,12 +429,12 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
               title="Click to synchronize queued offline sales to server"
             >
               <RefreshCw size={13} className={isSyncing ? 'spin-anim' : ''} />
-              <span>Pending Sync: {pendingSyncCount}</span>
+              <span>Sync: {pendingSyncCount}</span>
             </button>
           )}
 
           {syncStatusMsg && (
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
               {syncStatusMsg}
             </span>
           )}
@@ -434,11 +442,11 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
           {/* Operations Guide Button */}
           <button
             onClick={() => setShowGuideModal(true)}
-            className="btn btn-primary btn-sm"
-            style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.45rem 0.85rem', fontWeight: 700 }}
+            className="btn btn-secondary btn-sm"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.35rem 0.65rem', fontSize: '0.78rem' }}
             title="Open Step-by-Step Operations Manual"
           >
-            <BookOpen size={15} />
+            <BookOpen size={14} />
             <span>Manual</span>
           </button>
 
@@ -447,22 +455,22 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
             <button
               onClick={() => setShowDropdown(!showDropdown)}
               className="btn btn-secondary btn-sm"
-              style={{ width: '36px', height: '36px', padding: 0, position: 'relative' }}
+              style={{ width: '34px', height: '34px', padding: 0, position: 'relative' }}
               title="Notification Center"
             >
-              <Bell size={16} />
+              <Bell size={15} />
               {unreadCount > 0 && (
                 <span
                   style={{
                     position: 'absolute',
-                    top: '-4px',
-                    right: '-4px',
+                    top: '-3px',
+                    right: '-3px',
                     backgroundColor: 'var(--danger)',
                     color: '#fff',
                     borderRadius: '50%',
-                    width: '18px',
-                    height: '18px',
-                    fontSize: '0.65rem',
+                    width: '16px',
+                    height: '16px',
+                    fontSize: '0.62rem',
                     fontWeight: 800,
                     display: 'flex',
                     alignItems: 'center',
@@ -571,65 +579,103 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
             onClick={toggleTheme}
             className="btn btn-secondary btn-sm"
             title={`Switch to ${theme === 'light' ? 'Dark' : 'Light'} Mode`}
-            style={{ width: '36px', height: '36px', padding: 0 }}
+            style={{ width: '34px', height: '34px', padding: 0 }}
           >
-            {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+            {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
           </button>
 
-          {/* User Profile & Actions */}
+          {/* User Profile Pill & Actions Dropdown */}
           {user && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', paddingLeft: '0.5rem', borderLeft: '1px solid var(--border)' }}>
-              <div
+            <div ref={userMenuRef} style={{ position: 'relative', marginLeft: '0.25rem' }}>
+              <button
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                className="btn btn-secondary btn-sm"
                 style={{
-                  width: '36px',
-                  height: '36px',
-                  borderRadius: 'var(--radius-full)',
-                  backgroundColor: 'var(--primary-light)',
-                  color: 'var(--primary)',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 700,
-                  fontSize: '0.85rem'
+                  gap: '0.45rem',
+                  padding: '0.25rem 0.6rem',
+                  borderRadius: 'var(--radius-full)',
+                  border: '1px solid var(--border)'
                 }}
+                title="Account Menu"
               >
-                {user.username.slice(0, 2).toUpperCase()}
-              </div>
-              <div>
-                <div style={{ fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  {user.fullName}
+                <div
+                  style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '50%',
+                    backgroundColor: 'var(--primary)',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 700,
+                    fontSize: '0.72rem'
+                  }}
+                >
+                  {user.username.slice(0, 2).toUpperCase()}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <span className="badge badge-primary" style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
-                    {user.roleName}
-                  </span>
+                <div style={{ textAlign: 'left', lineHeight: 1.1 }}>
+                  <div style={{ fontSize: '0.76rem', fontWeight: 700 }}>
+                    {user.fullName ? user.fullName.split(' ')[0] : user.username}
+                  </div>
                 </div>
-              </div>
-
-              {/* Change Password Action Button */}
-              <button
-                onClick={() => {
-                  setShowPasswordModal(true);
-                  setPasswordStatus(null);
-                }}
-                className="btn btn-secondary btn-sm"
-                style={{ marginLeft: '0.4rem' }}
-                title="Change Account Password"
-              >
-                <KeyRound size={14} />
-                <span>Password</span>
+                <ChevronDown size={13} style={{ color: 'var(--text-muted)' }} />
               </button>
 
-              {/* Logout Button */}
-              <button
-                onClick={logout}
-                className="btn btn-secondary btn-sm"
-                style={{ color: 'var(--danger)' }}
-                title="Sign Out"
-              >
-                <LogOut size={14} />
-                <span>Logout</span>
-              </button>
+              {/* User Dropdown Menu */}
+              {showUserMenu && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '120%',
+                    right: 0,
+                    width: '220px',
+                    backgroundColor: 'var(--bg-surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-md)',
+                    boxShadow: 'var(--shadow-glass)',
+                    zIndex: 150,
+                    padding: '0.4rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.2rem'
+                  }}
+                >
+                  <div style={{ padding: '0.5rem 0.65rem', borderBottom: '1px solid var(--border)', marginBottom: '0.25rem' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.82rem' }}>{user.fullName || user.username}</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      Role: <span className="badge badge-primary" style={{ fontSize: '0.62rem', padding: '0.05rem 0.35rem' }}>{user.roleName}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      setShowPasswordModal(true);
+                      setPasswordStatus(null);
+                    }}
+                    className="btn btn-secondary btn-sm"
+                    style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'none', padding: '0.45rem 0.65rem' }}
+                  >
+                    <KeyRound size={14} />
+                    <span>Change Password</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      logout();
+                    }}
+                    className="btn btn-secondary btn-sm"
+                    style={{ width: '100%', justifyContent: 'flex-start', border: 'none', background: 'none', color: 'var(--danger)', padding: '0.45rem 0.65rem' }}
+                  >
+                    <LogOut size={14} />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

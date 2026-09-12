@@ -11,7 +11,8 @@ import {
   AlertTriangle,
   Camera,
   MessageCircle,
-  CheckCircle
+  CheckCircle,
+  QrCode
 } from 'lucide-react';
 import { saveOfflineSale } from '../services/offlineSync.js';
 import { printThermalElement } from '../utils/thermalPrinter.js';
@@ -52,8 +53,26 @@ export const PosView: React.FC = () => {
   const [customers, setCustomers] = useState<{ id: number; name: string; mobile?: string; current_balance: number }[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [billDiscount, setBillDiscount] = useState<string>('0');
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'CREDIT' | 'SPLIT'>('CASH');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'JAZZCASH' | 'AL_HABIB' | 'CREDIT'>('CASH');
+  const [activeQrModal, setActiveQrModal] = useState<'JAZZCASH' | 'AL_HABIB' | null>(null);
   const [paidAmount, setPaidAmount] = useState<string>('');
+
+  // Refs for real-time SSE payment auto-matching
+  const cartRef = useRef<CartItem[]>(cart);
+  const billDiscountRef = useRef<string>(billDiscount);
+  const selectedCustomerRef = useRef<string>(selectedCustomerId);
+
+  useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
+
+  useEffect(() => {
+    billDiscountRef.current = billDiscount;
+  }, [billDiscount]);
+
+  useEffect(() => {
+    selectedCustomerRef.current = selectedCustomerId;
+  }, [selectedCustomerId]);
 
   // Held bills state
   const [heldBills, setHeldBills] = useState<any[]>([]);
@@ -69,6 +88,156 @@ export const PosView: React.FC = () => {
   const [autoPrint, setAutoPrint] = useState<boolean>(() => {
     return localStorage.getItem('nmp_autoprint') === 'true';
   });
+
+  const handleDirectHardwarePrint = async (invNum?: string) => {
+    const num = invNum || lastInvoice?.invoiceNumber;
+    if (!num) return;
+    setDirectPrinting(true);
+    try {
+      const res = await fetch('/api/integrations/print-receipt-direct', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          invoiceNumber: num,
+          printerName: 'Speed-X 400UL'
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setInfoMessage('Receipt printed directly on Speed-X 400UL hardware!');
+      } else {
+        setErrorMessage(data.error || 'Direct print failed');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Direct print error');
+    } finally {
+      setDirectPrinting(false);
+    }
+  };
+
+  // Helper for automated checkout upon QR payment detection
+  const autoCompleteQrSale = async (eventData: any, method: any) => {
+    if (cartRef.current.length === 0) return;
+    const currentCart = [...cartRef.current];
+    const currentSubtotal = currentCart.reduce((sum, it) => sum + it.lineTotal, 0);
+    const disc = Number(billDiscountRef.current) || 0;
+    const currentPrintFee = 2.00;
+    const total = Math.max(0, currentSubtotal - disc + currentPrintFee);
+
+    setInfoMessage(`⚡ QR Payment Verified: Rs. ${eventData.amount} (${eventData.provider}) - Auto-printing invoice...`);
+
+    try {
+      const res = await fetch('/api/pos/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          customerId: selectedCustomerRef.current ? Number(selectedCustomerRef.current) : null,
+          items: currentCart.map(it => ({
+            medicineId: it.medicineId,
+            batchId: it.batchId,
+            quantity: it.quantity,
+            unitPrice: it.unitPrice,
+            discount: it.discount
+          })),
+          subtotal: currentSubtotal,
+          discount: disc,
+          tax: currentPrintFee,
+          totalAmount: total,
+          paidAmount: eventData.amount,
+          paymentMethod: method,
+          notes: `Auto QR Pay (TID: ${eventData.trxId})`
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const invoiceData = {
+          ...data.invoice,
+          tax: currentPrintFee,
+          customer: customers.find(c => String(c.id) === selectedCustomerRef.current),
+          cashierName: user?.fullName || 'Cashier',
+          paymentMethod: method
+        };
+        setLastInvoice(invoiceData);
+        setShowReceiptModal(true);
+        handleClearCart();
+
+        // Trigger hardware print to Speed-X directly!
+        await handleDirectHardwarePrint(data.invoice?.invoiceNumber);
+      }
+    } catch (err: any) {
+      console.error('Auto QR checkout error:', err);
+    }
+  };
+
+  // Real-time SSE listener for incoming physical QR payments
+  useEffect(() => {
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource('/api/integrations/qr-events');
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'CONNECTED') return;
+
+          console.log('[REALTIME_QR_PAYMENT_ARRIVED]', data);
+
+          // Play subtle synthesized audio chime
+          try {
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            if (AudioContextClass) {
+              const ctx = new AudioContextClass();
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+              osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1); // A5
+              gain.gain.setValueAtTime(0.3, ctx.currentTime);
+              gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+              osc.start();
+              osc.stop(ctx.currentTime + 0.35);
+            }
+          } catch (e) {
+            console.log('Audio chime unavailable:', e);
+          }
+
+          setInfoMessage(`⚡ QR Payment Received: Rs. ${data.amount} (${data.provider}) - TID: ${data.trxId}`);
+
+          // Check if active cart exists and matches the amount
+          if (cartRef.current && cartRef.current.length > 0) {
+            const currentSubtotal = cartRef.current.reduce((sum, it) => sum + it.lineTotal, 0);
+            const currentDiscount = Number(billDiscountRef.current) || 0;
+            const currentNet = Math.max(0, currentSubtotal - currentDiscount + 2.00);
+
+            const method: 'JAZZCASH' | 'AL_HABIB' = data.provider === 'AL_HABIB' ? 'AL_HABIB' : 'JAZZCASH';
+
+            // If incoming payment covers the cart (or within Rs 2), auto-checkout and print!
+            if (Math.abs(data.amount - currentNet) <= 2 || data.amount >= currentNet) {
+              autoCompleteQrSale(data, method);
+            } else {
+              setPaidAmount(String(data.amount));
+              setPaymentMethod(method);
+            }
+          }
+        } catch (e) {
+          console.error('Error parsing QR event:', e);
+        }
+      };
+    } catch (err) {
+      console.error('SSE initialization error:', err);
+    }
+
+    return () => {
+      eventSource?.close();
+    };
+  }, [token]);
 
   // Fetch customers & pharmacy settings on load
   useEffect(() => {
@@ -110,35 +279,6 @@ export const PosView: React.FC = () => {
 
   const handlePrintReceipt = () => {
     printThermalElement('nmp-pos-receipt', (settings['printer_paper_width'] as any) || '80mm');
-  };
-
-  const handleDirectHardwarePrint = async (invNum?: string) => {
-    const num = invNum || lastInvoice?.invoiceNumber;
-    if (!num) return;
-    setDirectPrinting(true);
-    try {
-      const res = await fetch('/api/integrations/print-receipt-direct', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          invoiceNumber: num,
-          printerName: 'Speed-X 400UL'
-        })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setInfoMessage('Receipt printed directly on Speed-X 400UL hardware!');
-      } else {
-        setErrorMessage(data.error || 'Direct print failed');
-      }
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Direct print error');
-    } finally {
-      setDirectPrinting(false);
-    }
   };
 
   // Keyboard shortcut listener
@@ -288,7 +428,7 @@ export const PosView: React.FC = () => {
   };
 
   // Financial Calculations
-  const printFee = cart.length > 0 ? 1.00 : 0.00;
+  const printFee = cart.length > 0 ? 2.00 : 0.00;
   const subtotal = cart.reduce((acc, it) => acc + it.lineTotal, 0);
   const discountVal = Number(billDiscount) || 0;
   const grandTotal = cart.length > 0 ? Math.max(0, subtotal + printFee - discountVal) : 0;
@@ -844,7 +984,34 @@ export const PosView: React.FC = () => {
         {/* Right Column: Customer & Settlement Checkout Panel */}
         <div className="card" style={{ padding: '1.25rem' }}>
           <form onSubmit={handleCheckout} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-            <h2 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '0.25rem' }}>Settlement & Payment</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+              <h2 style={{ fontSize: '1rem', fontWeight: 700 }}>Settlement & Payment</h2>
+              {cart.length > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await fetch('/api/integrations/qr-simulate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          amount: grandTotal,
+                          provider: 'NAYAPAY',
+                          trxId: 'TEST-' + Math.floor(100000 + Math.random() * 900000)
+                        })
+                      });
+                    } catch (e: any) {
+                      setErrorMessage('Simulation failed: ' + e.message);
+                    }
+                  }}
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: '0.68rem', padding: '0.2rem 0.45rem', backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}
+                  title="Simulate incoming QR payment and trigger auto-print"
+                >
+                  ⚡ Simulate QR Pay
+                </button>
+              )}
+            </div>
 
             {/* Customer Selector */}
             <div>
@@ -870,19 +1037,62 @@ export const PosView: React.FC = () => {
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>
                 Payment Method
               </label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.35rem' }}>
-                {(['CASH', 'CARD', 'CREDIT', 'SPLIT'] as const).map(mode => (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.25rem' }}>
+                {([
+                  { id: 'CASH', label: 'Cash' },
+                  { id: 'CARD', label: 'Card' },
+                  { id: 'JAZZCASH', label: 'JazzCash QR' },
+                  { id: 'AL_HABIB', label: 'Bank AL Habib QR' },
+                  { id: 'CREDIT', label: 'Credit' }
+                ] as const).map(mode => (
                   <button
-                    key={mode}
+                    key={mode.id}
                     type="button"
-                    onClick={() => setPaymentMethod(mode)}
-                    className={`btn btn-sm ${paymentMethod === mode ? 'btn-primary' : 'btn-secondary'}`}
-                    style={{ fontSize: '0.72rem', padding: '0.35rem 0.2rem', justifyContent: 'center' }}
+                    onClick={() => setPaymentMethod(mode.id)}
+                    className={`btn btn-sm ${paymentMethod === mode.id ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ fontSize: '0.64rem', padding: '0.35rem 0.15rem', justifyContent: 'center', whiteSpace: 'nowrap' }}
                   >
-                    {mode}
+                    {mode.label}
                   </button>
                 ))}
               </div>
+
+              {/* QR payment quick scan helper banner */}
+              {paymentMethod === 'JAZZCASH' && (
+                <div style={{ marginTop: '0.4rem', padding: '0.45rem 0.65rem', backgroundColor: '#fff9c4', border: '1px solid #fbc02d', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#f57f17' }}>JazzCash / Raast QR</div>
+                    <div style={{ fontSize: '0.7rem', color: '#333' }}>Till ID: <strong>980 685 083</strong> (*786*10#)</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveQrModal('JAZZCASH')}
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: '0.7rem', padding: '0.2rem 0.45rem', display: 'flex', alignItems: 'center', gap: '0.25rem', backgroundColor: '#fff' }}
+                  >
+                    <QrCode size={13} />
+                    <span>View QR</span>
+                  </button>
+                </div>
+              )}
+
+              {paymentMethod === 'AL_HABIB' && (
+                <div style={{ marginTop: '0.4rem', padding: '0.45rem 0.65rem', backgroundColor: '#e8f5e9', border: '1px solid #81c784', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#2e7d32' }}>Bank AL Habib QR</div>
+                    <div style={{ fontSize: '0.7rem', color: '#333' }}>Store Code: <strong>5901</strong></div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveQrModal('AL_HABIB')}
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: '0.7rem', padding: '0.2rem 0.45rem', display: 'flex', alignItems: 'center', gap: '0.25rem', backgroundColor: '#fff' }}
+                  >
+                    <QrCode size={13} />
+                    <span>View QR</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Bill Discount & Paid Amount */}
@@ -1115,7 +1325,7 @@ export const PosView: React.FC = () => {
                     {lastInvoice.items.map((it: any, i: number) => (
                       <tr key={i} style={{ borderBottom: i < lastInvoice.items.length - 1 ? '1px dotted #e0e0e0' : 'none' }}>
                         <td style={{ padding: '0.25rem 0', verticalAlign: 'top' }}>
-                          <div style={{ fontWeight: 700 }}>{it.brandName} {it.strength || ''}</div>
+                          <div style={{ fontWeight: 700 }}>{it.quantity}x {it.brandName} {it.strength || ''}</div>
                           <div style={{ fontSize: '0.65rem', color: '#555' }}>
                             {it.batchNumber ? `B#:${it.batchNumber}` : ''} {it.discount > 0 ? `(Disc: ${it.discount}%)` : ''}
                           </div>
@@ -1136,7 +1346,7 @@ export const PosView: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>
                   <span>Receipt / Print Fee:</span>
-                  <span>Rs. {(lastInvoice.tax || 1.00).toFixed(2)}</span>
+                  <span>Rs. {(lastInvoice.tax || 2.00).toFixed(2)}</span>
                 </div>
                 {lastInvoice.discount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: '#000' }}>
@@ -1168,7 +1378,7 @@ export const PosView: React.FC = () => {
                 <div>{settings['receipt_footer'] || 'Get well soon! Returns accepted within 7 days with bill.'}</div>
                 <div style={{ fontSize: '0.62rem', color: '#555', marginTop: '0.2rem' }}>Keep all medicines stored below 30°C in dry place.</div>
                 <div style={{ fontWeight: 800, marginTop: '0.35rem', letterSpacing: '0.5px' }}>
-                  *** {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY'} ***
+                  *** {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY (NMP)'} ***
                 </div>
               </div>
             </div>
@@ -1200,7 +1410,7 @@ export const PosView: React.FC = () => {
                 <button
                   onClick={() => {
                     const phone = (lastInvoice?.customer?.mobile || '').replace(/[^0-9]/g, '');
-                    const invoiceSummary = `*${settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY'}*%0AInvoice: %23${lastInvoice.invoiceNumber}%0ADate: ${new Date(lastInvoice.createdAt).toLocaleString()}%0ANet Total: Rs. ${lastInvoice.totalAmount}%0APaid: Rs. ${lastInvoice.paidAmount}%0AThank you for choosing NMP!`;
+                    const invoiceSummary = `*${settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY (NMP)'}*%0AInvoice: %23${lastInvoice.invoiceNumber}%0ADate: ${new Date(lastInvoice.createdAt).toLocaleString()}%0ANet Total: Rs. ${lastInvoice.totalAmount}%0APaid: Rs. ${lastInvoice.paidAmount}%0AThank you for choosing NMP!`;
                     window.open(`https://wa.me/${phone ? '92' + phone.slice(-10) : ''}?text=${invoiceSummary}`, '_blank');
                   }}
                   className="btn btn-secondary"
@@ -1212,6 +1422,53 @@ export const PosView: React.FC = () => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR Code Stand Preview Modal */}
+      {activeQrModal && (
+        <div className="modal-overlay" onClick={() => setActiveQrModal(null)}>
+          <div className="modal-content" style={{ maxWidth: '380px', padding: '1.25rem', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <span style={{ fontWeight: 800, fontSize: '0.95rem' }}>
+                {activeQrModal === 'JAZZCASH' ? 'JazzCash / Raast QR Payment' : 'Bank AL Habib QR Payment'}
+              </span>
+              <button onClick={() => setActiveQrModal(null)} className="btn btn-secondary btn-sm" style={{ padding: '0.2rem' }}>
+                <X size={15} />
+              </button>
+            </div>
+
+            <div style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', marginBottom: '0.75rem' }}>
+              <img
+                src={activeQrModal === 'JAZZCASH' ? '/qr-jazzcash.jpg' : '/qr-alhabib.jpg'}
+                alt="QR Stand"
+                style={{ width: '100%', maxHeight: '380px', objectFit: 'contain', borderRadius: 'var(--radius-sm)' }}
+              />
+            </div>
+
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              {activeQrModal === 'JAZZCASH' ? (
+                <div>
+                  <div>Till ID: <strong style={{ fontSize: '1rem', color: '#b78103' }}>980 685 083</strong></div>
+                  <div style={{ marginTop: '0.2rem' }}>Dial <code>*786*10#</code> or scan via JazzCash / Raast Banking Apps</div>
+                </div>
+              ) : (
+                <div>
+                  <div>Store Till Code: <strong style={{ fontSize: '1rem', color: '#1b5e20' }}>5901</strong></div>
+                  <div style={{ marginTop: '0.2rem' }}>Scan via Bank AL Habib or any 1Link Raast Banking App</div>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveQrModal(null)}
+              className="btn btn-primary"
+              style={{ width: '100%', marginTop: '0.85rem' }}
+            >
+              Done / Received
+            </button>
           </div>
         </div>
       )}

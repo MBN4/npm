@@ -85,6 +85,7 @@ app.use('/api/reports', reportRouter);
 app.use('/api/forecast', forecastRouter);
 app.use('/api/clinical', clinicalRouter);
 app.use('/api/integrations', integrationRouter);
+app.use('/api/integration', integrationRouter);
 app.use('/api/backup', backupRouter);
 
 // Global 404 Handler

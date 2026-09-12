@@ -3,6 +3,7 @@ import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
 import { printToWindowsPrinter } from '../services/printerService.js';
+import { registerSseClient, broadcastPaymentEvent, getRecentQrPayments, parseSmsNotification, QrPaymentEvent } from '../services/qrPaymentService.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -180,7 +181,7 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     const pharmacyName = settingsMap['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY (NMP)';
     const phone = settingsMap['pharmacy_phone'] || '03454142863';
     const footer = settingsMap['receipt_footer'] || 'Thank you for choosing NMP. Get well soon!';
-    const printFee = 1.00; // Rs. 1 additional fee on each receipt print
+    const printFee = 2.00; // Rs. 2 fee on each receipt print
 
     const chunks: Buffer[] = [
       Buffer.from([0x1B, 0x40]), // ESC @ - Initialize
@@ -216,7 +217,7 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     let totalUnits = 0;
     items.forEach(it => {
       totalUnits += (it.quantity || 1);
-      const fullName = `${it.brand_name || ''} ${it.strength || ''} ${it.dosage_form || ''}`.trim();
+      const fullName = `${it.quantity}x ${it.brand_name || ''} ${it.strength || ''} ${it.dosage_form || ''}`.trim();
       chunks.push(Buffer.from(`${fullName}\n`, 'utf8'));
 
       if (it.batch_number) {
@@ -291,22 +292,22 @@ integrationRouter.post('/print-test-direct', authenticateToken, async (req: Requ
       Buffer.from('------------------------------------------\n', 'utf8'),
       Buffer.from(padBetween('Item', 'Price   Total', 42) + '\n', 'utf8'),
       Buffer.from('------------------------------------------\n', 'utf8'),
-      Buffer.from('Augmentin 625mg Tablet\n', 'utf8'),
+      Buffer.from('1x Augmentin 625mg Tablet\n', 'utf8'),
       Buffer.from('  B#:AUG-991  Exp:2027-12\n', 'utf8'),
       Buffer.from(padBetween('  1 x 52.00', 'Rs. 52.00', 42) + '\n', 'utf8'),
-      Buffer.from('Panadol Extra 500mg\n', 'utf8'),
+      Buffer.from('10x Panadol Extra 500mg\n', 'utf8'),
       Buffer.from('  B#:PAN-402  Exp:2028-06\n', 'utf8'),
       Buffer.from(padBetween('  10 x 4.00', 'Rs. 40.00', 42) + '\n', 'utf8'),
       Buffer.from('------------------------------------------\n', 'utf8'),
       Buffer.from(padBetween('Total Items: 2 (11 Units)', 'Subtotal: Rs. 92.00', 42) + '\n', 'utf8'),
-      Buffer.from(padBetween('Receipt Fee:', 'Rs.  1.00', 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('Receipt Fee:', 'Rs.  2.00', 42) + '\n', 'utf8'),
       Buffer.from(padBetween('Discount:', '-Rs.  0.00', 42) + '\n', 'utf8'),
       Buffer.from('------------------------------------------\n', 'utf8'),
       Buffer.from([0x1B, 0x45, 0x01]),
-      Buffer.from(padBetween('NET TOTAL:', 'Rs. 93.00', 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('NET TOTAL:', 'Rs. 94.00', 42) + '\n', 'utf8'),
       Buffer.from([0x1B, 0x45, 0x00]),
       Buffer.from(padBetween('Cash Tendered:', 'Rs. 100.00', 42) + '\n', 'utf8'),
-      Buffer.from(padBetween('Change Return:', 'Rs.   7.00', 42) + '\n', 'utf8'),
+      Buffer.from(padBetween('Change Return:', 'Rs.   6.00', 42) + '\n', 'utf8'),
       Buffer.from('------------------------------------------\n', 'utf8'),
       Buffer.from([0x1B, 0x61, 0x01]),
       Buffer.from('Thank you for choosing NMP! Get well soon!\n', 'utf8'),
@@ -531,3 +532,105 @@ integrationRouter.get('/sample-csv/:template', (req: Request, res: Response) => 
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(csv);
 });
+
+// ==========================================
+// 5. PHYSICAL QR PAYMENT WEBHOOK & REAL-TIME SSE
+// ==========================================
+
+// SSE stream for real-time POS payment arrival alerts
+integrationRouter.get('/qr-events', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  registerSseClient(res);
+
+  // Send initial connected ping
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED', message: 'QR Payment Stream Active' })}\n\n`);
+});
+
+// Webhook for incoming mobile payment notifications (SMS forwarder / Bank Webhook)
+integrationRouter.post('/qr-webhook', (req: Request, res: Response) => {
+  try {
+    const body = req.body || {};
+    let eventData: Partial<QrPaymentEvent> = {};
+
+    if (body.smsBody || body.message || body.text) {
+      // Incoming raw SMS payload
+      const smsText = body.smsBody || body.message || body.text;
+      const sender = body.sender || body.from || '';
+      eventData = parseSmsNotification(smsText, sender);
+    } else {
+      // Structured JSON payload
+      eventData = {
+        provider: (body.provider || 'OTHER').toUpperCase(),
+        amount: Number(body.amount || 0),
+        trxId: body.trxId || body.transactionId || 'TRX-' + Date.now().toString().slice(-6),
+        senderMobile: body.senderMobile || body.sender || ''
+      };
+    }
+
+    if (!eventData.amount || eventData.amount <= 0) {
+      return res.status(400).json({ error: 'Valid payment amount is required', received: body });
+    }
+
+    const paymentEvent: QrPaymentEvent = {
+      id: 'PAY-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+      provider: (eventData.provider as any) || 'OTHER',
+      amount: eventData.amount,
+      trxId: eventData.trxId || 'TRX-' + Date.now().toString().slice(-6),
+      senderMobile: eventData.senderMobile,
+      rawText: eventData.rawText,
+      timestamp: new Date().toISOString(),
+      status: 'PENDING'
+    };
+
+    // Broadcast in real-time to POS screens
+    broadcastPaymentEvent(paymentEvent);
+
+    console.log(`[QR_PAYMENT_RECEIVED] Provider: ${paymentEvent.provider} | Amount: Rs. ${paymentEvent.amount} | TID: ${paymentEvent.trxId}`);
+
+    res.json({
+      success: true,
+      message: `Payment of Rs. ${paymentEvent.amount} broadcasted to POS`,
+      payment: paymentEvent
+    });
+  } catch (err: any) {
+    console.error('[QR_WEBHOOK_ERROR]', err);
+    res.status(500).json({ error: 'Failed to process QR payment webhook', details: err.message });
+  }
+});
+
+// Simulator endpoint to test QR payment arrival easily from UI or curl
+integrationRouter.post('/qr-simulate', (req: Request, res: Response) => {
+  try {
+    const { amount, provider, trxId } = req.body;
+    const paymentEvent: QrPaymentEvent = {
+      id: 'SIM-' + Date.now(),
+      provider: provider || 'NAYAPAY',
+      amount: Number(amount || 94.00),
+      trxId: trxId || 'SIM-' + Math.floor(100000 + Math.random() * 900000),
+      timestamp: new Date().toISOString(),
+      status: 'PENDING'
+    };
+
+    broadcastPaymentEvent(paymentEvent);
+
+    res.json({
+      success: true,
+      message: `Simulated QR payment of Rs. ${paymentEvent.amount} triggered successfully!`,
+      payment: paymentEvent
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to simulate QR payment', details: err.message });
+  }
+});
+
+// Fetch recent QR payments
+integrationRouter.get('/qr-recent', authenticateToken, (req: Request, res: Response) => {
+  res.json({
+    payments: getRecentQrPayments()
+  });
+});
+

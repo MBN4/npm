@@ -702,12 +702,12 @@ export const SettingsView: React.FC = () => {
                   <span>TOTAL</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.3rem' }}>
-                  <span>Augmentin 625mg</span>
+                  <span>2x Augmentin 625mg</span>
                   <span>2 x 28.50</span>
                   <span>Rs. 57.00</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.2rem' }}>
-                  <span>Panadol Extra 500mg</span>
+                  <span>10x Panadol Extra 500mg</span>
                   <span>10 x 3.50</span>
                   <span>Rs. 35.00</span>
                 </div>
@@ -717,12 +717,12 @@ export const SettingsView: React.FC = () => {
                   <span>Rs. 92.00</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
-                  <span>Print Fee:</span>
-                  <span>Rs. 1.00</span>
+                  <span>Receipt Fee:</span>
+                  <span>Rs. 2.00</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
                   <span>NET TOTAL:</span>
-                  <span>Rs. 93.00</span>
+                  <span>Rs. 94.00</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
                   <span>Cash Tendered:</span>
@@ -730,7 +730,7 @@ export const SettingsView: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600 }}>
                   <span>Change Due:</span>
-                  <span>Rs. 7.00</span>
+                  <span>Rs. 6.00</span>
                 </div>
                 <div style={{ borderTop: '1px dashed var(--border)', margin: '0.5rem 0' }} />
                 <div style={{ textAlign: 'center', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
