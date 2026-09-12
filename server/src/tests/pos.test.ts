@@ -193,4 +193,44 @@ describe('Phase 4 - POS Counter, FEFO & Expiry Hard Block Test Suite', () => {
 
     expect(delRes.status).toBe(200);
   });
+
+  it('POST /api/pos/sync-offline synchronizes batch offline sales correctly', async () => {
+    const offlinePayload = {
+      sales: [
+        {
+          offlineId: 'OFFLINE-TEST-001',
+          customerId: null,
+          items: [
+            {
+              medicineId: 1,
+              batchId: 1,
+              quantity: 2,
+              unitPrice: 3.50,
+              discount: 0,
+              lineTotal: 7.0
+            }
+          ],
+          subtotal: 7.0,
+          discount: 0,
+          tax: 0,
+          totalAmount: 7.0,
+          paidAmount: 10.0,
+          paymentMethod: 'CASH',
+          notes: 'Test offline sync',
+          timestamp: new Date().toISOString()
+        }
+      ]
+    };
+
+    const res = await request(app)
+      .post('/api/pos/sync-offline')
+      .set('Authorization', `Bearer ${cashierToken}`)
+      .send(offlinePayload);
+
+    expect(res.status).toBe(200);
+    expect(res.body.syncedCount).toBe(1);
+    expect(res.body.failedCount).toBe(0);
+    expect(res.body.synced[0].offlineId).toBe('OFFLINE-TEST-001');
+    expect(res.body.synced[0].invoiceNumber).toBeDefined();
+  });
 });

@@ -7,13 +7,14 @@ import {
   Boxes,
   Truck,
   Building2,
-  Sparkles,
+  ScanBarcode,
+  Bot,
+  FlaskConical,
   FileText,
   Users,
   AlertTriangle,
   ReceiptText,
   BarChart3,
-  TrendingUp,
   Settings,
   Database,
   CheckCircle2,
@@ -333,52 +334,111 @@ export const AdminGuideModal: React.FC<AdminGuideModalProps> = ({
         'All report numbers are computed live from transaction records.'
       ]
     },
-    forecast: {
-      id: 'forecast',
-      title: 'Demand Forecasting & Auto-PO Guide',
-      badge: 'Predictive AI',
-      icon: <TrendingUp size={20} />,
-      summary: 'Average Daily Consumption (ADC), Days of Stock (DOS), dynamic Reorder Points (ROP), and automated box-rounded Purchase Order generator.',
+    barcode: {
+      id: 'barcode',
+      title: 'Barcode Center & Sticker Generator Guide',
+      badge: 'Barcodes',
+      icon: <ScanBarcode size={20} />,
+      summary: 'Centralized barcode operations with live Camera Scanner, USB/Bluetooth wedge hub, and multi-column printable Code-128/QR label sheets.',
       steps: [
         {
-          title: 'Step 1: Inspect Average Daily Consumption (ADC)',
-          description: 'The engine analyzes sliding 30/60/90-day sales velocity to calculate the exact units consumed per day.'
+          title: 'Step 1: Scanner Hub & Diagnostics',
+          description: 'Test hardware USB/Bluetooth barcode guns or turn on the integrated Camera Scanner to instantly recognize EAN-13, Code-128, and QR codes.',
+          tip: 'Scanned barcodes display immediate stock, pricing, and batch details.'
         },
         {
-          title: 'Step 2: Check Days of Stock Remaining (DOS)',
-          description: 'DOS indicates exactly how many days of stock remain on the shelf before the pharmacy runs out completely.'
+          title: 'Step 2: Generate Printable Shelf / Batch Stickers',
+          description: 'Choose a medicine, select batch number (optional), set number of sticker copies, and choose grid layout (2, 3, or 4 columns).',
+          tip: 'Sticker templates are formatted precisely for standard adhesive A4 and roll sticker paper.'
         },
         {
-          title: 'Step 3: One-Click Draft PO Generation',
-          description: 'Click "Generate Draft PO". The system computes required replenishment quantities, rounds them to whole manufacturer box/pack sizes, and formats a purchase order ready for distributor dispatch.'
+          title: 'Step 3: Print Sticker Sheets',
+          description: 'Click "Print Sticker Sheet" to invoke the high-resolution vector print dialogue formatted without margins or page headers.'
         }
       ],
       rules: [
-        'Dynamic Reorder Points adjust automatically as seasonal sales velocity changes.'
+        'Barcode scanner input works globally across POS, inventory, and lookup screens.',
+        'Custom internal barcodes are automatically generated for unbarcoded stock.'
       ]
     },
-    'drug-ai': {
-      id: 'drug-ai',
-      title: 'Drug AI & Clinical Safety Assistant Guide',
-      badge: 'Clinical Safety',
-      icon: <Sparkles size={20} />,
-      summary: 'Multi-drug interaction (DDI) checker, duplicate therapy warnings, patient allergy cross-matching, and bioequivalent generic substitutions.',
+    dictionary: {
+      id: 'dictionary',
+      title: 'Pharma Dictionary & Clinical Reference Guide',
+      badge: 'Dictionary',
+      icon: <BookOpen size={20} />,
+      summary: 'Comprehensive drug reference library with adult/pediatric dose guidelines, pregnancy risk classifications (A/B/C/D/X), food timing, and clinical monographs.',
       steps: [
         {
-          title: 'Step 1: Multi-Drug Interaction Analysis',
-          description: 'Select two or more medicines (e.g. Ciprofloxacin + Antacids, or Warfarin + Aspirin). Click "Analyze Interactions" to view severity ratings (Major, Moderate, Minor) and clinical management advice.'
+          title: 'Step 1: Search Drug Monographs',
+          description: 'Search any generic active molecule or brand name to review indications, contraindications, and therapeutic class.'
         },
         {
-          title: 'Step 2: Find In-Stock Generic Substitutes',
-          description: 'Search an out-of-stock medicine to find bioequivalent in-stock brands sharing the identical generic molecule and strength.'
+          title: 'Step 2: Check Pregnancy & Renal Risk Badges',
+          description: 'Inspect FDA pregnancy risk categories (A, B, C, D, X) and hepatic/renal impairment dosage warnings before dispensing.'
         },
         {
-          title: 'Step 3: Clinical Monograph & Pregnancy Risk',
-          description: 'Look up FDA Pregnancy Risk Categories (Category A, B, C, D, X) and lactation cautions before dispensing to pregnant or nursing mothers.'
+          title: 'Step 3: Food Timing & Patient Counseling',
+          description: 'Check whether the medication should be taken before meals, with food, or at bedtime to provide accurate instructions to patients.'
         }
       ],
       rules: [
-        'Clinical warnings are advisory and designed to empower qualified pharmacists.'
+        'All clinical monographs are sourced from verified pharmaceutical reference standards.'
+      ]
+    },
+    'pharma-ai': {
+      id: 'pharma-ai',
+      title: 'Pharma.AI Clinical Safety Assistant Guide',
+      badge: 'Pharma.AI',
+      icon: <Bot size={20} />,
+      summary: 'Intelligent clinical support engine with multi-drug interaction (DDI) checking, weight-based pediatric dose calculations, and transparent separation between Verified Database Data and AI Advice.',
+      steps: [
+        {
+          title: 'Step 1: Multi-Drug Interaction (DDI) Checking',
+          description: 'Select two or more medicines (e.g. Ciprofloxacin + Antacids, or Warfarin + Aspirin). Click "Analyze Interactions" to view severity ratings and clinical management advice.',
+          tip: 'Interaction engine warns cashiers immediately if dangerous combinations are added.'
+        },
+        {
+          title: 'Step 2: Weight-Based Pediatric Dosage Calculator',
+          description: 'Enter child body weight in kilograms (kg) and select molecule to calculate exact single and 24-hour divided doses in mg and mL.'
+        },
+        {
+          title: 'Step 3: AI Clinical Query Assistant',
+          description: 'Ask clinical questions regarding drug mechanisms, off-label usages, or substitute formulations. Responses clearly badge Verified Database facts vs AI Suggestions.'
+        }
+      ],
+      rules: [
+        'AI output is advisory and designed to empower certified pharmacists.',
+        'Verified Database records are highlighted separately with green verified checkmarks.'
+      ]
+    },
+    medprac: {
+      id: 'medprac',
+      title: 'MedPrac Practice Sandbox Guide',
+      badge: 'MedPrac 🧪',
+      icon: <FlaskConical size={20} />,
+      summary: '100% isolated training and practice environment for pharmacy interns, students, and staff to practice dispensing, simulated prescriptions, and dose calculation quizzes without affecting live pharmacy data.',
+      steps: [
+        {
+          title: 'Step 1: Explore Isolated Practice Stock',
+          description: 'Practice adding, dispensing, or adjusting medicine quantities in the sandbox. Any changes remain strictly within MedPrac and never touch real inventory.',
+          tip: 'Sandbox includes custom quantity override controls for quick test scenarios.'
+        },
+        {
+          title: 'Step 2: Generate Simulated Doctor Prescriptions',
+          description: 'Click "Generate Simulated Rx" to spawn realistic clinical cases with random patient demographics, diagnoses, and multi-drug prescriptions.'
+        },
+        {
+          title: 'Step 3: Practice Dispensing & Clinical Safety Check',
+          description: 'Dispense the simulated prescription, verify dosage calculations, and catch simulated contraindications or drug interactions.'
+        },
+        {
+          title: 'Step 4: Interactive Dosage Calculation Quizzes',
+          description: 'Take self-grading clinical dosage calculation quizzes with instant feedback and step-by-step mathematical explanations.'
+        }
+      ],
+      rules: [
+        'MedPrac is 100% isolated: zero impact on real sales, accounts, stock, or customer data.',
+        'Reset Sandbox button restores clean training benchmark data at any time.'
       ]
     },
     settings: {

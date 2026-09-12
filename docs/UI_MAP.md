@@ -1,19 +1,22 @@
 # NMP UI Map & Application Navigation
 
 ## Core Navigation Shell
-- **Header**: Store Branding (Naveed Medical Pharmacy), Current Shift/Cashier info, Quick Stats (Low Stock, Expiry Alerts), Theme Switcher (Dark/Light), User Profile & Logout.
+- **Header**: Store Branding (Naveed Medical Pharmacy), Current Shift/Cashier info, Real-Time Online/Offline Status Indicator, Pending Sync Queue Counter, "Sync Now" trigger, Unified Global Search Box, Quick Stats (Low Stock, Expiry Alerts), Theme Switcher (Dark/Light), User Profile, Operations Manual, & Logout.
 - **Sidebar**:
-  - `Dashboard` (`/`) -> Operational metrics & quick actions
-  - `POS` (`/pos`) -> Fast cashier counter, search, held bills, returns
-  - `Medicines` (`/medicines`) -> Catalog master, generics, categories, manufacturers
-  - `Inventory` (`/inventory`) -> Batch tracker, stock adjustments, valuation
-  - `Purchases` (`/purchases`) -> Inward orders, batch entry, purchase returns
-  - `Suppliers` (`/suppliers`) -> Profiles, ledgers, payables
-  - `Drug AI` (`/drug-ai`) -> Safety checks, alternatives, interaction matrix
-  - `Prescriptions` (`/prescriptions`) -> Rx management, dosage instructions, doctor registry
-  - `Patients` (`/patients`) -> CRM, purchase history, receivables ledger
-  - `Expiry` (`/expiry`) -> Near-expiry and expired registers, claim processing
-  - `Accounts` (`/accounts`) -> Daily cashbook, expenses, P&L, balance sheets
-  - `Reports` (`/reports`) -> Analytical reports & CSV/PDF exports
+  - `Dashboard` (`/`) -> Operational metrics, profit KPIs, reorder recommendations, & quick actions
+  - `POS` (`/pos`) -> Fast cashier counter, camera & hardware barcode search, FEFO, held bills, returns, WhatsApp receipt
+  - `Medicines` (`/medicines`) -> Catalog master, generics, categories, manufacturers, rack locations
+  - `Inventory` (`/inventory`) -> Batch tracker, stock movements, adjustments, valuation
+  - `Purchases` (`/purchases`) -> Inward orders, batch entry, purchase returns, supplier price comparison
+  - `Suppliers` (`/suppliers`) -> Profiles, ledgers, payables, payment terms
+  - `Barcode` (`/barcode`) -> Dedicated Barcode Center (Scanner Hub, Camera stream, Barcode & QR Label Generator, Printable sheets)
+  - `Pharma Dictionary` (`/dictionary`) -> Searchable drug monographs, indications, adult/pediatric doses, precautions, food timing
+  - `Pharma.AI` (`/pharma-ai`) -> Dedicated clinical AI assistant with verified DB boundary separation
+  - `MedPrac` (`/medprac`) -> 100% isolated learning sandbox, custom test quantities, simulated prescriptions, quizzes
+  - `Rx` (`/prescriptions`) -> Rx management, dosage instructions, doctor registry, convert Rx to POS
+  - `Patients` (`/patients`) -> CRM, purchase history, receivables/udhar ledger, refill reminders
+  - `Expiry` (`/expiry`) -> Near-expiry and expired registers, supplier return claims
+  - `Accounts` (`/accounts`) -> Daily cashbook, expenses, payables, receivables, P&L
+  - `Reports` (`/reports`) -> Analytical reports & PDF/Excel/CSV/Print exports
   - `Staff` (`/staff`) -> User accounts, roles, permissions, audit trails
-  - `Settings` (`/settings`) -> Pharmacy info, printers, receipt templates, backup/restore
+  - `Settings` (`/settings`) -> Pharmacy info, printers, receipt templates, backup/restore, offline configuration

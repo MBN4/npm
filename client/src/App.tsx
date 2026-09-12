@@ -16,8 +16,10 @@ import { PrescriptionsView } from './views/PrescriptionsView.js';
 import { ExpiryView } from './views/ExpiryView.js';
 import { AccountsView } from './views/AccountsView.js';
 import { ReportsView } from './views/ReportsView.js';
-import { ForecastView } from './views/ForecastView.js';
-import { DrugAiView } from './views/DrugAiView.js';
+import { BarcodeView } from './views/BarcodeView.js';
+import { PharmaDictionaryView } from './views/PharmaDictionaryView.js';
+import { PharmaAiView } from './views/PharmaAiView.js';
+import { MedPracView } from './views/MedPracView.js';
 import { UpcomingPhaseView } from './views/UpcomingPhaseView.js';
 
 export const AppContent: React.FC = () => {
@@ -48,18 +50,22 @@ export const AppContent: React.FC = () => {
         return <MedicinesView />;
       case 'inventory':
         return <InventoryView />;
-      case 'forecast':
-        return <ForecastView />;
-      case 'suppliers':
-        return <SuppliersView />;
-      case 'drug-ai':
-        return <DrugAiView />;
       case 'purchases':
         return <PurchasesView />;
-      case 'patients':
-        return <PatientsView />;
+      case 'suppliers':
+        return <SuppliersView />;
+      case 'barcode':
+        return <BarcodeView />;
+      case 'dictionary':
+        return <PharmaDictionaryView />;
+      case 'pharma-ai':
+        return <PharmaAiView />;
+      case 'medprac':
+        return <MedPracView />;
       case 'prescriptions':
         return <PrescriptionsView />;
+      case 'patients':
+        return <PatientsView />;
       case 'expiry':
         return <ExpiryView />;
       case 'accounts':
@@ -89,3 +95,4 @@ export const AppContent: React.FC = () => {
 export const App: React.FC = () => {
   return <AppContent />;
 };
+

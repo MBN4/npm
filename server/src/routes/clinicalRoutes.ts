@@ -243,7 +243,88 @@ clinicalRouter.get('/medicine/:id/monograph', authenticateToken, (req: Request, 
 });
 
 // ==========================================
-// 3. CLINICAL AI CONSULTATION ENGINE
+// 3. PHARMA DICTIONARY (COMPREHENSIVE SEARCHABLE REFERENCE)
+// ==========================================
+clinicalRouter.get('/dictionary', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const search = ((req.query.search as string) || '').trim();
+    const therapeuticClass = ((req.query.class as string) || '').trim();
+    const dosageForm = ((req.query.form as string) || '').trim();
+
+    let queryStr = `
+      SELECT 
+        g.id as generic_id,
+        g.name as generic_name,
+        g.therapeutic_class,
+        g.description as generic_description,
+        ci.pregnancy_category,
+        ci.lactation_safety,
+        ci.adult_dosage,
+        ci.pediatric_dosage,
+        ci.food_instructions,
+        ci.hepatic_renal_precautions,
+        ci.common_side_effects
+      FROM generics g
+      LEFT JOIN drug_clinical_info ci ON g.id = ci.generic_id
+      WHERE 1=1
+    `;
+
+    const params: any[] = [];
+    if (search) {
+      queryStr += ` AND (g.name LIKE ? OR g.therapeutic_class LIKE ? OR g.description LIKE ? OR EXISTS (
+        SELECT 1 FROM medicines m WHERE m.generic_id = g.id AND (m.brand_name LIKE ? OR m.strength LIKE ?)
+      ))`;
+      const term = `%${search}%`;
+      params.push(term, term, term, term, term);
+    }
+
+    if (therapeuticClass) {
+      queryStr += ` AND g.therapeutic_class = ?`;
+      params.push(therapeuticClass);
+    }
+
+    queryStr += ` ORDER BY g.name ASC`;
+    const genericsList = db.prepare(queryStr).all(...params) as any[];
+
+    // Fetch linked brands and dosage forms for each generic
+    const dictionaryEntries = genericsList.map(g => {
+      const linkedMedicines = db.prepare(`
+        SELECT 
+          m.id,
+          m.brand_name,
+          m.strength,
+          m.dosage_form,
+          m.pack_size,
+          m.rack_location,
+          man.name as manufacturer_name,
+          COALESCE(SUM(b.quantity), 0) as total_stock,
+          MIN(b.sale_price) as min_price
+        FROM medicines m
+        LEFT JOIN manufacturers man ON m.manufacturer_id = man.id
+        LEFT JOIN batches b ON m.id = b.medicine_id AND b.status = 'ACTIVE' AND b.expiry_date > CURRENT_DATE
+        WHERE m.generic_id = ?
+        GROUP BY m.id
+        ORDER BY m.brand_name ASC
+      `).all(g.generic_id);
+
+      return {
+        ...g,
+        brands: linkedMedicines,
+        brandCount: linkedMedicines.length
+      };
+    });
+
+    res.json({
+      total: dictionaryEntries.length,
+      entries: dictionaryEntries
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to retrieve pharma dictionary', details: err.message });
+  }
+});
+
+// ==========================================
+// 4. CLINICAL AI CONSULTATION ENGINE
 // ==========================================
 clinicalRouter.post('/ai-consult', authenticateToken, (req: Request, res: Response) => {
   try {
@@ -254,47 +335,89 @@ clinicalRouter.post('/ai-consult', authenticateToken, (req: Request, res: Respon
     }
 
     let contextData: any = null;
+    let substitutes: any[] = [];
     if (medicineId) {
       contextData = db.prepare(`
-        SELECT m.brand_name, m.strength, m.dosage_form, g.name as generic_name, g.therapeutic_class,
-               ci.pregnancy_category, ci.adult_dosage, ci.food_instructions, ci.hepatic_renal_precautions
+        SELECT m.id, m.brand_name, m.strength, m.dosage_form, g.id as generic_id, g.name as generic_name, g.therapeutic_class,
+               ci.pregnancy_category, ci.lactation_safety, ci.adult_dosage, ci.pediatric_dosage, ci.food_instructions,
+               ci.hepatic_renal_precautions, ci.common_side_effects
         FROM medicines m
         LEFT JOIN generics g ON m.generic_id = g.id
         LEFT JOIN drug_clinical_info ci ON g.id = ci.generic_id
         WHERE m.id = ?
-      `).get(medicineId);
+      `).get(medicineId) as any;
+
+      if (contextData?.generic_id) {
+        substitutes = db.prepare(`
+          SELECT m.id, m.brand_name, m.strength, m.dosage_form, man.name as manufacturer_name,
+                 COALESCE(SUM(b.quantity), 0) as available_stock, MIN(b.sale_price) as sale_price
+          FROM medicines m
+          LEFT JOIN manufacturers man ON m.manufacturer_id = man.id
+          LEFT JOIN batches b ON m.id = b.medicine_id AND b.status = 'ACTIVE' AND b.expiry_date > CURRENT_DATE
+          WHERE m.generic_id = ? AND m.id != ? AND m.is_active = 1
+          GROUP BY m.id
+        `).all(contextData.generic_id, medicineId);
+      }
     }
 
     // Generate clinical guidance response
     const qLower = query.toLowerCase();
-    let advice = '';
+    let verifiedData = '';
+    let aiExplanation = '';
 
-    if (qLower.includes('dosage') || qLower.includes('dose')) {
-      if (contextData?.adult_dosage) {
-        advice = `Standard verified adult dosing for ${contextData.brand_name} (${contextData.generic_name}): ${contextData.adult_dosage}. Adjust downward in severe renal impairment.`;
+    if (qLower.includes('alternative') || qLower.includes('substitute') || qLower.includes('brand')) {
+      if (contextData) {
+        verifiedData = `Generic Molecule: ${contextData.generic_name} (${contextData.strength}, ${contextData.dosage_form}).\nTherapeutic Class: ${contextData.therapeutic_class || 'Standard'}.`;
+        if (substitutes.length > 0) {
+          aiExplanation = `Identified ${substitutes.length} in-stock bioequivalent alternative(s) sharing active salt ${contextData.generic_name}:\n` +
+            substitutes.map((s: any) => `• ${s.brand_name} ${s.strength} (${s.dosage_form}) by ${s.manufacturer_name || 'Generic'} - Stock: ${s.available_stock} units (Rs. ${s.sale_price || 'N/A'})`).join('\n') +
+            `\nClinical recommendation: Ensure identical salt strength and dosage form bioavailability before dispensing.`;
+        } else {
+          aiExplanation = `No alternate brands currently in inventory for ${contextData.generic_name}. Recommended action: Consult supplier directory or prescribe equivalent within class ${contextData.therapeutic_class}.`;
+        }
       } else {
-        advice = `Standard therapeutic dosing should follow BNF or USP protocols. Please confirm renal and hepatic parameters prior to high-dose administration.`;
+        aiExplanation = `To suggest exact in-stock brand alternatives, select a target medicine from the selector above or specify the generic salt name.`;
+      }
+    } else if (qLower.includes('dosage') || qLower.includes('dose') || qLower.includes('how to take')) {
+      if (contextData) {
+        verifiedData = `Adult Dosage Reference: ${contextData.adult_dosage || 'Standard BNF / USP titration'}\nPediatric Dosage Reference: ${contextData.pediatric_dosage || 'Weight-adjusted dosing (mg/kg)'}\nFood Timing: ${contextData.food_instructions || 'With plenty of water'}`;
+        aiExplanation = `For ${contextData.brand_name} (${contextData.generic_name}), standard adult clinical dosing guidance indicates: ${contextData.adult_dosage || 'titration per prescription'}. Administer ${contextData.food_instructions || 'according to prescriber instructions'}. Adjust downward in patients with impaired CrCl.`;
+      } else {
+        aiExplanation = `Standard therapeutic dosing should adhere strictly to BNF, USP, or licensed product insert protocols. Verify renal and hepatic parameters prior to high-dose administration.`;
       }
     } else if (qLower.includes('food') || qLower.includes('eat') || qLower.includes('empty stomach')) {
       if (contextData?.food_instructions) {
-        advice = `Administration guidance for ${contextData.brand_name}: ${contextData.food_instructions}.`;
+        verifiedData = `Administration: ${contextData.food_instructions}`;
+        aiExplanation = `Clinical administration rule for ${contextData.brand_name}: ${contextData.food_instructions}. If gastrointestinal distress occurs, take with meals unless food significantly impairs bioavailability.`;
       } else {
-        advice = `Administer with a full glass of water. If gastrointestinal irritation occurs, take with light meals unless enteric coated.`;
+        aiExplanation = `Administer with a full glass of water. If GI discomfort occurs, food or milk may be co-administered unless enteric-coated or fluoroquinolone class.`;
       }
-    } else if (qLower.includes('pregnant') || qLower.includes('pregnancy') || qLower.includes('lactation')) {
+    } else if (qLower.includes('pregnant') || qLower.includes('pregnancy') || qLower.includes('lactation') || qLower.includes('breastfeeding')) {
       if (contextData?.pregnancy_category) {
-        advice = `${contextData.brand_name} (${contextData.generic_name}) is FDA Pregnancy Category ${contextData.pregnancy_category}. Lactation note: ${contextData.lactation_safety || 'Use with medical supervision'}.`;
+        verifiedData = `FDA Pregnancy Category: ${contextData.pregnancy_category}\nLactation Safety: ${contextData.lactation_safety || 'Consult clinical guidelines'}`;
+        aiExplanation = `${contextData.brand_name} (${contextData.generic_name}) is categorized as FDA Pregnancy Category ${contextData.pregnancy_category}. Lactation Note: ${contextData.lactation_safety || 'Excreted in trace amounts; monitor infant'}. Risk Assessment: ${contextData.pregnancy_category === 'X' ? 'STRICTLY CONTRAINDICATED in pregnancy.' : 'Use only if maternal benefit outweighs potential fetal risk.'}`;
       } else {
-        advice = `Use during pregnancy only when clearly indicated and potential benefit justifies fetal risk. Consult attending OB/GYN.`;
+        aiExplanation = `Use during pregnancy and lactation only when clearly indicated by an attending obstetrician. Check BNF section 14.1 for pregnancy risk data.`;
+      }
+    } else if (qLower.includes('side effect') || qLower.includes('adverse') || qLower.includes('reaction')) {
+      if (contextData?.common_side_effects) {
+        verifiedData = `Documented Side Effects: ${contextData.common_side_effects}\nPrecautions: ${contextData.hepatic_renal_precautions || 'Routine monitoring'}`;
+        aiExplanation = `Common adverse effects associated with ${contextData.brand_name} (${contextData.generic_name}): ${contextData.common_side_effects}. Patients should seek medical evaluation if severe reactions occur.`;
+      } else {
+        aiExplanation = `Monitor patient for hypersensitivity, gastrointestinal upset, CNS symptoms, or idiosyncratic drug reactions.`;
       }
     } else {
-      advice = `Clinical query noted for ${contextData ? contextData.brand_name : 'the pharmacy patient'}. Verified pharmaceutical guidelines recommend cross-referencing patient allergies, creatinine clearance, and concurrent medications before adjusting therapeutic regimen.`;
+      verifiedData = contextData ? `Medicine: ${contextData.brand_name} | Generic: ${contextData.generic_name} | Class: ${contextData.therapeutic_class}` : 'General Clinical Query';
+      aiExplanation = `Pharmaceutical review for "${query}": Verified guidelines recommend reviewing patient allergy history, renal/hepatic biomarkers, and concomitant prescriptions before modifying drug therapy.`;
     }
 
     res.json({
       query,
       targetMedicine: contextData ? { brandName: contextData.brand_name, generic: contextData.generic_name } : null,
-      response: advice,
+      verifiedData,
+      aiExplanation,
+      response: aiExplanation,
+      substitutes,
       badge: '[AI CLINICAL ADVICE - PHARMACIST VERIFICATION REQUIRED]',
       timestamp: new Date().toISOString()
     });
@@ -302,3 +425,4 @@ clinicalRouter.post('/ai-consult', authenticateToken, (req: Request, res: Respon
     res.status(500).json({ error: 'Failed to process clinical AI consultation', details: err.message });
   }
 });
+

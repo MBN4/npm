@@ -77,4 +77,16 @@ describe('Drug AI & Clinical Safety Assistant API', () => {
     expect(res.body.response).toContain('dosing');
     expect(res.body.badge).toContain('AI CLINICAL ADVICE');
   });
+
+  it('should return searchable pharma dictionary with clinical monographs', async () => {
+    const res = await request(app)
+      .get('/api/clinical/dictionary?search=Paracetamol')
+      .set('Authorization', `Bearer ${pharmacistToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('entries');
+    expect(res.body.entries.length).toBeGreaterThan(0);
+    expect(res.body.entries[0]).toHaveProperty('adult_dosage');
+    expect(res.body.entries[0]).toHaveProperty('brands');
+  });
 });

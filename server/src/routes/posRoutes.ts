@@ -391,3 +391,217 @@ posRouter.get('/invoices/:invoiceNumber', authenticateToken, (req: Authenticated
 
   res.json({ sale, items });
 });
+
+// ==========================================
+// Offline Sales Batch Sync Endpoint
+// ==========================================
+posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sales'), (req: AuthenticatedRequest, res: Response) => {
+  const { sales } = req.body; // Array of offline sale objects
+
+  if (!sales || !Array.isArray(sales) || sales.length === 0) {
+    res.status(400).json({ error: 'No offline sales provided for synchronization.' });
+    return;
+  }
+
+  const syncedInvoices: any[] = [];
+  const failedInvoices: any[] = [];
+
+  for (const rawSale of sales) {
+    try {
+      const syncResult = runTransaction(() => {
+        const {
+          offlineId,
+          customerId,
+          items,
+          subtotal,
+          discount,
+          tax,
+          totalAmount,
+          paidAmount,
+          paymentMethod,
+          notes,
+          timestamp
+        } = rawSale;
+
+        const billTotal = Number(totalAmount) || 0;
+        const billPaid = Number(paidAmount) || 0;
+        const billDiscount = Number(discount) || 0;
+        const billTax = Number(tax) || 0;
+        const billSubtotal = Number(subtotal) || billTotal;
+        const remaining = Math.max(0, billTotal - billPaid);
+        const change = Math.max(0, billPaid - billTotal);
+
+        const invoiceNumber = generateInvoiceNumber();
+        const processedItems: any[] = [];
+
+        for (const item of items) {
+          const batchId = Number(item.batchId);
+          const qty = Number(item.quantity);
+
+          if (!batchId || isNaN(qty) || qty <= 0) {
+            throw new Error(`Invalid item quantity or batch for offline item`);
+          }
+
+          const batch = db.prepare(`
+            SELECT b.*, m.brand_name, m.strength
+            FROM batches b
+            JOIN medicines m ON b.medicine_id = m.id
+            WHERE b.id = ?
+          `).get(batchId) as any;
+
+          if (!batch) {
+            throw new Error(`Batch ID ${batchId} not found on server`);
+          }
+
+          // Decrement batch stock (allow zero floor)
+          const newBatchQty = Math.max(0, batch.quantity - qty);
+          db.prepare('UPDATE batches SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newBatchQty, batchId);
+
+          // Stock movement
+          db.prepare(`
+            INSERT INTO stock_movements (
+              batch_id, movement_type, quantity_change, balance_after,
+              reference_type, reference_id, notes, user_id
+            ) VALUES (?, 'SALE', ?, ?, 'POS_OFFLINE_SYNC', ?, ?, ?)
+          `).run(
+            batchId,
+            -qty,
+            newBatchQty,
+            invoiceNumber,
+            `Offline Sync Sale (Offline ID: ${offlineId || 'N/A'})`,
+            req.user?.id
+          );
+
+          const unitPrice = Number(item.unitPrice) || batch.sale_price;
+          const itemDiscount = Number(item.discount) || 0;
+          const lineTotal = (unitPrice * qty) - itemDiscount;
+
+          processedItems.push({
+            medicineId: batch.medicine_id,
+            batchId: batch.id,
+            quantity: qty,
+            unitPrice,
+            discount: itemDiscount,
+            lineTotal,
+            purchasePriceSnapshot: batch.purchase_price
+          });
+        }
+
+        // Insert Sale
+        const saleResult = db.prepare(`
+          INSERT INTO sales (
+            invoice_number, customer_id, cashier_id, subtotal, discount, tax,
+            total_amount, paid_amount, remaining_amount, change_amount, payment_method,
+            status, notes, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)
+        `).run(
+          invoiceNumber,
+          customerId || null,
+          req.user?.id,
+          billSubtotal,
+          billDiscount,
+          billTax,
+          billTotal,
+          billPaid,
+          remaining,
+          change,
+          paymentMethod || 'CASH',
+          notes ? `[OFFLINE SYNC] ${notes}` : '[OFFLINE SYNC]',
+          timestamp || new Date().toISOString()
+        );
+
+        const saleId = saleResult.lastInsertRowid;
+
+        // Insert Sale Items
+        const insertSaleItem = db.prepare(`
+          INSERT INTO sale_items (
+            sale_id, medicine_id, batch_id, quantity, unit_price,
+            discount, line_total, purchase_price_snapshot
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        for (const it of processedItems) {
+          insertSaleItem.run(
+            saleId,
+            it.medicineId,
+            it.batchId,
+            it.quantity,
+            it.unitPrice,
+            it.discount,
+            it.lineTotal,
+            it.purchasePriceSnapshot
+          );
+        }
+
+        // Cashbook entry
+        const cashPortion = paymentMethod === 'CASH' ? Math.min(billPaid, billTotal) : (paymentMethod === 'SPLIT' ? Number(billPaid) : 0);
+        if (cashPortion > 0) {
+          db.prepare(`
+            INSERT INTO cashbook_entries (
+              entry_type, category, amount, reference_type, reference_id, description, created_by, created_at
+            ) VALUES ('IN', 'SALE', ?, 'SALE', ?, ?, ?, ?)
+          `).run(
+            cashPortion,
+            String(saleId),
+            `Offline Sync Sale receipt #${invoiceNumber}`,
+            req.user?.id,
+            timestamp || new Date().toISOString()
+          );
+        }
+
+        // Customer ledger if credit
+        if (remaining > 0 && customerId) {
+          const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId) as any;
+          if (customer) {
+            const newCustomerBalance = customer.current_balance + remaining;
+            db.prepare('UPDATE customers SET current_balance = ? WHERE id = ?').run(newCustomerBalance, customerId);
+            db.prepare(`
+              INSERT INTO customer_ledgers (
+                customer_id, transaction_type, reference_id, debit, credit, balance_after, notes, created_at
+              ) VALUES (?, 'SALE_CREDIT', ?, ?, 0.0, ?, ?, ?)
+            `).run(
+              customerId,
+              invoiceNumber,
+              remaining,
+              newCustomerBalance,
+              `Offline Sync Credit sale #${invoiceNumber}`,
+              timestamp || new Date().toISOString()
+            );
+          }
+        }
+
+        logAudit({
+          userId: req.user?.id,
+          action: 'OFFLINE_SALE_SYNCED',
+          entity: 'SALES',
+          entityId: saleId,
+          newValues: { offlineId, invoiceNumber, total: billTotal },
+          ipAddress: req.ip
+        });
+
+        return {
+          offlineId,
+          serverSaleId: saleId,
+          invoiceNumber,
+          status: 'SYNCED'
+        };
+      });
+
+      syncedInvoices.push(syncResult);
+    } catch (err: any) {
+      failedInvoices.push({
+        offlineId: rawSale.offlineId,
+        error: err.message
+      });
+    }
+  }
+
+  res.status(200).json({
+    message: `Synchronized ${syncedInvoices.length} of ${sales.length} offline transactions.`,
+    syncedCount: syncedInvoices.length,
+    failedCount: failedInvoices.length,
+    synced: syncedInvoices,
+    failed: failedInvoices
+  });
+});
+

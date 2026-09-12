@@ -1,8 +1,30 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.js';
-import { Moon, Sun, LogOut, Bell, Check, AlertTriangle, Info, Ban, KeyRound, Eye, EyeOff, X, BookOpen } from 'lucide-react';
+import {
+  Moon,
+  Sun,
+  LogOut,
+  Bell,
+  Check,
+  AlertTriangle,
+  Info,
+  Ban,
+  KeyRound,
+  Eye,
+  EyeOff,
+  X,
+  BookOpen,
+  Wifi,
+  WifiOff,
+  RefreshCw,
+  Search,
+  Pill,
+  Users,
+  FileText
+} from 'lucide-react';
 import { AdminGuideModal } from './AdminGuideModal.js';
 import { NavView } from './Sidebar.js';
+import { getOfflineSalesQueue, syncOfflineSalesToServer } from '../services/offlineSync.js';
 
 interface HeaderProps {
   currentView?: NavView;
@@ -14,6 +36,19 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [showDropdown, setShowDropdown] = useState<boolean>(false);
+
+  // Network & Sync State
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+  const [pendingSyncCount, setPendingSyncCount] = useState<number>(() => getOfflineSalesQueue().length);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncStatusMsg, setSyncStatusMsg] = useState<string | null>(null);
+
+  // Global Search State
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [globalSearchResults, setGlobalSearchResults] = useState<any | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Operations Guide State
   const [showGuideModal, setShowGuideModal] = useState<boolean>(false);
@@ -29,10 +64,89 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
   const [passwordStatus, setPasswordStatus] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isChanging, setIsChanging] = useState(false);
 
+  // Network & Sync listeners
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      handleTriggerSync();
+    };
+    const handleOffline = () => setIsOnline(false);
+
+    const handleQueueChange = () => {
+      setPendingSyncCount(getOfflineSalesQueue().length);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('nmp-offline-queue-changed', handleQueueChange);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('nmp-offline-queue-changed', handleQueueChange);
+    };
+  }, [token]);
+
+  const handleTriggerSync = async () => {
+    if (!token || isSyncing) return;
+    setIsSyncing(true);
+    setSyncStatusMsg('Syncing offline sales...');
+    try {
+      const result = await syncOfflineSalesToServer(token);
+      setPendingSyncCount(getOfflineSalesQueue().length);
+      setSyncStatusMsg(result.message);
+      setTimeout(() => setSyncStatusMsg(null), 3500);
+    } catch (err: any) {
+      setSyncStatusMsg('Sync failed: ' + err.message);
+      setTimeout(() => setSyncStatusMsg(null), 4000);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Global Search API call
+  useEffect(() => {
+    if (!globalSearchQuery || globalSearchQuery.trim().length < 2) {
+      setGlobalSearchResults(null);
+      setShowSearchResults(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = await fetch(`/api/catalog/global-search?q=${encodeURIComponent(globalSearchQuery.trim())}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setGlobalSearchResults(data.results || null);
+          setShowSearchResults(true);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [globalSearchQuery, token]);
+
+  // Click outside to dismiss search results
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setShowSearchResults(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const fetchNotifications = async () => {
     if (!token) return;
     try {
-      // Trigger background alert sync
       await fetch('/api/notifications/generate', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
@@ -53,12 +167,11 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
 
   useEffect(() => {
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 60000); // 1-minute alert poll
+    const interval = setInterval(fetchNotifications, 60000);
     return () => clearInterval(interval);
   }, [token]);
 
   const handleMarkAsRead = async (id: number) => {
-    // Optimistically mark single notification as read
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: 1 } : n));
     setUnreadCount(prev => Math.max(0, prev - 1));
     try {
@@ -72,7 +185,6 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
   };
 
   const handleMarkAllRead = async () => {
-    // Optimistically clear unread count and badges
     setUnreadCount(0);
     setNotifications(prev => prev.map(n => ({ ...n, is_read: 1 })));
     try {
@@ -134,27 +246,193 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
   return (
     <>
       <header className="top-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        {/* Left: Branding & Global Search Box */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
           <div>
             <h2 style={{ fontSize: '1.05rem', fontWeight: 700, letterSpacing: '-0.01em' }}>
               Naveed Medical Pharmacy
             </h2>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              Hospital Road Branch • Main Billing Terminal 01
+              Hospital Road Branch • Counter 01
             </p>
+          </div>
+
+          {/* Global Search Bar */}
+          <div ref={searchContainerRef} style={{ position: 'relative', width: '320px' }}>
+            <div style={{ position: 'relative' }}>
+              <Search size={15} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                type="text"
+                className="input input-sm"
+                style={{ paddingLeft: '2rem', height: '34px', fontSize: '0.8rem' }}
+                placeholder="Global Search (Meds, Barcode, Inv, Patients)..."
+                value={globalSearchQuery}
+                onChange={e => setGlobalSearchQuery(e.target.value)}
+                onFocus={() => {
+                  if (globalSearchResults) setShowSearchResults(true);
+                }}
+              />
+              {isSearching && (
+                <div style={{ position: 'absolute', right: '0.65rem', top: '50%', transform: 'translateY(-50%)', width: '12px', height: '12px', border: '2px solid var(--primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+              )}
+            </div>
+
+            {/* Global Search Popup Dropdown */}
+            {showSearchResults && globalSearchResults && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '110%',
+                  left: 0,
+                  width: '420px',
+                  backgroundColor: 'var(--bg-surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md)',
+                  boxShadow: 'var(--shadow-glass)',
+                  zIndex: 200,
+                  maxHeight: '400px',
+                  overflowY: 'auto',
+                  padding: '0.5rem'
+                }}
+              >
+                {/* Medicines */}
+                {globalSearchResults.medicines?.length > 0 && (
+                  <div style={{ marginBottom: '0.5rem' }}>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', padding: '0.2rem 0.5rem' }}>
+                      Medicines & Barcodes
+                    </div>
+                    {globalSearchResults.medicines.map((m: any) => (
+                      <div
+                        key={m.id}
+                        onClick={() => {
+                          setShowSearchResults(false);
+                          if (onNavigate) onNavigate('medicines');
+                        }}
+                        style={{ padding: '0.4rem 0.5rem', borderRadius: '4px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}
+                        className="hover-bg"
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <Pill size={14} style={{ color: 'var(--primary)' }} />
+                          <div>
+                            <strong>{m.title}</strong> {m.strength} ({m.generic_name})
+                          </div>
+                        </div>
+                        <span style={{ fontSize: '0.72rem', color: m.total_stock > 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
+                          {m.total_stock} in stock
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Customers */}
+                {globalSearchResults.customers?.length > 0 && (
+                  <div style={{ marginBottom: '0.5rem' }}>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', padding: '0.2rem 0.5rem' }}>
+                      Patients / Customers
+                    </div>
+                    {globalSearchResults.customers.map((c: any) => (
+                      <div
+                        key={c.id}
+                        onClick={() => {
+                          setShowSearchResults(false);
+                          if (onNavigate) onNavigate('patients');
+                        }}
+                        style={{ padding: '0.4rem 0.5rem', borderRadius: '4px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}
+                        className="hover-bg"
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <Users size={14} style={{ color: '#06b6d4' }} />
+                          <span><strong>{c.title}</strong> ({c.subtitle})</span>
+                        </div>
+                        <span style={{ fontSize: '0.72rem', color: c.current_balance > 0 ? 'var(--danger)' : 'var(--text-muted)', fontWeight: 600 }}>
+                          Udhar: Rs. {c.current_balance}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Invoices */}
+                {globalSearchResults.sales?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', padding: '0.2rem 0.5rem' }}>
+                      Sales Invoices
+                    </div>
+                    {globalSearchResults.sales.map((s: any) => (
+                      <div
+                        key={s.id}
+                        onClick={() => {
+                          setShowSearchResults(false);
+                          if (onNavigate) onNavigate('pos');
+                        }}
+                        style={{ padding: '0.4rem 0.5rem', borderRadius: '4px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}
+                        className="hover-bg"
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <FileText size={14} style={{ color: '#8b5cf6' }} />
+                          <span><strong>{s.title}</strong> — {s.customer_name || 'Walk-in'}</span>
+                        </div>
+                        <span style={{ fontWeight: 700 }}>Rs. {s.total_amount}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
+        {/* Right Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {/* Real-Time Online / Offline Status Badge */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              padding: '0.35rem 0.65rem',
+              borderRadius: 'var(--radius-full)',
+              backgroundColor: isOnline ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+              color: isOnline ? 'var(--success)' : 'var(--danger)',
+              fontSize: '0.75rem',
+              fontWeight: 700
+            }}
+            title={isOnline ? 'Connected to local/network server' : 'Running in Local Offline Mode'}
+          >
+            {isOnline ? <Wifi size={13} /> : <WifiOff size={13} />}
+            <span>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+          </div>
+
+          {/* Pending Offline Sync Counter & Trigger */}
+          {pendingSyncCount > 0 && (
+            <button
+              onClick={handleTriggerSync}
+              disabled={isSyncing}
+              className="btn btn-warning btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.72rem', padding: '0.35rem 0.65rem' }}
+              title="Click to synchronize queued offline sales to server"
+            >
+              <RefreshCw size={13} className={isSyncing ? 'spin-anim' : ''} />
+              <span>Pending Sync: {pendingSyncCount}</span>
+            </button>
+          )}
+
+          {syncStatusMsg && (
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              {syncStatusMsg}
+            </span>
+          )}
+
           {/* Operations Guide Button */}
           <button
             onClick={() => setShowGuideModal(true)}
             className="btn btn-primary btn-sm"
             style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.45rem 0.85rem', fontWeight: 700 }}
-            title="Open Step-by-Step Operations Manual for Current Tab"
+            title="Open Step-by-Step Operations Manual"
           >
             <BookOpen size={15} />
-            <span>📖 Manual & Guide</span>
+            <span>📖 Manual</span>
           </button>
 
           {/* Notifications Center */}
@@ -377,7 +655,6 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
               position: 'relative'
             }}
           >
-            {/* Modal Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <KeyRound size={18} style={{ color: 'var(--primary)' }} />
@@ -407,7 +684,6 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
             )}
 
             <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {/* Current Password */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>
                   Current Password
@@ -441,7 +717,6 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
                 </div>
               </div>
 
-              {/* New Password */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>
                   New Password (min. 6 characters)
@@ -475,7 +750,6 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
                 </div>
               </div>
 
-              {/* Confirm New Password */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>
                   Confirm New Password
