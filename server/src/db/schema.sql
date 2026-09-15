@@ -416,15 +416,77 @@ CREATE TABLE IF NOT EXISTS drug_interactions (
 CREATE TABLE IF NOT EXISTS drug_clinical_info (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   generic_id INTEGER UNIQUE NOT NULL,
+  atc_code TEXT,
+  rx_status TEXT DEFAULT 'Rx', -- Rx, OTC, Controlled, Hospital Use
+  pharmacological_class TEXT,
+  countries_available TEXT DEFAULT 'Pakistan, USA, UK, EU, Global',
   pregnancy_category TEXT, -- A, B, C, D, X
+  trimester_considerations TEXT,
   lactation_safety TEXT,
   adult_dosage TEXT,
   pediatric_dosage TEXT,
-  food_instructions TEXT,
+  neonatal_dosage TEXT,
+  geriatric_dosage TEXT,
+  weight_bsa_dosing TEXT,
   hepatic_renal_precautions TEXT,
-  common_side_effects TEXT,
+  dialysis_considerations TEXT,
+  indications_approved TEXT,
+  indications_common TEXT,
+  indications_offlabel TEXT,
+  pharmacology_moa TEXT,
+  pharmacokinetics_summary TEXT,
+  absorption_bioavailability TEXT,
+  distribution_protein_binding TEXT,
+  metabolism_cyp TEXT,
+  half_life_elimination TEXT,
+  onset_peak_duration TEXT,
+  contraindications_absolute TEXT,
+  contraindications_relative TEXT,
+  boxed_warnings TEXT,
+  serious_warnings TEXT,
+  cautions TEXT,
+  monitoring_required TEXT,
+  side_effects_common TEXT,
+  side_effects_serious TEXT,
+  side_effects_rare_life_threatening TEXT,
+  food_interactions TEXT,
+  disease_interactions TEXT,
+  special_populations TEXT,
+  pill_imprint TEXT,
+  pill_shape TEXT,
+  pill_color TEXT,
+  monitoring_parameters TEXT,
+  administration_instructions TEXT,
+  storage_stability TEXT,
+  patient_counseling_en TEXT,
+  patient_counseling_professional TEXT,
+  clinical_source TEXT DEFAULT 'USP-NF / DailyMed / BNF 86 Reference',
+  source_version TEXT DEFAULT 'v2026.1',
+  last_reviewed TEXT DEFAULT '2026-09-01',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (generic_id) REFERENCES generics(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_pharma_favorites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  generic_id INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (generic_id) REFERENCES generics(id) ON DELETE CASCADE,
+  UNIQUE(user_id, generic_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_pharma_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  generic_id INTEGER NOT NULL,
+  note_text TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (generic_id) REFERENCES generics(id) ON DELETE CASCADE,
+  UNIQUE(user_id, generic_id)
 );
 
 -- Indices for performance
@@ -436,3 +498,5 @@ CREATE INDEX IF NOT EXISTS idx_sales_invoice ON sales(invoice_number);
 CREATE INDEX IF NOT EXISTS idx_sales_created ON sales(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_drug_interactions ON drug_interactions(generic_a_id, generic_b_id);
+CREATE INDEX IF NOT EXISTS idx_user_pharma_fav ON user_pharma_favorites(user_id, generic_id);
+

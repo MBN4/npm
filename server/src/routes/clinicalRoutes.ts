@@ -243,48 +243,168 @@ clinicalRouter.get('/medicine/:id/monograph', authenticateToken, (req: Request, 
 });
 
 // ==========================================
-// 3. PHARMA DICTIONARY (COMPREHENSIVE SEARCHABLE REFERENCE)
+// 3. PHARMA DICTIONARY & FULL DRUG PROFILE MONOGRAPH
 // ==========================================
+const DRUG_ALIAS_MAP: Record<string, string> = {
+  'ondasteron': 'Ondansetron',
+  'ondasteran': 'Ondansetron',
+  'ondasetron': 'Ondansetron',
+  'gravinate': 'Ondansetron',
+  'emeset': 'Ondansetron',
+  'zofran': 'Ondansetron',
+  'paracetimol': 'Paracetamol',
+  'paracetmol': 'Paracetamol',
+  'panadol': 'Paracetamol',
+  'calpol': 'Paracetamol',
+  'amoxil': 'Amoxicillin',
+  'augmentin': 'Amoxicillin',
+  'risek': 'Omeprazole',
+  'losec': 'Omeprazole',
+  'norvasc': 'Amlodipine',
+  'glucophage': 'Metformin',
+  'brufen': 'Ibuprofen',
+  'advil': 'Ibuprofen',
+  'voltaren': 'Diclofenac',
+  'caflam': 'Diclofenac',
+  'flagyl': 'Metronidazole',
+  'ponstan': 'Mefenamic Acid',
+  'buscopan': 'Hyoscine N-Butylbromide',
+  'ventolin': 'Salbutamol',
+  'zithromax': 'Azithromycin',
+  'azomax': 'Azithromycin',
+  'ciprobay': 'Ciprofloxacin',
+  'rocephin': 'Ceftriaxone',
+  'cozaar': 'Losartan',
+  'eziday': 'Losartan',
+  'lipitor': 'Atorvastatin',
+  'singulair': 'Montelukast',
+  'myteka': 'Montelukast',
+  'zyrtec': 'Cetirizine',
+  'rigix': 'Cetirizine',
+  'valium': 'Diazepam',
+  'lexapro': 'Escitalopram',
+  'clexane': 'Enoxaparin',
+  'lasix': 'Furosemide',
+  'disprin': 'Aspirin',
+  'loprin': 'Aspirin',
+  'decadron': 'Dexamethasone',
+  'nexium': 'Esomeprazole',
+  'concor': 'Bisoprolol',
+  'diamicron': 'Gliclazide',
+  'claritin': 'Loratadine',
+  'bactroban': 'Mupirocin',
+  'imodium': 'Loperamide'
+};
+
 clinicalRouter.get('/dictionary', authenticateToken, (req: Request, res: Response) => {
   try {
     const search = ((req.query.search as string) || '').trim();
+    const letter = ((req.query.letter as string) || '').trim().toUpperCase();
     const therapeuticClass = ((req.query.class as string) || '').trim();
-    const dosageForm = ((req.query.form as string) || '').trim();
+    const rxStatus = ((req.query.rxStatus as string) || '').trim();
+    const sort = ((req.query.sort as string) || 'AZ').trim();
 
-    let queryStr = `
-      SELECT 
-        g.id as generic_id,
-        g.name as generic_name,
-        g.therapeutic_class,
-        g.description as generic_description,
-        ci.pregnancy_category,
-        ci.lactation_safety,
-        ci.adult_dosage,
-        ci.pediatric_dosage,
-        ci.food_instructions,
-        ci.hepatic_renal_precautions,
-        ci.common_side_effects
-      FROM generics g
-      LEFT JOIN drug_clinical_info ci ON g.id = ci.generic_id
-      WHERE 1=1
-    `;
+    const country = ((req.query.country as string) || '').trim();
 
-    const params: any[] = [];
-    if (search) {
-      queryStr += ` AND (g.name LIKE ? OR g.therapeutic_class LIKE ? OR g.description LIKE ? OR EXISTS (
-        SELECT 1 FROM medicines m WHERE m.generic_id = g.id AND (m.brand_name LIKE ? OR m.strength LIKE ?)
-      ))`;
-      const term = `%${search}%`;
-      params.push(term, term, term, term, term);
+    const buildQuery = (searchTerm: string, useFuzzy = false) => {
+      let queryStr = `
+        SELECT 
+          g.id as generic_id,
+          g.name as generic_name,
+          g.therapeutic_class,
+          g.description as generic_description,
+          ci.*
+        FROM generics g
+        LEFT JOIN drug_clinical_info ci ON g.id = ci.generic_id
+        WHERE 1=1
+      `;
+
+      const params: any[] = [];
+
+      if (letter === '0-9' || letter === '0–9') {
+        queryStr += ` AND SUBSTR(g.name, 1, 1) BETWEEN '0' AND '9'`;
+      } else if (letter && letter.length === 1) {
+        queryStr += ` AND UPPER(g.name) LIKE ?`;
+        params.push(`${letter}%`);
+      }
+
+      if (country) {
+        queryStr += ` AND (ci.countries_available LIKE ? OR ci.countries_available IS NULL)`;
+        params.push(`%${country}%`);
+      }
+
+      if (searchTerm) {
+        const lowerSearch = searchTerm.toLowerCase();
+        const mappedAlias = DRUG_ALIAS_MAP[lowerSearch];
+
+        if (mappedAlias) {
+          queryStr += ` AND (g.name LIKE ? OR g.name LIKE ? OR g.description LIKE ? OR EXISTS (SELECT 1 FROM medicines m WHERE m.generic_id = g.id AND m.brand_name LIKE ?))`;
+          const mainTerm = `%${searchTerm}%`;
+          const aliasTerm = `%${mappedAlias}%`;
+          params.push(mainTerm, aliasTerm, aliasTerm, mainTerm);
+        } else if (useFuzzy && searchTerm.length >= 4) {
+          const prefix = `%${searchTerm.slice(0, 4)}%`;
+          const suffix = `%${searchTerm.slice(-4)}%`;
+          queryStr += ` AND (
+            g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR 
+            g.therapeutic_class LIKE ? OR g.description LIKE ? OR
+            EXISTS (SELECT 1 FROM medicines m WHERE m.generic_id = g.id AND (m.brand_name LIKE ? OR m.brand_name LIKE ?))
+          )`;
+          const mainTerm = `%${searchTerm}%`;
+          params.push(mainTerm, prefix, suffix, mainTerm, mainTerm, mainTerm, prefix);
+        } else {
+          queryStr += ` AND (
+            g.name LIKE ? OR 
+            g.therapeutic_class LIKE ? OR 
+            g.description LIKE ? OR 
+            ci.atc_code LIKE ? OR
+            ci.indications_approved LIKE ? OR
+            ci.indications_common LIKE ? OR
+            EXISTS (
+              SELECT 1 FROM medicines m 
+              LEFT JOIN manufacturers man ON m.manufacturer_id = man.id
+              WHERE m.generic_id = g.id AND (
+                m.brand_name LIKE ? OR 
+                m.strength LIKE ? OR 
+                m.dosage_form LIKE ? OR 
+                man.name LIKE ?
+              )
+            )
+          )`;
+          const term = `%${searchTerm}%`;
+          params.push(term, term, term, term, term, term, term, term, term, term);
+        }
+      }
+
+      if (therapeuticClass) {
+        queryStr += ` AND g.therapeutic_class LIKE ?`;
+        params.push(`%${therapeuticClass}%`);
+      }
+
+      if (rxStatus) {
+        queryStr += ` AND ci.rx_status = ?`;
+        params.push(rxStatus);
+      }
+
+      if (sort === 'ZA') {
+        queryStr += ` ORDER BY g.name DESC`;
+      } else if (sort === 'CLASS') {
+        queryStr += ` ORDER BY g.therapeutic_class ASC, g.name ASC`;
+      } else {
+        queryStr += ` ORDER BY g.name ASC`;
+      }
+
+      return { queryStr, params };
+    };
+
+    let { queryStr, params } = buildQuery(search, false);
+    let genericsList = db.prepare(queryStr).all(...params) as any[];
+
+    // If search returned empty, attempt fuzzy prefix/suffix fallback
+    if (genericsList.length === 0 && search) {
+      const fallback = buildQuery(search, true);
+      genericsList = db.prepare(fallback.queryStr).all(...fallback.params) as any[];
     }
-
-    if (therapeuticClass) {
-      queryStr += ` AND g.therapeutic_class = ?`;
-      params.push(therapeuticClass);
-    }
-
-    queryStr += ` ORDER BY g.name ASC`;
-    const genericsList = db.prepare(queryStr).all(...params) as any[];
 
     // Fetch linked brands and dosage forms for each generic
     const dictionaryEntries = genericsList.map(g => {
@@ -320,6 +440,281 @@ clinicalRouter.get('/dictionary', authenticateToken, (req: Request, res: Respons
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to retrieve pharma dictionary', details: err.message });
+  }
+});
+
+// Drug Class Directory Endpoint
+clinicalRouter.get('/classes', authenticateToken, (_req: Request, res: Response) => {
+  try {
+    const classes = db.prepare(`
+      SELECT 
+        therapeutic_class,
+        COUNT(*) as drug_count
+      FROM generics
+      WHERE therapeutic_class IS NOT NULL AND therapeutic_class != ''
+      GROUP BY therapeutic_class
+      ORDER BY therapeutic_class ASC
+    `).all();
+
+    res.json({ classes });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch drug classes', details: err.message });
+  }
+});
+
+// Manufacturer Directory Endpoint
+clinicalRouter.get('/manufacturers', authenticateToken, (_req: Request, res: Response) => {
+  try {
+    const manufacturers = db.prepare(`
+      SELECT 
+        mfr.id,
+        mfr.name as company_name,
+        mfr.contact_person,
+        mfr.phone,
+        COUNT(m.id) as total_brands
+      FROM manufacturers mfr
+      LEFT JOIN medicines m ON m.manufacturer_id = mfr.id
+      GROUP BY mfr.id
+      ORDER BY mfr.name ASC
+    `).all();
+
+    res.json({ manufacturers });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch manufacturers', details: err.message });
+  }
+});
+
+// Full 34-point Drug Monograph Endpoint
+clinicalRouter.get('/monograph/:genericId', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const genericId = Number(req.params.genericId);
+    const generic = db.prepare('SELECT * FROM generics WHERE id = ?').get(genericId) as any;
+    if (!generic) {
+      return res.status(404).json({ error: 'Generic drug monograph not found' });
+    }
+
+    const clinicalInfo = db.prepare('SELECT * FROM drug_clinical_info WHERE generic_id = ?').get(genericId) as any;
+
+    const linkedMedicines = db.prepare(`
+      SELECT 
+        m.id,
+        m.brand_name,
+        m.strength,
+        m.dosage_form,
+        m.pack_size,
+        m.barcode,
+        m.rack_location,
+        man.name as manufacturer_name,
+        COALESCE(SUM(b.quantity), 0) as total_stock,
+        MIN(b.sale_price) as min_price,
+        MAX(b.sale_price) as max_price
+      FROM medicines m
+      LEFT JOIN manufacturers man ON m.manufacturer_id = man.id
+      LEFT JOIN batches b ON m.id = b.medicine_id AND b.status = 'ACTIVE' AND b.expiry_date > CURRENT_DATE
+      WHERE m.generic_id = ?
+      GROUP BY m.id
+      ORDER BY m.brand_name ASC
+    `).all(genericId);
+
+    const interactions = db.prepare(`
+      SELECT 
+        di.*,
+        ga.name as generic_a_name,
+        gb.name as generic_b_name
+      FROM drug_interactions di
+      JOIN generics ga ON di.generic_a_id = ga.id
+      JOIN generics gb ON di.generic_b_id = gb.id
+      WHERE di.generic_a_id = ? OR di.generic_b_id = ?
+    `).all(genericId, genericId);
+
+    res.json({
+      generic,
+      clinicalInfo: clinicalInfo || {},
+      brands: linkedMedicines,
+      interactions
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to retrieve monograph', details: err.message });
+  }
+});
+
+// ==========================================
+// 4. PILL IDENTIFIER API
+// ==========================================
+clinicalRouter.get('/pill-identifier', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const imprint = ((req.query.imprint as string) || '').trim();
+    const shape = ((req.query.shape as string) || '').trim();
+    const color = ((req.query.color as string) || '').trim();
+    const form = ((req.query.form as string) || '').trim();
+
+    let queryStr = `
+      SELECT 
+        g.id as generic_id,
+        g.name as generic_name,
+        g.therapeutic_class,
+        ci.pill_imprint,
+        ci.pill_shape,
+        ci.pill_color,
+        ci.rx_status,
+        m.brand_name,
+        m.strength,
+        m.dosage_form,
+        man.name as manufacturer_name
+      FROM drug_clinical_info ci
+      JOIN generics g ON ci.generic_id = g.id
+      LEFT JOIN medicines m ON m.generic_id = g.id
+      LEFT JOIN manufacturers man ON m.manufacturer_id = man.id
+      WHERE 1=1
+    `;
+
+    const params: any[] = [];
+    if (imprint) {
+      queryStr += ` AND ci.pill_imprint LIKE ?`;
+      params.push(`%${imprint}%`);
+    }
+    if (shape) {
+      queryStr += ` AND ci.pill_shape LIKE ?`;
+      params.push(`%${shape}%`);
+    }
+    if (color) {
+      queryStr += ` AND ci.pill_color LIKE ?`;
+      params.push(`%${color}%`);
+    }
+    if (form) {
+      queryStr += ` AND (m.dosage_form LIKE ? OR ci.pill_shape LIKE ?)`;
+      params.push(`%${form}%`, `%${form}%`);
+    }
+
+    queryStr += ` LIMIT 20`;
+    const matches = db.prepare(queryStr).all(...params);
+
+    res.json({ matches });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Pill identification lookup failed', details: err.message });
+  }
+});
+
+// ==========================================
+// 5. CLINICAL REFERENCE CHARTS API
+// ==========================================
+clinicalRouter.get('/charts/:chartType', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const chartType = req.params.chartType;
+
+    if (chartType === 'antibiotics_spectrum') {
+      res.json({
+        chartType,
+        title: 'Interactive Antibiotics Spectrum Reference Chart',
+        data: [
+          { antibiotic: 'Amoxicillin / Clavulanate', class: 'Penicillin + BLI', gramPos: '++++', gramNeg: '+++', anaerobes: '++++', atypicals: '0', pseudomonas: '0', moa: 'Cell wall synthesis inhibitor + Beta-lactamase inhibitor' },
+          { antibiotic: 'Ceftriaxone (Gen 3)', class: 'Cephalosporin (Gen 3)', gramPos: '+++', gramNeg: '++++', anaerobes: '+', atypicals: '0', pseudomonas: '0', moa: 'PBP cell wall inhibitor' },
+          { antibiotic: 'Ciprofloxacin', class: 'Fluoroquinolone', gramPos: '+', gramNeg: '++++', anaerobes: '0', atypicals: '+++', pseudomonas: '+++', moa: 'DNA gyrase & Topoisomerase IV inhibitor' },
+          { antibiotic: 'Azithromycin', class: 'Macrolide', gramPos: '++', gramNeg: '++', anaerobes: '0', atypicals: '++++', pseudomonas: '0', moa: '50S ribosomal protein subunit inhibitor' },
+          { antibiotic: 'Meropenem', class: 'Carbapenem', gramPos: '++++', gramNeg: '++++', anaerobes: '++++', atypicals: '0', pseudomonas: '++++', moa: 'Broad-spectrum beta-lactam cell wall inhibitor' },
+          { antibiotic: 'Vancomycin', class: 'Glycopeptide', gramPos: '++++ (MRSA)', gramNeg: '0', anaerobes: '++ (C. diff)', atypicals: '0', pseudomonas: '0', moa: 'D-Ala-D-Ala cell wall precursor inhibitor' },
+          { antibiotic: 'Metronidazole', class: 'Nitroimidazole', gramPos: '0', gramNeg: '0', anaerobes: '++++', atypicals: '0', pseudomonas: '0', moa: 'DNA helical structure disruption via toxic metabolites' },
+          { antibiotic: 'Piperacillin / Tazobactam', class: 'Antipseudomonal Penicillin', gramPos: '++++', gramNeg: '++++', anaerobes: '++++', atypicals: '0', pseudomonas: '++++', moa: 'Broad-spectrum cell wall inhibitor' }
+        ]
+      });
+    } else if (chartType === 'nsaids_matrix') {
+      res.json({
+        chartType,
+        title: 'NSAIDs Selectivity, Efficacy & Risk Matrix',
+        data: [
+          { drug: 'Ibuprofen', coxSelectivity: 'Non-selective (COX-1 = COX-2)', giRisk: 'Moderate', cvRisk: 'Low', renalRisk: 'Moderate', dose: '400mg-800mg PO TID (max 3200mg/d)' },
+          { drug: 'Celecoxib', coxSelectivity: 'COX-2 Selective', giRisk: 'Low', cvRisk: 'High', renalRisk: 'Moderate', dose: '100mg-200mg PO daily/BID' },
+          { drug: 'Naproxen', coxSelectivity: 'Non-selective', giRisk: 'Moderate-High', cvRisk: 'Lowest CV Risk', renalRisk: 'Moderate', dose: '250mg-500mg PO BID' },
+          { drug: 'Diclofenac', coxSelectivity: 'Slight COX-2 Preference', giRisk: 'Moderate', cvRisk: 'Moderate-High', renalRisk: 'Moderate', dose: '50mg PO BID/TID or 75mg SR' },
+          { drug: 'Ketorolac', coxSelectivity: 'COX-1 Selective', giRisk: 'Very High (Max 5 days)', cvRisk: 'Moderate', renalRisk: 'High', dose: '10mg PO q4-6h (max 40mg/d)' }
+        ]
+      });
+    } else {
+      res.json({
+        chartType,
+        title: 'Clinical Quick Reference Data',
+        data: []
+      });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to retrieve reference chart', details: err.message });
+  }
+});
+
+// ==========================================
+// 6. FAVORITES & PHARMACIST NOTES API
+// ==========================================
+clinicalRouter.get('/favorites', authenticateToken, (req: any, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const favs = db.prepare(`
+      SELECT f.id, f.generic_id, g.name as generic_name, g.therapeutic_class, ci.atc_code, ci.rx_status
+      FROM user_pharma_favorites f
+      JOIN generics g ON f.generic_id = g.id
+      LEFT JOIN drug_clinical_info ci ON g.id = ci.generic_id
+      WHERE f.user_id = ?
+      ORDER BY g.name ASC
+    `).all(userId);
+
+    res.json({ favorites: favs });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch favorites', details: err.message });
+  }
+});
+
+clinicalRouter.post('/favorites/:genericId', authenticateToken, (req: any, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const genericId = Number(req.params.genericId);
+    db.prepare('INSERT OR IGNORE INTO user_pharma_favorites (user_id, generic_id) VALUES (?, ?)').run(userId, genericId);
+    res.json({ success: true, message: 'Added to clinical favorites' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to add favorite', details: err.message });
+  }
+});
+
+clinicalRouter.delete('/favorites/:genericId', authenticateToken, (req: any, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const genericId = Number(req.params.genericId);
+    db.prepare('DELETE FROM user_pharma_favorites WHERE user_id = ? AND generic_id = ?').run(userId, genericId);
+    res.json({ success: true, message: 'Removed from clinical favorites' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to remove favorite', details: err.message });
+  }
+});
+
+clinicalRouter.get('/notes/:genericId', authenticateToken, (req: any, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const genericId = Number(req.params.genericId);
+    const note = db.prepare('SELECT * FROM user_pharma_notes WHERE user_id = ? AND generic_id = ?').get(userId, genericId);
+    res.json({ note: note || null });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch clinical note', details: err.message });
+  }
+});
+
+clinicalRouter.post('/notes', authenticateToken, (req: any, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const { genericId, noteText } = req.body;
+
+    if (!genericId || !noteText) {
+      return res.status(400).json({ error: 'genericId and noteText are required' });
+    }
+
+    db.prepare(`
+      INSERT INTO user_pharma_notes (user_id, generic_id, note_text, updated_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id, generic_id) DO UPDATE SET
+        note_text = excluded.note_text,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(userId, Number(genericId), noteText.trim());
+
+    res.json({ success: true, message: 'Pharmacist clinical note saved.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to save note', details: err.message });
   }
 });
 

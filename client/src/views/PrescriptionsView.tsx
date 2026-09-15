@@ -19,6 +19,64 @@ export interface PrescriptionItem {
   instructions: string;
 }
 
+const DOSAGE_PRESETS = [
+  '1 Tablet',
+  '2 Tablets',
+  '1/2 Tablet',
+  '1 Capsule',
+  '2 Capsules',
+  '5 mL (1 tsp)',
+  '10 mL (2 tsp)',
+  '15 mL (1 tbsp)',
+  '1 Sachet',
+  '1 Drop',
+  '2 Drops',
+  '1 Spray',
+  '1 Injection',
+  '1 Suppository'
+];
+
+const FREQUENCY_PRESETS = [
+  'OD (Once Daily)',
+  'BD (Twice Daily)',
+  'TDS (Thrice Daily)',
+  'QID (4 Times Daily)',
+  'Q4H (Every 4 Hours)',
+  'Q6H (Every 6 Hours)',
+  'Q8H (Every 8 Hours)',
+  'Q12H (Every 12 Hours)',
+  'STAT (Immediately)',
+  'HS (At Bedtime)',
+  'SOS (As Needed)',
+  'Weekly'
+];
+
+const DURATION_PRESETS = [
+  '1 day',
+  '2 days',
+  '3 days',
+  '5 days',
+  '7 days (1 Week)',
+  '10 days',
+  '14 days (2 Weeks)',
+  '21 days (3 Weeks)',
+  '30 days (1 Month)',
+  '60 days (2 Months)',
+  '90 days (3 Months)',
+  'Continuous'
+];
+
+const QUICK_DURATION_CHIPS = ['3 days', '5 days', '7 days', '10 days', '14 days', '30 days'];
+
+const TIMING_PRESETS = [
+  'After Food',
+  'Before Food',
+  'With Meals',
+  'At Bedtime',
+  'Early Morning',
+  'Any Time'
+];
+
 export const PrescriptionsView: React.FC = () => {
   const { token } = useAuth();
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
@@ -300,13 +358,13 @@ export const PrescriptionsView: React.FC = () => {
       {/* New Prescription Modal */}
       {showAddModal && (
         <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '850px' }}>
-            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Stethoscope size={20} style={{ color: 'var(--primary)' }} />
+          <div className="modal-content" style={{ maxWidth: '980px', width: '95%' }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-card)' }}>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-main)' }}>
+                <Stethoscope size={22} style={{ color: 'var(--primary)' }} />
                 <span>Write Medical Prescription (Rx)</span>
               </h3>
-              <button onClick={() => setShowAddModal(false)} className="btn btn-secondary btn-sm" style={{ padding: '0.3rem' }}>
+              <button onClick={() => setShowAddModal(false)} className="btn btn-secondary btn-sm" style={{ padding: '0.35rem 0.5rem' }}>
                 <X size={16} />
               </button>
             </div>
@@ -314,30 +372,32 @@ export const PrescriptionsView: React.FC = () => {
             <form onSubmit={handleSubmitPrescription} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Patient *</label>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.35rem', color: 'var(--text-main)' }}>Patient *</label>
                   <select
                     className="select"
                     value={patientId}
                     onChange={e => setPatientId(e.target.value)}
                     required
+                    style={{ minHeight: '40px', fontSize: '0.85rem' }}
                   >
-                    <option value="">Select Patient</option>
+                    <option value="">Select Patient...</option>
                     {patients.map(pat => (
                       <option key={pat.id} value={pat.id}>
-                        {pat.name} {pat.mobile ? `(${pat.mobile})` : ''} {pat.allergy_notes ? `[Allergy: ${pat.allergy_notes}]` : ''}
+                        {pat.name} {pat.mobile ? `(${pat.mobile})` : ''} {pat.allergy_notes ? `[⚠️ Allergy: ${pat.allergy_notes}]` : ''}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Doctor</label>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.35rem', color: 'var(--text-main)' }}>Attending Doctor / Pharmacist</label>
                   <select
                     className="select"
                     value={doctorId}
                     onChange={e => setDoctorId(e.target.value)}
+                    style={{ minHeight: '40px', fontSize: '0.85rem' }}
                   >
-                    <option value="">Select Doctor (or In-House Pharmacist)</option>
+                    <option value="">Select Doctor (or In-House Pharmacist)...</option>
                     {doctors.map(d => (
                       <option key={d.id} value={d.id}>{d.name} ({d.specialization})</option>
                     ))}
@@ -346,107 +406,175 @@ export const PrescriptionsView: React.FC = () => {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Clinical Diagnosis</label>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.35rem', color: 'var(--text-main)' }}>Clinical Diagnosis</label>
                 <input
                   className="input"
-                  placeholder="e.g. Acute Pharyngitis, Type 2 Diabetes, Hypertension"
+                  placeholder="e.g. Acute Pharyngitis, Type 2 Diabetes, Essential Hypertension..."
                   value={diagnosis}
                   onChange={e => setDiagnosis(e.target.value)}
+                  style={{ minHeight: '40px', fontSize: '0.85rem' }}
                 />
               </div>
 
               {/* Medicine items */}
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                  <h4 style={{ fontSize: '0.88rem', fontWeight: 700 }}>Prescribed Medicines ({items.length})</h4>
-                  <button type="button" onClick={addItemRow} className="btn btn-secondary btn-sm">
-                    <Plus size={13} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    Prescribed Medicines ({items.length})
+                  </h4>
+                  <button type="button" onClick={addItemRow} className="btn btn-secondary btn-sm" style={{ fontWeight: 700 }}>
+                    <Plus size={14} />
                     <span>Add Medicine</span>
                   </button>
                 </div>
 
-                <div className="table-container" style={{ maxHeight: '250px', overflowY: 'auto' }}>
-                  <table style={{ fontSize: '0.8rem' }}>
+                <div className="table-container" style={{ maxHeight: '340px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+                  <table style={{ fontSize: '0.82rem', width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
-                      <tr>
-                        <th style={{ minWidth: '170px' }}>Medicine</th>
-                        <th style={{ minWidth: '90px' }}>Dosage</th>
-                        <th style={{ minWidth: '120px' }}>Frequency</th>
-                        <th style={{ minWidth: '90px' }}>Duration</th>
-                        <th style={{ minWidth: '110px' }}>Timing</th>
-                        <th></th>
+                      <tr style={{ backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border)' }}>
+                        <th style={{ minWidth: '220px', padding: '0.6rem 0.75rem', textAlign: 'left' }}>Medicine</th>
+                        <th style={{ minWidth: '140px', padding: '0.6rem 0.75rem', textAlign: 'left' }}>Dosage</th>
+                        <th style={{ minWidth: '160px', padding: '0.6rem 0.75rem', textAlign: 'left' }}>Frequency</th>
+                        <th style={{ minWidth: '170px', padding: '0.6rem 0.75rem', textAlign: 'left' }}>Duration</th>
+                        <th style={{ minWidth: '150px', padding: '0.6rem 0.75rem', textAlign: 'left' }}>Timing</th>
+                        <th style={{ width: '40px', padding: '0.6rem' }}></th>
                       </tr>
                     </thead>
                     <tbody>
                       {items.map((it, idx) => (
-                        <tr key={idx}>
-                          <td>
+                        <tr key={idx} style={{ borderBottom: '1px solid var(--border)', backgroundColor: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)' }}>
+                          {/* Medicine Select */}
+                          <td style={{ padding: '0.5rem 0.75rem', verticalAlign: 'top' }}>
                             <select
                               className="select"
                               value={it.medicineId}
                               onChange={e => handleItemChange(idx, 'medicineId', e.target.value)}
                               required
-                              style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem' }}
+                              style={{ width: '100%', minHeight: '36px', padding: '0.35rem 0.5rem', fontSize: '0.82rem', fontWeight: 600 }}
                             >
-                              <option value="">Select Medicine</option>
+                              <option value="">Select Medicine...</option>
                               {medicines.map(m => (
-                                <option key={m.id} value={m.id}>{m.brand_name} {m.strength}</option>
+                                <option key={m.id} value={m.id}>
+                                  {m.brand_name} {m.strength} ({m.dosage_form || 'Unit'})
+                                </option>
                               ))}
                             </select>
                           </td>
-                          <td>
-                            <input
-                              className="input"
-                              value={it.dosage}
-                              onChange={e => handleItemChange(idx, 'dosage', e.target.value)}
-                              placeholder="1 Tab"
-                              style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem' }}
-                            />
+
+                          {/* Dosage Input + Quick Selector */}
+                          <td style={{ padding: '0.5rem 0.75rem', verticalAlign: 'top' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                              <select
+                                className="select"
+                                value={DOSAGE_PRESETS.includes(it.dosage) ? it.dosage : 'Custom'}
+                                onChange={e => {
+                                  if (e.target.value !== 'Custom') {
+                                    handleItemChange(idx, 'dosage', e.target.value);
+                                  }
+                                }}
+                                style={{ width: '100%', minHeight: '36px', padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                              >
+                                {DOSAGE_PRESETS.map(d => (
+                                  <option key={d} value={d}>{d}</option>
+                                ))}
+                                {!DOSAGE_PRESETS.includes(it.dosage) && (
+                                  <option value="Custom">Custom: {it.dosage}</option>
+                                )}
+                              </select>
+                              <input
+                                className="input"
+                                value={it.dosage}
+                                onChange={e => handleItemChange(idx, 'dosage', e.target.value)}
+                                placeholder="Custom dosage..."
+                                style={{ width: '100%', height: '28px', fontSize: '0.75rem', padding: '0.2rem 0.4rem' }}
+                              />
+                            </div>
                           </td>
-                          <td>
+
+                          {/* Frequency Select */}
+                          <td style={{ padding: '0.5rem 0.75rem', verticalAlign: 'top' }}>
                             <select
                               className="select"
                               value={it.frequency}
                               onChange={e => handleItemChange(idx, 'frequency', e.target.value)}
-                              style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem' }}
+                              style={{ width: '100%', minHeight: '36px', padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
                             >
-                              <option value="OD (Once Daily)">OD (Once Daily)</option>
-                              <option value="BD (Twice Daily)">BD (Twice Daily)</option>
-                              <option value="TDS (Thrice Daily)">TDS (Thrice Daily)</option>
-                              <option value="QID (4 Times Daily)">QID (4 Times Daily)</option>
-                              <option value="SOS (As Needed)">SOS (As Needed)</option>
+                              {FREQUENCY_PRESETS.map(f => (
+                                <option key={f} value={f}>{f}</option>
+                              ))}
                             </select>
                           </td>
-                          <td>
-                            <input
-                              className="input"
-                              value={it.duration}
-                              onChange={e => handleItemChange(idx, 'duration', e.target.value)}
-                              placeholder="5 days"
-                              style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem' }}
-                            />
+
+                          {/* Duration Select + 1-Tap Chips */}
+                          <td style={{ padding: '0.5rem 0.75rem', verticalAlign: 'top' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                              <select
+                                className="select"
+                                value={DURATION_PRESETS.includes(it.duration) ? it.duration : 'Custom'}
+                                onChange={e => {
+                                  if (e.target.value !== 'Custom') {
+                                    handleItemChange(idx, 'duration', e.target.value);
+                                  }
+                                }}
+                                style={{ width: '100%', minHeight: '36px', padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                              >
+                                {DURATION_PRESETS.map(dur => (
+                                  <option key={dur} value={dur}>{dur}</option>
+                                ))}
+                                {!DURATION_PRESETS.includes(it.duration) && (
+                                  <option value="Custom">Custom: {it.duration}</option>
+                                )}
+                              </select>
+
+                              {/* Quick 1-Click Duration Chips */}
+                              <div style={{ display: 'flex', gap: '0.2rem', flexWrap: 'wrap' }}>
+                                {QUICK_DURATION_CHIPS.map(chip => (
+                                  <button
+                                    key={chip}
+                                    type="button"
+                                    onClick={() => handleItemChange(idx, 'duration', chip)}
+                                    style={{
+                                      border: '1px solid var(--border)',
+                                      borderRadius: '3px',
+                                      backgroundColor: it.duration.startsWith(chip.split(' ')[0]) ? 'var(--primary)' : 'var(--bg-card)',
+                                      color: it.duration.startsWith(chip.split(' ')[0]) ? '#fff' : 'var(--text-muted)',
+                                      fontSize: '0.65rem',
+                                      padding: '0.1rem 0.3rem',
+                                      cursor: 'pointer',
+                                      fontWeight: 600
+                                    }}
+                                  >
+                                    {chip.split(' ')[0]}d
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
                           </td>
-                          <td>
+
+                          {/* Timing Select */}
+                          <td style={{ padding: '0.5rem 0.75rem', verticalAlign: 'top' }}>
                             <select
                               className="select"
                               value={it.timing}
                               onChange={e => handleItemChange(idx, 'timing', e.target.value)}
-                              style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem' }}
+                              style={{ width: '100%', minHeight: '36px', padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
                             >
-                              <option value="After Food">After Food</option>
-                              <option value="Before Food">Before Food</option>
-                              <option value="With Meals">With Meals</option>
-                              <option value="At Bedtime">At Bedtime</option>
+                              {TIMING_PRESETS.map(t => (
+                                <option key={t} value={t}>{t}</option>
+                              ))}
                             </select>
                           </td>
-                          <td>
+
+                          {/* Action Delete */}
+                          <td style={{ padding: '0.5rem 0.4rem', textAlign: 'center', verticalAlign: 'middle' }}>
                             {items.length > 1 && (
                               <button
                                 type="button"
                                 onClick={() => removeItemRow(idx)}
-                                style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer' }}
+                                style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '0.3rem' }}
+                                title="Remove item"
                               >
-                                <Trash2 size={14} />
+                                <Trash2 size={16} />
                               </button>
                             )}
                           </td>
@@ -458,20 +586,21 @@ export const PrescriptionsView: React.FC = () => {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Pharmacist / Clinical Instructions</label>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.35rem', color: 'var(--text-main)' }}>Pharmacist / Clinical Instructions</label>
                 <input
                   className="input"
-                  placeholder="e.g. Complete antibiotic course, drink plenty of fluids"
+                  placeholder="e.g. Complete full antibiotic course, take with plenty of water, avoid alcohol..."
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
+                  style={{ minHeight: '38px', fontSize: '0.85rem' }}
                 />
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
-                <button type="button" onClick={() => setShowAddModal(false)} className="btn btn-secondary">
+                <button type="button" onClick={() => setShowAddModal(false)} className="btn btn-secondary" style={{ padding: '0.5rem 1.25rem' }}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
+                <button type="submit" className="btn btn-primary" style={{ padding: '0.5rem 1.5rem', fontWeight: 800 }}>
                   Save & Record Rx
                 </button>
               </div>
