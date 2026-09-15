@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { saveOfflineSale } from '../services/offlineSync.js';
 import { printThermalElement } from '../utils/thermalPrinter.js';
+import { CustomerSelect } from '../components/CustomerSelect.js';
 
 export interface CartItem {
   medicineId: number;
@@ -53,6 +54,7 @@ export const PosView: React.FC = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customers, setCustomers] = useState<{ id: number; name: string; mobile?: string; current_balance: number }[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [customSlipName, setCustomSlipName] = useState<string>('');
   const [billDiscount, setBillDiscount] = useState<string>('0');
   const [discountType, setDiscountType] = useState<'RS' | 'PERCENT'>('PERCENT');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'JAZZCASH' | 'AL_HABIB' | 'CREDIT'>('CASH');
@@ -340,7 +342,7 @@ export const PosView: React.FC = () => {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const handleAddToCart = (product: any, qtyToAdd: number = 1) => {
+  const handleAddToCart = (product: any, unitType: 'TABLET' | 'BLISTER' | 'BOX' = 'TABLET', count: number = 1) => {
     setErrorMessage(null);
 
     if (!product.fefo_batch) {
@@ -349,21 +351,38 @@ export const PosView: React.FC = () => {
     }
 
     const batch = product.fefo_batch;
-    const packSize = Number(product.pack_size) > 1 ? Number(product.pack_size) : 10;
+    const packSize = Number(product.pack_size) > 0 ? Number(product.pack_size) : 100;
+
+    // Determine 3-level units
+    let unitsPerStrip = 10;
+    if (packSize >= 10 && packSize % 10 === 0) {
+      unitsPerStrip = packSize / 10;
+    } else {
+      unitsPerStrip = packSize;
+    }
+
+    let looseUnitsToAdd = 1;
+    if (unitType === 'BOX') {
+      looseUnitsToAdd = packSize * count;
+    } else if (unitType === 'BLISTER') {
+      looseUnitsToAdd = unitsPerStrip * count;
+    } else {
+      looseUnitsToAdd = 1 * count;
+    }
 
     // Check if already in cart
     const existingIndex = cart.findIndex(it => it.batchId === batch.batch_id);
     if (existingIndex > -1) {
       const updated = [...cart];
-      if (updated[existingIndex].quantity + qtyToAdd > batch.quantity) {
+      if (updated[existingIndex].quantity + looseUnitsToAdd > batch.quantity) {
         setErrorMessage(`Cannot exceed available batch stock (${batch.quantity} units).`);
         return;
       }
-      updated[existingIndex].quantity += qtyToAdd;
+      updated[existingIndex].quantity += looseUnitsToAdd;
       updated[existingIndex].lineTotal = (updated[existingIndex].quantity * updated[existingIndex].unitPrice) - updated[existingIndex].discount;
       setCart(updated);
     } else {
-      if (qtyToAdd > batch.quantity) {
+      if (looseUnitsToAdd > batch.quantity) {
         setErrorMessage(`Cannot exceed available batch stock (${batch.quantity} units).`);
         return;
       }
@@ -379,9 +398,9 @@ export const PosView: React.FC = () => {
         daysToExpiry: batch.days_to_expiry,
         unitPrice: Number(batch.sale_price),
         availableStock: batch.quantity,
-        quantity: qtyToAdd,
+        quantity: looseUnitsToAdd,
         discount: 0,
-        lineTotal: qtyToAdd * Number(batch.sale_price),
+        lineTotal: looseUnitsToAdd * Number(batch.sale_price),
         availableBatches: product.available_batches
       };
       setCart([newItem, ...cart]);
@@ -435,6 +454,7 @@ export const PosView: React.FC = () => {
     setCart([]);
     setBillDiscount('0');
     setPaidAmount('');
+    setCustomSlipName('');
     setErrorMessage(null);
     searchInputRef.current?.focus();
   };
@@ -587,6 +607,7 @@ export const PosView: React.FC = () => {
         ...data.invoice,
         tax: printFee,
         customer: customers.find(c => String(c.id) === selectedCustomerId),
+        customSlipName: customSlipName.trim(),
         cashierName: user?.fullName || 'Cashier',
         paymentMethod
       };
@@ -604,7 +625,7 @@ export const PosView: React.FC = () => {
       if (!navigator.onLine || err.message.includes('fetch') || err.message.includes('Network') || err.message.includes('Failed to fetch')) {
         const offlineRecord = saveOfflineSale({
           customerId: selectedCustomerId ? Number(selectedCustomerId) : null,
-          customerName: selectedCustomerId ? customers.find(c => String(c.id) === selectedCustomerId)?.name : 'Walk-in Counter Patient',
+          customerName: customSlipName.trim() || (selectedCustomerId ? customers.find(c => String(c.id) === selectedCustomerId)?.name : 'Walk-in Counter Patient'),
           items: cart.map(it => ({
             medicineId: it.medicineId,
             batchId: it.batchId,
@@ -635,6 +656,7 @@ export const PosView: React.FC = () => {
           discount: discountVal,
           items: cart,
           customer: customers.find(c => String(c.id) === selectedCustomerId),
+          customSlipName: customSlipName.trim(),
           cashierName: user?.fullName || 'Cashier',
           paymentMethod,
           createdAt: new Date().toISOString()
@@ -854,70 +876,90 @@ export const PosView: React.FC = () => {
                   marginTop: '4px'
                 }}
               >
-                {searchResults.map((p) => (
-                  <div
-                    key={p.id}
-                    style={{
-                      padding: '0.75rem 1rem',
-                      borderBottom: '1px solid var(--border)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }}
-                    className="hover-bg"
-                  >
-                    <div onClick={() => handleAddToCart(p, 1)} style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span>{p.brand_name}</span>
-                        {p.strength && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({p.strength})</span>}
-                        {p.is_prescription_required === 1 && (
-                          <span className="badge badge-warning" style={{ fontSize: '0.65rem' }}>Rx Required</span>
+                {searchResults.map((p) => {
+                  const packSize = Number(p.pack_size) > 0 ? Number(p.pack_size) : 100;
+                  const unitsPerStrip = (packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : packSize;
+                  const unitPrice = p.fefo_batch ? Number(p.fefo_batch.sale_price) : 0;
+                  const stripPrice = unitPrice * unitsPerStrip;
+                  const boxPrice = unitPrice * packSize;
+
+                  return (
+                    <div
+                      key={p.id}
+                      style={{
+                        padding: '0.75rem 1rem',
+                        borderBottom: '1px solid var(--border)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}
+                      className="hover-bg"
+                    >
+                      <div onClick={() => handleAddToCart(p, 'TABLET', 1)} style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span>{p.brand_name}</span>
+                          {p.strength && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({p.strength})</span>}
+                          {p.is_prescription_required === 1 && (
+                            <span className="badge badge-warning" style={{ fontSize: '0.65rem' }}>Rx Required</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                          {p.generic_name} • {p.category_name} • Rack: <strong>{p.rack_location || 'N/A'}</strong>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{ textAlign: 'right', fontSize: '0.72rem' }}>
+                          <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>
+                            Tablet: <strong>Rs. {unitPrice.toFixed(2)}</strong>
+                          </div>
+                          <div style={{ color: 'var(--text-secondary)' }}>
+                            Blister ({unitsPerStrip}s): <strong>Rs. {stripPrice.toFixed(2)}</strong>
+                          </div>
+                          <div style={{ color: 'var(--text-secondary)' }}>
+                            Box ({packSize}s): <strong>Rs. {boxPrice.toFixed(2)}</strong>
+                          </div>
+                          <div style={{ fontSize: '0.68rem', color: p.total_stock > 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 600, marginTop: '0.1rem' }}>
+                            {p.total_stock > 0 ? `${p.total_stock} loose left` : 'Out of Stock'}
+                          </div>
+                        </div>
+
+                        {p.total_stock > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleAddToCart(p, 'TABLET', 1)}
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem', whiteSpace: 'nowrap' }}
+                              title="Add 1 single tablet / loose unit"
+                            >
+                              +1 Tablet
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAddToCart(p, 'BLISTER', 1)}
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem', whiteSpace: 'nowrap', color: 'var(--primary)' }}
+                              title={`Add 1 blister / strip of ${unitsPerStrip} units`}
+                            >
+                              +1 Blister ({unitsPerStrip}s)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAddToCart(p, 'BOX', 1)}
+                              className="btn btn-primary btn-sm"
+                              style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem', whiteSpace: 'nowrap' }}
+                              title={`Add entire box of ${packSize} units`}
+                            >
+                              +1 Box ({packSize}s)
+                            </button>
+                          </div>
                         )}
                       </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
-                        {p.generic_name} • {p.category_name} • Rack: <strong>{p.rack_location || 'N/A'}</strong>
-                      </div>
                     </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--text-main)' }}>
-                          Rs. {p.fefo_batch ? Number(p.fefo_batch.sale_price).toFixed(2) : 0} <span style={{ fontSize: '0.68rem', fontWeight: 500, color: 'var(--text-muted)' }}>/ unit</span>
-                        </div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                          Pack ({p.pack_size > 1 ? p.pack_size : 10}s): <strong>Rs. {((p.pack_size > 1 ? p.pack_size : 10) * (p.fefo_batch ? Number(p.fefo_batch.sale_price) : 0)).toFixed(2)}</strong>
-                        </div>
-                        <div style={{ fontSize: '0.7rem', color: p.total_stock > 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
-                          {p.total_stock > 0 ? `${p.total_stock} in stock` : 'Out of Stock'}
-                        </div>
-                      </div>
-
-                      {p.total_stock > 0 && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                          <button
-                            type="button"
-                            onClick={() => handleAddToCart(p, 1)}
-                            className="btn btn-secondary btn-sm"
-                            style={{ fontSize: '0.68rem', padding: '0.2rem 0.45rem', whiteSpace: 'nowrap' }}
-                            title="Add 1 single unit / tablet"
-                          >
-                            +1 Unit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleAddToCart(p, p.pack_size > 1 ? p.pack_size : 10)}
-                            className="btn btn-primary btn-sm"
-                            style={{ fontSize: '0.68rem', padding: '0.2rem 0.45rem', whiteSpace: 'nowrap' }}
-                            title={`Add entire pack of ${p.pack_size > 1 ? p.pack_size : 10} units`}
-                          >
-                            +1 Pack ({p.pack_size > 1 ? p.pack_size : 10}s)
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -957,102 +999,121 @@ export const PosView: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {cart.map((item, index) => (
-                      <tr key={index} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '0.6rem 0.5rem' }}>
-                          <div style={{ fontWeight: 700 }}>{item.brandName}</div>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                            <span>{item.strength} • {item.dosageForm}</span>
-                            <span style={{ fontSize: '0.65rem', padding: '0.05rem 0.3rem', borderRadius: '3px', background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
-                              Pack: {item.packSize || 10}
-                            </span>
-                          </div>
-                          {item.quantity >= (item.packSize || 10) && (
-                            <div style={{ fontSize: '0.68rem', color: 'var(--primary)', fontWeight: 700, marginTop: '0.15rem' }}>
-                              📦 {Math.floor(item.quantity / (item.packSize || 10))} Pack(s){item.quantity % (item.packSize || 10) > 0 ? ` + ${item.quantity % (item.packSize || 10)} units` : ''}
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ padding: '0.6rem 0.5rem' }}>
-                          <select
-                            className="input input-sm"
-                            value={item.batchId}
-                            onChange={(e) => handleSwitchBatch(index, Number(e.target.value))}
-                            style={{ fontSize: '0.72rem', padding: '0.2rem 0.4rem', height: '26px' }}
-                          >
-                            {item.availableBatches?.map(b => (
-                              <option key={b.batch_id} value={b.batch_id}>
-                                #{b.batch_number} (Exp: {b.expiry_date}) - {b.quantity} left
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right' }}>
-                          <div style={{ fontWeight: 600 }}>Rs. {item.unitPrice.toFixed(2)}</div>
-                          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-                            Rs. {((item.packSize || 10) * item.unitPrice).toFixed(2)}/pk
-                          </div>
-                        </td>
-                        <td style={{ padding: '0.6rem 0.5rem', textAlign: 'center' }}>
-                          <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
-                            <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
-                              <button
-                                onClick={() => handleUpdateQty(index, item.quantity - 1)}
-                                style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.5rem', cursor: 'pointer' }}
-                                title="Decrease 1 unit"
-                              >
-                                -
-                              </button>
-                              <span style={{ padding: '0.2rem 0.5rem', fontWeight: 700, fontSize: '0.85rem', minWidth: '28px', textAlign: 'center' }}>
-                                {item.quantity}
-                              </span>
-                              <button
-                                onClick={() => handleUpdateQty(index, item.quantity + 1)}
-                                style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.5rem', cursor: 'pointer' }}
-                                title="Increase 1 unit"
-                              >
-                                +
-                              </button>
-                            </div>
+                    {cart.map((item, index) => {
+                      const pSize = Number(item.packSize) > 0 ? Number(item.packSize) : 100;
+                      const uStrip = (pSize >= 10 && pSize % 10 === 0) ? pSize / 10 : pSize;
+                      
+                      const numBoxes = Math.floor(item.quantity / pSize);
+                      const remAfterBox = item.quantity % pSize;
+                      const numStrips = Math.floor(remAfterBox / uStrip);
+                      const remLoose = remAfterBox % uStrip;
 
-                            {/* Quick Add/Remove Full Pack */}
-                            <div style={{ display: 'flex', gap: '0.2rem' }}>
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateQty(index, item.quantity + (item.packSize || 10))}
-                                className="btn btn-secondary btn-sm"
-                                style={{ fontSize: '0.62rem', padding: '0.1rem 0.35rem', whiteSpace: 'nowrap' }}
-                                title={`Add +1 full pack (${item.packSize || 10} units)`}
-                              >
-                                +1 Pack
-                              </button>
-                              {item.quantity >= (item.packSize || 10) && (
+                      return (
+                        <tr key={index} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '0.6rem 0.5rem' }}>
+                            <div style={{ fontWeight: 700 }}>{item.brandName}</div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <span>{item.strength} • {item.dosageForm}</span>
+                              <span style={{ fontSize: '0.65rem', padding: '0.05rem 0.3rem', borderRadius: '3px', background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+                                Pack: {pSize} ({uStrip}/strip)
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.68rem', fontWeight: 700, marginTop: '0.2rem', display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                              {numBoxes > 0 && <span style={{ color: 'var(--primary)' }}>📦 {numBoxes} Box</span>}
+                              {numStrips > 0 && <span style={{ color: '#0284c7' }}>💊 {numStrips} Blister</span>}
+                              {remLoose > 0 && <span style={{ color: 'var(--success)' }}>🔘 {remLoose} Tab</span>}
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem' }}>
+                            <select
+                              className="input input-sm"
+                              value={item.batchId}
+                              onChange={(e) => handleSwitchBatch(index, Number(e.target.value))}
+                              style={{ fontSize: '0.72rem', padding: '0.2rem 0.4rem', height: '26px' }}
+                            >
+                              {item.availableBatches?.map(b => (
+                                <option key={b.batch_id} value={b.batch_id}>
+                                  #{b.batch_number} (Exp: {b.expiry_date}) - {b.quantity} left
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right' }}>
+                            <div style={{ fontWeight: 600 }}>Rs. {item.unitPrice.toFixed(2)} / tab</div>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                              Rs. {(item.unitPrice * uStrip).toFixed(2)}/blister
+                            </div>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                              Rs. {(item.unitPrice * pSize).toFixed(2)}/box
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem', textAlign: 'center' }}>
+                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+                                <button
+                                  onClick={() => handleUpdateQty(index, item.quantity - 1)}
+                                  style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.4rem', cursor: 'pointer' }}
+                                  title="Decrease 1 loose tablet"
+                                >
+                                  -
+                                </button>
+                                <span style={{ padding: '0.2rem 0.5rem', fontWeight: 700, fontSize: '0.85rem', minWidth: '32px', textAlign: 'center' }}>
+                                  {item.quantity}
+                                </span>
+                                <button
+                                  onClick={() => handleUpdateQty(index, item.quantity + 1)}
+                                  style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.4rem', cursor: 'pointer' }}
+                                  title="Increase 1 loose tablet"
+                                >
+                                  +
+                                </button>
+                              </div>
+
+                              <div style={{ display: 'flex', gap: '0.2rem', flexWrap: 'wrap', justifyContent: 'center' }}>
                                 <button
                                   type="button"
-                                  onClick={() => handleUpdateQty(index, Math.max(1, item.quantity - (item.packSize || 10)))}
+                                  onClick={() => handleUpdateQty(index, item.quantity + 1)}
                                   className="btn btn-secondary btn-sm"
-                                  style={{ fontSize: '0.62rem', padding: '0.1rem 0.35rem', whiteSpace: 'nowrap' }}
-                                  title={`Remove 1 full pack (${item.packSize || 10} units)`}
+                                  style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem', whiteSpace: 'nowrap' }}
+                                  title="Add 1 tablet"
                                 >
-                                  -1 Pack
+                                  +1 Tab
                                 </button>
-                              )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateQty(index, item.quantity + uStrip)}
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem', whiteSpace: 'nowrap', color: 'var(--primary)' }}
+                                  title={`Add 1 blister (${uStrip} tabs)`}
+                                >
+                                  +1 Blister
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateQty(index, item.quantity + pSize)}
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem', whiteSpace: 'nowrap' }}
+                                  title={`Add 1 box (${pSize} tabs)`}
+                                >
+                                  +1 Box
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        </td>
-                        <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', fontWeight: 800 }}>
-                          Rs. {item.lineTotal.toFixed(2)}
-                        </td>
-                        <td style={{ padding: '0.6rem 0.5rem', textAlign: 'center' }}>
-                          <button
-                            onClick={() => handleRemoveItem(index)}
-                            style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer' }}
-                          >
-                            <X size={14} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', fontWeight: 800 }}>
+                            Rs. {item.lineTotal.toFixed(2)}
+                          </td>
+                          <td style={{ padding: '0.6rem 0.5rem', textAlign: 'center' }}>
+                            <button
+                              onClick={() => handleRemoveItem(index)}
+                              style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer' }}
+                            >
+                              <X size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1095,20 +1156,28 @@ export const PosView: React.FC = () => {
             {/* Customer Selector */}
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                Customer / Patient
+                Customer / Patient Account
               </label>
-              <select
+              <CustomerSelect
+                customers={customers}
+                selectedCustomerId={selectedCustomerId}
+                onSelectCustomer={setSelectedCustomerId}
+              />
+            </div>
+
+            {/* Custom Name on Slip Input */}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', color: 'var(--text-secondary)' }}>
+                Custom Name on Receipt / Slip (Optional)
+              </label>
+              <input
+                type="text"
                 className="input"
-                value={selectedCustomerId}
-                onChange={e => setSelectedCustomerId(e.target.value)}
-              >
-                <option value="">Walk-in Customer (General)</option>
-                {customers.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} {c.mobile ? `(${c.mobile})` : ''} - Balance: Rs. {c.current_balance}
-                  </option>
-                ))}
-              </select>
+                placeholder="e.g. Mr. Ali, Patient Room 4, Attendant..."
+                value={customSlipName}
+                onChange={e => setCustomSlipName(e.target.value)}
+                style={{ fontSize: '0.8rem' }}
+              />
             </div>
 
             {/* Payment Mode Selector */}
@@ -1433,7 +1502,7 @@ export const PosView: React.FC = () => {
                   <span>Mode of Payment: {lastInvoice.paymentMethod || paymentMethod}</span>
                 </div>
                 <div style={{ borderTop: '1px dotted #ccc', marginTop: '0.2rem', paddingTop: '0.2rem' }}>
-                  Customer: <strong>{lastInvoice.customer ? `${lastInvoice.customer.name} (${lastInvoice.customer.mobile || ''})` : 'CASH SALES-WALKING CUSTOMER A/C'}</strong>
+                  Customer: <strong>{lastInvoice.customSlipName ? lastInvoice.customSlipName : (lastInvoice.customer ? `${lastInvoice.customer.name} (${lastInvoice.customer.mobile || ''})` : 'CASH SALES-WALKING CUSTOMER A/C')}</strong>
                 </div>
               </div>
 

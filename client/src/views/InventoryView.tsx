@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext.js';
+import { TherapeuticCategorySelect } from '../components/TherapeuticCategorySelect.js';
+import { StrengthInput } from '../components/StrengthInput.js';
 import {
   Boxes,
   Ban,
@@ -92,20 +94,30 @@ export const InventoryView: React.FC = () => {
   const [rackLocation, setRackLocation] = useState('Rack A-01');
   const [barcode, setBarcode] = useState('');
 
-  // Batch & Packaging State
+  // Batch & Packaging State (3-Level: Box -> Strip/Blister -> Tablet)
   const [batchNumber, setBatchNumber] = useState('');
   const [mfgDate, setMfgDate] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
-  const [packSize, setPackSize] = useState<string>('10'); // Tablets/units per pack
-  const [packsReceived, setPacksReceived] = useState<string>('5'); // Number of whole packs
+
+  const [stripsPerBox, setStripsPerBox] = useState<string>('10');
+  const [unitsPerStrip, setUnitsPerStrip] = useState<string>('10');
+  const [packsReceived, setPacksReceived] = useState<string>('5'); // Boxes received
   const [bonusQuantity, setBonusQuantity] = useState<string>('0');
 
-  // Pricing State
-  const [packPurchasePrice, setPackPurchasePrice] = useState<string>('300'); // Rate per pack
-  const [unitPurchasePrice, setUnitPurchasePrice] = useState<string>('30.00'); // Rate per tablet
-  const [packSalePrice, setPackSalePrice] = useState<string>('400'); // MRP per whole pack
-  const [unitSalePrice, setUnitSalePrice] = useState<string>('40.00'); // MRP per individual tablet
-  const [discountPercent, setDiscountPercent] = useState<string>('0');
+  // Purchase Cost State
+  const [packPurchasePrice, setPackPurchasePrice] = useState<string>('300'); // Box purchase cost
+  const [stripPurchasePrice, setStripPurchasePrice] = useState<string>('30.00'); // Strip cost
+  const [unitPurchasePrice, setUnitPurchasePrice] = useState<string>('3.00'); // Tablet cost
+
+  // Selling Prices & Independent Discounts
+  const [packSalePrice, setPackSalePrice] = useState<string>('400'); // Box MRP
+  const [boxDiscountPercent, setBoxDiscountPercent] = useState<string>('0');
+
+  const [stripSalePrice, setStripSalePrice] = useState<string>('40.00'); // Strip MRP
+  const [stripDiscountPercent, setStripDiscountPercent] = useState<string>('0');
+
+  const [unitSalePrice, setUnitSalePrice] = useState<string>('4.50'); // Tablet MRP
+  const [unitDiscountPercent, setUnitDiscountPercent] = useState<string>('0');
   const [notes, setNotes] = useState('');
 
   const fetchInventoryData = async () => {
@@ -153,33 +165,73 @@ export const InventoryView: React.FC = () => {
     setExpiryDate(d.toISOString().split('T')[0]);
   };
 
-  // Recompute prices and units when packSize, packsReceived, or pack prices change
-  const numericPackSize = Math.max(1, Number(packSize) || 1);
-  const numericPacks = Math.max(0, Number(packsReceived) || 0);
-  const numericBonus = Math.max(0, Number(bonusQuantity) || 0);
-  const totalSellableUnits = (numericPacks * numericPackSize) + numericBonus;
+  // 3-Level Packaging Math
+  const numericStripsPerBox = Math.max(1, Number(stripsPerBox) || 1);
+  const numericUnitsPerStrip = Math.max(1, Number(unitsPerStrip) || 1);
+  const totalUnitsPerBox = numericStripsPerBox * numericUnitsPerStrip;
 
-  const handlePackPurchaseChange = (val: string) => {
-    setPackPurchasePrice(val);
-    const pVal = Number(val);
-    if (!isNaN(pVal) && pVal > 0) {
-      setUnitPurchasePrice((pVal / numericPackSize).toFixed(2));
+  const numericBoxes = Math.max(0, Number(packsReceived) || 0);
+  const numericBonus = Math.max(0, Number(bonusQuantity) || 0);
+
+  const totalStripsReceived = numericBoxes * numericStripsPerBox;
+  const totalSellableUnits = (numericBoxes * totalUnitsPerBox) + numericBonus;
+
+  // Auto-calculation input handlers
+  const handleStripsPerBoxChange = (val: string) => {
+    setStripsPerBox(val);
+    const sBox = Math.max(1, Number(val) || 1);
+    const totUnits = sBox * numericUnitsPerStrip;
+    const boxCost = Number(packPurchasePrice) || 0;
+    if (boxCost > 0) {
+      setStripPurchasePrice((boxCost / sBox).toFixed(2));
+      setUnitPurchasePrice((boxCost / totUnits).toFixed(2));
+    }
+    const boxMRP = Number(packSalePrice) || 0;
+    if (boxMRP > 0) {
+      const newStripMRP = boxMRP / sBox;
+      setStripSalePrice(newStripMRP.toFixed(2));
+      setUnitSalePrice((newStripMRP / numericUnitsPerStrip).toFixed(2));
     }
   };
 
-  const handleUnitPurchaseChange = (val: string) => {
-    setUnitPurchasePrice(val);
-    const uVal = Number(val);
-    if (!isNaN(uVal) && uVal > 0) {
-      setPackPurchasePrice((uVal * numericPackSize).toFixed(2));
+  const handleUnitsPerStripChange = (val: string) => {
+    setUnitsPerStrip(val);
+    const uStrip = Math.max(1, Number(val) || 1);
+    const totUnits = numericStripsPerBox * uStrip;
+    const boxCost = Number(packPurchasePrice) || 0;
+    if (boxCost > 0) {
+      setUnitPurchasePrice((boxCost / totUnits).toFixed(2));
+    }
+    const sMRP = Number(stripSalePrice) || 0;
+    if (sMRP > 0) {
+      setUnitSalePrice((sMRP / uStrip).toFixed(2));
+    }
+  };
+
+  const handlePackPurchaseChange = (val: string) => {
+    setPackPurchasePrice(val);
+    const boxCost = Number(val) || 0;
+    if (boxCost >= 0) {
+      setStripPurchasePrice((boxCost / numericStripsPerBox).toFixed(2));
+      setUnitPurchasePrice((boxCost / totalUnitsPerBox).toFixed(2));
     }
   };
 
   const handlePackSaleChange = (val: string) => {
     setPackSalePrice(val);
-    const pVal = Number(val);
-    if (!isNaN(pVal) && pVal > 0) {
-      setUnitSalePrice((pVal / numericPackSize).toFixed(2));
+    const boxMRP = Number(val) || 0;
+    if (boxMRP >= 0) {
+      const sMRP = boxMRP / numericStripsPerBox;
+      setStripSalePrice(sMRP.toFixed(2));
+      setUnitSalePrice((sMRP / numericUnitsPerStrip).toFixed(2));
+    }
+  };
+
+  const handleStripSaleChange = (val: string) => {
+    setStripSalePrice(val);
+    const sMRP = Number(val) || 0;
+    if (sMRP >= 0) {
+      setUnitSalePrice((sMRP / numericUnitsPerStrip).toFixed(2));
     }
   };
 
@@ -187,15 +239,30 @@ export const InventoryView: React.FC = () => {
     setUnitSalePrice(val);
   };
 
-  // Discount and Margin Calculations
-  const numericPackCost = Number(packPurchasePrice) || 0;
-  const numericPackMRP = Number(packSalePrice) || 0;
-  const numericDiscount = Number(discountPercent) || 0;
+  // Profit Margin & Net Price Calculations
+  // 1. Box Level
+  const numericBoxCost = Number(packPurchasePrice) || 0;
+  const numericBoxMRP = Number(packSalePrice) || 0;
+  const numericBoxDiscount = Number(boxDiscountPercent) || 0;
+  const netBoxPrice = numericBoxMRP * (1 - (numericBoxDiscount / 100));
+  const boxProfit = netBoxPrice - numericBoxCost;
+  const boxMarginPercent = numericBoxCost > 0 ? ((boxProfit / numericBoxCost) * 100).toFixed(1) : '0';
 
-  const discountedPackPrice = numericPackMRP * (1 - (numericDiscount / 100));
-  const discountedUnitPrice = (Number(unitSalePrice) || 0) * (1 - (numericDiscount / 100));
-  const packGrossProfit = discountedPackPrice - numericPackCost;
-  const profitMarginPercent = numericPackCost > 0 ? ((packGrossProfit / numericPackCost) * 100).toFixed(1) : '0';
+  // 2. Strip / Blister Level
+  const numericStripCost = Number(stripPurchasePrice) || (numericBoxCost / numericStripsPerBox);
+  const numericStripMRP = Number(stripSalePrice) || 0;
+  const numericStripDiscount = Number(stripDiscountPercent) || 0;
+  const netStripPrice = numericStripMRP * (1 - (numericStripDiscount / 100));
+  const stripProfit = netStripPrice - numericStripCost;
+  const stripMarginPercent = numericStripCost > 0 ? ((stripProfit / numericStripCost) * 100).toFixed(1) : '0';
+
+  // 3. Loose Tablet Level
+  const numericUnitCost = Number(unitPurchasePrice) || (numericBoxCost / totalUnitsPerBox);
+  const numericUnitMRP = Number(unitSalePrice) || 0;
+  const numericUnitDiscount = Number(unitDiscountPercent) || 0;
+  const netUnitPrice = numericUnitMRP * (1 - (numericUnitDiscount / 100));
+  const unitProfit = netUnitPrice - numericUnitCost;
+  const unitMarginPercent = numericUnitCost > 0 ? ((unitProfit / numericUnitCost) * 100).toFixed(1) : '0';
 
   // Handle Medicine selection for existing medicine mode
   const handleSelectExistingMed = (medId: string) => {
@@ -206,7 +273,14 @@ export const InventoryView: React.FC = () => {
       setBrandName(med.brand_name);
       setStrength(med.strength || '');
       setDosageForm(med.dosage_form || 'Tablet');
-      setPackSize(String(med.pack_size || 10));
+      const pSize = Number(med.pack_size || 100);
+      if (pSize >= 10 && pSize % 10 === 0) {
+        setStripsPerBox('10');
+        setUnitsPerStrip(String(pSize / 10));
+      } else {
+        setStripsPerBox('1');
+        setUnitsPerStrip(String(pSize));
+      }
       setRackLocation(med.rack_location || 'Rack A-01');
       if (med.barcode) setBarcode(med.barcode);
     }
@@ -223,14 +297,14 @@ export const InventoryView: React.FC = () => {
         batchNumber,
         mfgDate: mfgDate || null,
         expiryDate,
-        packSize: numericPackSize,
-        packsReceived: numericPacks,
+        packSize: totalUnitsPerBox,
+        packsReceived: numericBoxes,
         bonusQuantity: numericBonus,
         packPurchasePrice: Number(packPurchasePrice) || 0,
         unitPurchasePrice: Number(unitPurchasePrice) || 0,
         packSalePrice: Number(packSalePrice) || 0,
         unitSalePrice: Number(unitSalePrice) || 0,
-        discountPercent: numericDiscount,
+        discountPercent: numericBoxDiscount,
         rackLocation,
         notes
       };
@@ -707,11 +781,13 @@ export const InventoryView: React.FC = () => {
                       </select>
                     </div>
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
                       <div style={{ gridColumn: 'span 2' }}>
-                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                          Brand Trade Name *
-                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Brand Trade Name *
+                          </label>
+                        </div>
                         <input
                           type="text"
                           className="input"
@@ -723,9 +799,11 @@ export const InventoryView: React.FC = () => {
                       </div>
 
                       <div>
-                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                          Active Generic Molecule
-                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Active Generic Molecule
+                          </label>
+                        </div>
                         <input
                           type="text"
                           className="input"
@@ -736,22 +814,24 @@ export const InventoryView: React.FC = () => {
                       </div>
 
                       <div>
-                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                          Strength / Potency
-                        </label>
-                        <input
-                          type="text"
-                          className="input"
-                          placeholder="e.g. 500mg/65mg, 10mg/5ml"
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Strength / Potency
+                          </label>
+                        </div>
+                        <StrengthInput
                           value={strength}
-                          onChange={e => setStrength(e.target.value)}
+                          onChange={val => setStrength(val)}
+                          placeholder="e.g. 500mg, 10mg/5ml..."
                         />
                       </div>
 
                       <div>
-                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                          Dosage Form
-                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Dosage Form
+                          </label>
+                        </div>
                         <select
                           className="select"
                           value={dosageForm}
@@ -770,9 +850,11 @@ export const InventoryView: React.FC = () => {
                       </div>
 
                       <div>
-                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                          Manufacturer / Brand Company
-                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Manufacturer / Brand Company
+                          </label>
+                        </div>
                         <input
                           type="text"
                           className="input"
@@ -783,22 +865,24 @@ export const InventoryView: React.FC = () => {
                       </div>
 
                       <div>
-                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                          Therapeutic Category
-                        </label>
-                        <input
-                          type="text"
-                          className="input"
-                          placeholder="e.g. Antibiotics, Pain Relief, Cardiology"
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Therapeutic Category
+                          </label>
+                        </div>
+                        <TherapeuticCategorySelect
                           value={categoryName}
-                          onChange={e => setCategoryName(e.target.value)}
+                          onChange={val => setCategoryName(val)}
+                          placeholder="Select or search category..."
                         />
                       </div>
 
                       <div>
-                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                          Shelf / Rack Location
-                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Shelf / Rack Location
+                          </label>
+                        </div>
                         <input
                           type="text"
                           className="input"
@@ -809,14 +893,14 @@ export const InventoryView: React.FC = () => {
                       </div>
 
                       <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                          <label style={{ fontSize: '0.78rem', fontWeight: 600 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
                             Barcode (EAN-13 or Custom)
                           </label>
                           <button
                             type="button"
                             onClick={handleAutoBarcode}
-                            style={{ border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
+                            style={{ border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.2rem', whiteSpace: 'nowrap' }}
                           >
                             <Sparkles size={11} />
                             <span>Auto Generate</span>
@@ -841,16 +925,17 @@ export const InventoryView: React.FC = () => {
                     <span>2. Batch Number & Expiration Control</span>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                        <label style={{ fontSize: '0.78rem', fontWeight: 600 }}>Batch / Lot Number *</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Batch / Lot Number *</label>
                         <button
                           type="button"
                           onClick={handleAutoBatch}
-                          style={{ border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}
+                          style={{ border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}
                         >
-                          Auto Generate
+                          <Sparkles size={11} />
+                          <span>Auto Generate</span>
                         </button>
                       </div>
                       <input
@@ -863,10 +948,12 @@ export const InventoryView: React.FC = () => {
                       />
                     </div>
 
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                        Manufacturing Date (Optional)
-                      </label>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                          Manufacturing Date (Optional)
+                        </label>
+                      </div>
                       <input
                         type="date"
                         className="input"
@@ -875,13 +962,13 @@ export const InventoryView: React.FC = () => {
                       />
                     </div>
 
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                        <label style={{ fontSize: '0.78rem', fontWeight: 600 }}>Expiry Date *</label>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Expiry Date *</label>
                         <div style={{ display: 'flex', gap: '0.25rem' }}>
-                          <button type="button" onClick={() => setQuickExpiry(1)} className="badge badge-primary" style={{ cursor: 'pointer', border: 'none' }}>+1y</button>
-                          <button type="button" onClick={() => setQuickExpiry(2)} className="badge badge-primary" style={{ cursor: 'pointer', border: 'none' }}>+2y</button>
-                          <button type="button" onClick={() => setQuickExpiry(3)} className="badge badge-primary" style={{ cursor: 'pointer', border: 'none' }}>+3y</button>
+                          <button type="button" onClick={() => setQuickExpiry(1)} className="badge badge-primary" style={{ cursor: 'pointer', border: 'none', whiteSpace: 'nowrap', padding: '0.15rem 0.4rem', fontSize: '0.68rem' }}>+1Y</button>
+                          <button type="button" onClick={() => setQuickExpiry(2)} className="badge badge-primary" style={{ cursor: 'pointer', border: 'none', whiteSpace: 'nowrap', padding: '0.15rem 0.4rem', fontSize: '0.68rem' }}>+2Y</button>
+                          <button type="button" onClick={() => setQuickExpiry(3)} className="badge badge-primary" style={{ cursor: 'pointer', border: 'none', whiteSpace: 'nowrap', padding: '0.15rem 0.4rem', fontSize: '0.68rem' }}>+3Y</button>
                         </div>
                       </div>
                       <input
@@ -895,197 +982,352 @@ export const InventoryView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* SECTION 3: PACKAGING, TABLET PRICING & REAL-TIME DISCOUNT CALCULATOR */}
+                {/* SECTION 3: 3-LEVEL PACKAGING & MULTI-TIER PRICING (BOX → BLISTER/STRIP → TABLET) */}
                 <div style={{ padding: '1rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem', textTransform: 'uppercase' }}>
                     <Calculator size={14} />
-                    <span>3. Packaging, Pack vs. Individual Tablet Pricing & Discounts</span>
+                    <span>3. 3-Level Packaging Model & Multi-Tier Pricing (Box → Blister/Strip → Tablet)</span>
                   </div>
 
-                  {/* Quantity & Pack Configuration */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                        Pack Size (Tablets/Units per Box) *
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        className="input"
-                        placeholder="e.g. 10 or 20"
-                        value={packSize}
-                        onChange={e => {
-                          setPackSize(e.target.value);
-                          const pSize = Math.max(1, Number(e.target.value) || 1);
-                          if (packPurchasePrice) setUnitPurchasePrice((Number(packPurchasePrice) / pSize).toFixed(2));
-                          if (packSalePrice) setUnitSalePrice((Number(packSalePrice) / pSize).toFixed(2));
-                        }}
-                        required
-                      />
+                  {/* Part A: Packaging Hierarchy & Stock Reception */}
+                  <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                      📦 1. Packaging Hierarchy Setup
                     </div>
 
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                        Packs Quantity Received (Boxes) *
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        className="input"
-                        placeholder="e.g. 5"
-                        value={packsReceived}
-                        onChange={e => setPacksReceived(e.target.value)}
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                        Bonus Units / Loose (Optional)
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        className="input"
-                        placeholder="0"
-                        value={bonusQuantity}
-                        onChange={e => setBonusQuantity(e.target.value)}
-                      />
-                    </div>
-
-                    {/* Total Units Computed Card */}
-                    <div style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.5rem 0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                      <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total Sellable Units</span>
-                      <span style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--primary)' }}>
-                        {totalSellableUnits} <span style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Tablets/Units</span>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Pricing Inputs */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                        Pack Purchase Cost (Rs./Box) *
-                      </label>
-                      <div style={{ position: 'relative' }}>
-                        <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Strips / Blisters per Box *
+                          </label>
+                        </div>
                         <input
                           type="number"
-                          step="0.01"
-                          min="0"
+                          min="1"
                           className="input"
-                          style={{ paddingLeft: '2.2rem' }}
-                          placeholder="300.00"
-                          value={packPurchasePrice}
-                          onChange={e => handlePackPurchaseChange(e.target.value)}
+                          placeholder="e.g. 10"
+                          value={stripsPerBox}
+                          onChange={e => handleStripsPerBoxChange(e.target.value)}
                           required
                         />
                       </div>
-                    </div>
 
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                        Unit Purchase Cost (Rs./Tablet)
-                      </label>
-                      <div style={{ position: 'relative' }}>
-                        <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Tablets / Units per Strip *
+                          </label>
+                        </div>
                         <input
                           type="number"
-                          step="0.01"
+                          min="1"
+                          className="input"
+                          placeholder="e.g. 10"
+                          value={unitsPerStrip}
+                          onChange={e => handleUnitsPerStripChange(e.target.value)}
+                          required
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Boxes Received *
+                          </label>
+                        </div>
+                        <input
+                          type="number"
+                          min="1"
+                          className="input"
+                          placeholder="e.g. 5"
+                          value={packsReceived}
+                          onChange={e => setPacksReceived(e.target.value)}
+                          required
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Bonus Loose Units (Optional)
+                          </label>
+                        </div>
+                        <input
+                          type="number"
                           min="0"
                           className="input"
-                          style={{ paddingLeft: '2.2rem' }}
-                          placeholder="30.00"
-                          value={unitPurchasePrice}
-                          onChange={e => handleUnitPurchaseChange(e.target.value)}
+                          placeholder="0"
+                          value={bonusQuantity}
+                          onChange={e => setBonusQuantity(e.target.value)}
                         />
                       </div>
                     </div>
 
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                        Pack Sale MRP (Whole Box Rs.) *
-                      </label>
-                      <div style={{ position: 'relative' }}>
-                        <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0.01"
-                          className="input"
-                          style={{ paddingLeft: '2.2rem' }}
-                          placeholder="400.00"
-                          value={packSalePrice}
-                          onChange={e => handlePackSaleChange(e.target.value)}
-                          required
-                        />
+                    {/* Auto-Calculated Stock Breakdown Cards */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.5rem', marginTop: '0.75rem' }}>
+                      <div style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.4rem 0.65rem' }}>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Total Units / Box</div>
+                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--primary)' }}>
+                          {totalUnitsPerBox} <span style={{ fontSize: '0.7rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Tablets</span>
+                        </div>
                       </div>
-                    </div>
 
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                        Individual Tablet MRP (Rs./Unit) *
-                      </label>
-                      <div style={{ position: 'relative' }}>
-                        <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0.01"
-                          className="input"
-                          style={{ paddingLeft: '2.2rem' }}
-                          placeholder="40.00"
-                          value={unitSalePrice}
-                          onChange={e => handleUnitSaleChange(e.target.value)}
-                          required
-                        />
+                      <div style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.4rem 0.65rem' }}>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Total Strips Received</div>
+                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--primary)' }}>
+                          {totalStripsReceived} <span style={{ fontSize: '0.7rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Strips/Blisters</span>
+                        </div>
                       </div>
-                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-                        Can differ from pack rate for loose sale
-                      </span>
+
+                      <div style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.4rem 0.65rem' }}>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Total Loose Stock</div>
+                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--success)' }}>
+                          {totalSellableUnits} <span style={{ fontSize: '0.7rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Tablets</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Discount & Profit Math Display */}
-                  <div style={{ padding: '0.75rem 1rem', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', alignItems: 'center' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.2rem' }}>
-                        Default Discount %
-                      </label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.5"
-                          className="input input-sm"
-                          style={{ width: '80px', height: '30px', fontSize: '0.8rem' }}
-                          value={discountPercent}
-                          onChange={e => setDiscountPercent(e.target.value)}
-                        />
-                        <span style={{ fontWeight: 700, fontSize: '0.8rem' }}>%</span>
-                      </div>
+                  {/* Part B: Purchase Cost Breakdown */}
+                  <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                      💰 2. Purchase Cost Auto-Calculator
                     </div>
 
-                    <div>
-                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Net Pack Price</div>
-                      <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                        Rs. {discountedPackPrice.toFixed(2)}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Box Purchase Cost (Rs./Box) *
+                          </label>
+                        </div>
+                        <div style={{ position: 'relative' }}>
+                          <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            className="input"
+                            style={{ paddingLeft: '2.2rem' }}
+                            placeholder="300.00"
+                            value={packPurchasePrice}
+                            onChange={e => handlePackPurchaseChange(e.target.value)}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                            Strip Cost (Auto-Calc)
+                          </label>
+                        </div>
+                        <div style={{ position: 'relative' }}>
+                          <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            readOnly
+                            className="input"
+                            style={{ paddingLeft: '2.2rem', backgroundColor: 'var(--bg-app)', color: 'var(--text-muted)' }}
+                            value={stripPurchasePrice}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                            Tablet Cost (Auto-Calc)
+                          </label>
+                        </div>
+                        <div style={{ position: 'relative' }}>
+                          <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            readOnly
+                            className="input"
+                            style={{ paddingLeft: '2.2rem', backgroundColor: 'var(--bg-app)', color: 'var(--text-muted)' }}
+                            value={unitPurchasePrice}
+                          />
+                        </div>
                       </div>
                     </div>
+                  </div>
 
-                    <div>
-                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Net Unit Price</div>
-                      <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                        Rs. {discountedUnitPrice.toFixed(2)}
-                      </div>
+                  {/* Part C: 3-Tier Selling Prices & Independent Discount Fields */}
+                  <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                      🏷️ 3. Independent Selling Prices & Discounts (Box, Blister & Loose Unit)
                     </div>
 
-                    <div>
-                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Gross Profit Margin</div>
-                      <div style={{ fontSize: '0.95rem', fontWeight: 800, color: Number(profitMarginPercent) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                        +{profitMarginPercent}% (Rs. {packGrossProfit.toFixed(2)}/box)
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '0.75rem' }}>
+                      {/* Box Level Card */}
+                      <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                          <span>📦 BOX / PACK (Entire Box)</span>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem' }}>Box Selling MRP *</label>
+                          <div style={{ position: 'relative' }}>
+                            <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0.01"
+                              className="input"
+                              style={{ paddingLeft: '2.2rem' }}
+                              placeholder="400.00"
+                              value={packSalePrice}
+                              onChange={e => handlePackSaleChange(e.target.value)}
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem' }}>Box Discount %</label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.5"
+                              className="input input-sm"
+                              style={{ width: '80px', height: '30px', fontSize: '0.8rem' }}
+                              value={boxDiscountPercent}
+                              onChange={e => setBoxDiscountPercent(e.target.value)}
+                            />
+                            <span style={{ fontWeight: 700, fontSize: '0.8rem' }}>%</span>
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: 'auto', paddingTop: '0.4rem', borderTop: '1px dashed var(--border)', fontSize: '0.72rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                            <span>Net Box Price:</span>
+                            <strong style={{ color: 'var(--text-primary)' }}>Rs. {netBoxPrice.toFixed(2)}</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.15rem' }}>
+                            <span>Box Profit:</span>
+                            <strong style={{ color: Number(boxMarginPercent) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                              +{boxMarginPercent}% (Rs. {boxProfit.toFixed(2)})
+                            </strong>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Blister / Strip Level Card */}
+                      <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                          <span>💊 BLISTER / STRIP (1 Pack Inside)</span>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem' }}>Strip Selling MRP *</label>
+                          <div style={{ position: 'relative' }}>
+                            <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0.01"
+                              className="input"
+                              style={{ paddingLeft: '2.2rem' }}
+                              placeholder="40.00"
+                              value={stripSalePrice}
+                              onChange={e => handleStripSaleChange(e.target.value)}
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem' }}>Strip Discount %</label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.5"
+                              className="input input-sm"
+                              style={{ width: '80px', height: '30px', fontSize: '0.8rem' }}
+                              value={stripDiscountPercent}
+                              onChange={e => setStripDiscountPercent(e.target.value)}
+                            />
+                            <span style={{ fontWeight: 700, fontSize: '0.8rem' }}>%</span>
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: 'auto', paddingTop: '0.4rem', borderTop: '1px dashed var(--border)', fontSize: '0.72rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                            <span>Net Strip Price:</span>
+                            <strong style={{ color: 'var(--text-primary)' }}>Rs. {netStripPrice.toFixed(2)}</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.15rem' }}>
+                            <span>Strip Profit:</span>
+                            <strong style={{ color: Number(stripMarginPercent) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                              +{stripMarginPercent}% (Rs. {stripProfit.toFixed(2)})
+                            </strong>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Loose Tablet Level Card */}
+                      <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                          <span>🔘 LOOSE TABLET / UNIT (1 Tablet)</span>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem' }}>Tablet Selling MRP *</label>
+                          <div style={{ position: 'relative' }}>
+                            <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0.01"
+                              className="input"
+                              style={{ paddingLeft: '2.2rem' }}
+                              placeholder="4.50"
+                              value={unitSalePrice}
+                              onChange={e => handleUnitSaleChange(e.target.value)}
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem' }}>Tablet Discount %</label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.5"
+                              className="input input-sm"
+                              style={{ width: '80px', height: '30px', fontSize: '0.8rem' }}
+                              value={unitDiscountPercent}
+                              onChange={e => setUnitDiscountPercent(e.target.value)}
+                            />
+                            <span style={{ fontWeight: 700, fontSize: '0.8rem' }}>%</span>
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: 'auto', paddingTop: '0.4rem', borderTop: '1px dashed var(--border)', fontSize: '0.72rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                            <span>Net Unit Price:</span>
+                            <strong style={{ color: 'var(--text-primary)' }}>Rs. {netUnitPrice.toFixed(2)}</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.15rem' }}>
+                            <span>Tablet Profit:</span>
+                            <strong style={{ color: Number(unitMarginPercent) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                              +{unitMarginPercent}% (Rs. {unitProfit.toFixed(2)})
+                            </strong>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
