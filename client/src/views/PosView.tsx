@@ -12,7 +12,10 @@ import {
   Camera,
   MessageCircle,
   CheckCircle,
-  QrCode
+  QrCode,
+  Package,
+  Layers,
+  Pill
 } from 'lucide-react';
 import { saveOfflineSale } from '../services/offlineSync.js';
 import { printThermalElement } from '../utils/thermalPrinter.js';
@@ -24,6 +27,7 @@ export interface CartItem {
   strength?: string;
   dosageForm?: string;
   packSize?: number;
+  tabletsPerPack?: number;
   batchId: number;
   batchNumber: string;
   expiryDate: string;
@@ -39,18 +43,15 @@ export interface CartItem {
 export const PosView: React.FC = () => {
   const { token, user } = useAuth();
 
-  // Search state
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const paidInputRef = useRef<HTMLInputElement>(null);
 
-  // Camera Scanner state
   const [showCameraScanner, setShowCameraScanner] = useState(false);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
 
-  // Cart state
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customers, setCustomers] = useState<{ id: number; name: string; mobile?: string; current_balance: number }[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
@@ -61,7 +62,6 @@ export const PosView: React.FC = () => {
   const [activeQrModal, setActiveQrModal] = useState<'JAZZCASH' | 'AL_HABIB' | null>(null);
   const [paidAmount, setPaidAmount] = useState<string>('');
 
-  // Refs for real-time SSE payment auto-matching
   const cartRef = useRef<CartItem[]>(cart);
   const billDiscountRef = useRef<string>(billDiscount);
   const selectedCustomerRef = useRef<string>(selectedCustomerId);
@@ -78,11 +78,9 @@ export const PosView: React.FC = () => {
     selectedCustomerRef.current = selectedCustomerId;
   }, [selectedCustomerId]);
 
-  // Held bills state
   const [heldBills, setHeldBills] = useState<any[]>([]);
   const [showHeldModal, setShowHeldModal] = useState(false);
 
-  // Receipt modal & settings state
   const [lastInvoice, setLastInvoice] = useState<any>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -111,9 +109,9 @@ export const PosView: React.FC = () => {
       });
       const data = await res.json();
       if (data.success) {
-        setInfoMessage(data.message || 'Receipt printed directly on Speed-X hardware!');
+        setInfoMessage(data.message || 'Receipt printed directly on Speed-X hardware.');
       } else {
-        setErrorMessage(data.message || 'Speed-X hardware printer not detected on this system. You can click "Dialog" if you want browser print.');
+        setErrorMessage(data.message || 'Speed-X printer not detected. You can use the Dialog print option.');
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Direct print error.');
@@ -122,7 +120,6 @@ export const PosView: React.FC = () => {
     }
   };
 
-  // Helper for automated checkout upon QR payment detection
   const autoCompleteQrSale = async (eventData: any, method: any) => {
     if (cartRef.current.length === 0) return;
     const currentCart = [...cartRef.current];
@@ -131,7 +128,7 @@ export const PosView: React.FC = () => {
     const currentPrintFee = 2.00;
     const total = Math.max(0, currentSubtotal - disc + currentPrintFee);
 
-    setInfoMessage(`⚡ QR Payment Verified: Rs. ${eventData.amount} (${eventData.provider}) - Auto-printing invoice...`);
+    setInfoMessage(`QR Payment Verified: Rs. ${eventData.amount} (${eventData.provider})`);
 
     try {
       const res = await fetch('/api/pos/checkout', {
@@ -179,16 +176,14 @@ export const PosView: React.FC = () => {
         }
       }
     } catch (err) {
-      console.error('QR Auto-checkout failed:', err);
+      console.error(err);
     }
   };
 
-  // Print Dialog Trigger for browser printing
   const handlePrintReceipt = () => {
     printThermalElement('nmp-printable-receipt', (settings['printer_paper_width'] as any) || '80mm');
   };
 
-  // Setup Server-Sent Events (SSE) for Real-Time QR Payment Webhook Notifications
   useEffect(() => {
     let eventSource: EventSource | null = null;
     try {
@@ -198,9 +193,6 @@ export const PosView: React.FC = () => {
           const data = JSON.parse(event.data);
           if (data.type === 'HEARTBEAT') return;
 
-          console.log('[REALTIME_QR_PAYMENT_ARRIVED]', data);
-
-          // Play subtle synthesized audio chime
           try {
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
             if (AudioContextClass) {
@@ -209,20 +201,17 @@ export const PosView: React.FC = () => {
               const gain = ctx.createGain();
               osc.connect(gain);
               gain.connect(ctx.destination);
-              osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-              osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1); // A5
+              osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+              osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1);
               gain.gain.setValueAtTime(0.3, ctx.currentTime);
               gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
               osc.start();
               osc.stop(ctx.currentTime + 0.35);
             }
-          } catch (e) {
-            console.log('Audio chime unavailable:', e);
-          }
+          } catch {}
 
-          setInfoMessage(`⚡ QR Payment Received: Rs. ${data.amount} (${data.provider}) - TID: ${data.trxId}`);
+          setInfoMessage(`QR Payment Received: Rs. ${data.amount} (${data.provider}) - TID: ${data.trxId}`);
 
-          // Check if active cart exists and matches the amount
           if (cartRef.current && cartRef.current.length > 0) {
             const currentSubtotal = cartRef.current.reduce((sum, it) => sum + it.lineTotal, 0);
             const currentDiscount = Number(billDiscountRef.current) || 0;
@@ -230,7 +219,6 @@ export const PosView: React.FC = () => {
 
             const method: 'JAZZCASH' | 'AL_HABIB' = data.provider === 'AL_HABIB' ? 'AL_HABIB' : 'JAZZCASH';
 
-            // If incoming payment covers the cart (or within Rs 2), auto-checkout and print!
             if (Math.abs(data.amount - currentNet) <= 2 || data.amount >= currentNet) {
               autoCompleteQrSale(data, method);
             } else {
@@ -239,11 +227,11 @@ export const PosView: React.FC = () => {
             }
           }
         } catch (e) {
-          console.error('Error parsing QR event:', e);
+          console.error(e);
         }
       };
     } catch (err) {
-      console.error('SSE initialization error:', err);
+      console.error(err);
     }
 
     return () => {
@@ -251,7 +239,6 @@ export const PosView: React.FC = () => {
     };
   }, [token]);
 
-  // Fetch customers & pharmacy settings on load
   useEffect(() => {
     async function loadInitialData() {
       try {
@@ -264,14 +251,10 @@ export const PosView: React.FC = () => {
           const data = await patientsRes.json();
           setCustomers(data.patients || []);
         } else {
-          // Fallback if patients route is not yet up
-          const cRes = await fetch('/api/pos/search?q=Panadol', { headers: { Authorization: `Bearer ${token}` } });
-          if (cRes.ok) {
-            setCustomers([
-              { id: 1, name: 'Muhammad Usman', mobile: '0312-9988776', current_balance: 1200 },
-              { id: 2, name: 'Amina Bibi', mobile: '0345-1122334', current_balance: 0 }
-            ]);
-          }
+          setCustomers([
+            { id: 1, name: 'Muhammad Usman', mobile: '0312-9988776', current_balance: 1200 },
+            { id: 2, name: 'Amina Bibi', mobile: '0345-1122334', current_balance: 0 }
+          ]);
         }
 
         if (settingsRes.ok) {
@@ -281,7 +264,7 @@ export const PosView: React.FC = () => {
           setSettings(map);
         }
       } catch (err) {
-        console.error('Failed to load POS settings', err);
+        console.error(err);
       }
     }
 
@@ -289,7 +272,6 @@ export const PosView: React.FC = () => {
     fetchHeldBills();
   }, [token]);
 
-  // Handle Hotkeys (F1, F2, F4, F5, F9, ESC)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'F1') {
@@ -318,7 +300,6 @@ export const PosView: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [cart]);
 
-  // Live search handler
   useEffect(() => {
     if (!query.trim()) {
       setSearchResults([]);
@@ -335,14 +316,14 @@ export const PosView: React.FC = () => {
           setSearchResults(data.results);
         }
       } catch (err) {
-        console.error('POS search failed:', err);
+        console.error(err);
       }
     }, 150);
 
     return () => clearTimeout(timer);
   }, [query]);
 
-  const handleAddToCart = (product: any, unitType: 'TABLET' | 'BLISTER' | 'BOX' = 'TABLET', count: number = 1) => {
+  const handleAddToCart = (product: any, unitType: 'TABLET' | 'PACK' | 'BOX' = 'TABLET', count: number = 1) => {
     setErrorMessage(null);
 
     if (!product.fefo_batch) {
@@ -352,30 +333,22 @@ export const PosView: React.FC = () => {
 
     const batch = product.fefo_batch;
     const packSize = Number(product.pack_size) > 0 ? Number(product.pack_size) : 100;
-
-    // Determine 3-level units
-    let unitsPerStrip = 10;
-    if (packSize >= 10 && packSize % 10 === 0) {
-      unitsPerStrip = packSize / 10;
-    } else {
-      unitsPerStrip = packSize;
-    }
+    const tabletsPerPack = (packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : (packSize > 1 ? 10 : 1);
 
     let looseUnitsToAdd = 1;
     if (unitType === 'BOX') {
       looseUnitsToAdd = packSize * count;
-    } else if (unitType === 'BLISTER') {
-      looseUnitsToAdd = unitsPerStrip * count;
+    } else if (unitType === 'PACK') {
+      looseUnitsToAdd = tabletsPerPack * count;
     } else {
       looseUnitsToAdd = 1 * count;
     }
 
-    // Check if already in cart
     const existingIndex = cart.findIndex(it => it.batchId === batch.batch_id);
     if (existingIndex > -1) {
       const updated = [...cart];
       if (updated[existingIndex].quantity + looseUnitsToAdd > batch.quantity) {
-        setErrorMessage(`Cannot exceed available batch stock (${batch.quantity} units).`);
+        setErrorMessage(`Cannot exceed available stock (${batch.quantity} tablets).`);
         return;
       }
       updated[existingIndex].quantity += looseUnitsToAdd;
@@ -383,7 +356,7 @@ export const PosView: React.FC = () => {
       setCart(updated);
     } else {
       if (looseUnitsToAdd > batch.quantity) {
-        setErrorMessage(`Cannot exceed available batch stock (${batch.quantity} units).`);
+        setErrorMessage(`Cannot exceed available stock (${batch.quantity} tablets).`);
         return;
       }
       const newItem: CartItem = {
@@ -392,6 +365,7 @@ export const PosView: React.FC = () => {
         strength: product.strength,
         dosageForm: product.dosage_form,
         packSize,
+        tabletsPerPack,
         batchId: batch.batch_id,
         batchNumber: batch.batch_number,
         expiryDate: batch.expiry_date,
@@ -420,7 +394,7 @@ export const PosView: React.FC = () => {
 
     const item = cart[index];
     if (newQty > item.availableStock) {
-      setErrorMessage(`Cannot exceed available stock (${item.availableStock} units).`);
+      setErrorMessage(`Cannot exceed available stock (${item.availableStock} tablets).`);
       return;
     }
 
@@ -459,7 +433,6 @@ export const PosView: React.FC = () => {
     searchInputRef.current?.focus();
   };
 
-  // Financial Calculations
   const printFee = cart.length > 0 ? 2.00 : 0.00;
   const subtotal = cart.reduce((acc, it) => acc + it.lineTotal, 0);
   const rawDiscount = Number(billDiscount) || 0;
@@ -522,7 +495,6 @@ export const PosView: React.FC = () => {
     }
   };
 
-  // Camera stream start/stop
   const startCameraScanner = async () => {
     setShowCameraScanner(true);
     setErrorMessage(null);
@@ -621,7 +593,6 @@ export const PosView: React.FC = () => {
         }, 350);
       }
     } catch (err: any) {
-      // Offline fallback
       if (!navigator.onLine || err.message.includes('fetch') || err.message.includes('Network') || err.message.includes('Failed to fetch')) {
         const offlineRecord = saveOfflineSale({
           customerId: selectedCustomerId ? Number(selectedCustomerId) : null,
@@ -663,7 +634,7 @@ export const PosView: React.FC = () => {
         };
 
         setLastInvoice(offlineInvoiceData);
-        setInfoMessage('Offline Mode Active: Sale saved locally in queue. It will automatically synchronize when network is restored.');
+        setInfoMessage('Offline Mode Active: Sale saved locally in queue.');
         setShowReceiptModal(true);
         handleClearCart();
 
@@ -678,9 +649,23 @@ export const PosView: React.FC = () => {
     }
   };
 
+  const formatPackagingBreakdown = (quantity: number, packSize: number = 100, tabletsPerPack: number = 10) => {
+    const pSize = packSize > 0 ? packSize : 100;
+    const tPack = tabletsPerPack > 0 ? tabletsPerPack : 10;
+    const boxes = Math.floor(quantity / pSize);
+    const rem = quantity % pSize;
+    const packs = Math.floor(rem / tPack);
+    const tablets = rem % tPack;
+
+    const parts: string[] = [];
+    if (boxes > 0) parts.push(`${boxes} Box`);
+    if (packs > 0) parts.push(`${packs} Pack`);
+    if (tablets > 0 || parts.length === 0) parts.push(`${tablets} Tab`);
+    return parts.join(' + ');
+  };
+
   return (
     <div className="page-container" style={{ padding: '1rem' }}>
-      {/* Top Shortcuts Bar */}
       <div
         style={{
           display: 'flex',
@@ -708,7 +693,7 @@ export const PosView: React.FC = () => {
               onClick={() => setShowReceiptModal(true)}
               className="btn btn-secondary btn-sm"
               style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem', color: 'var(--primary)' }}
-              title="View & Reprint Last Receipt on Speed-X 400UL"
+              title="View & Reprint Last Receipt"
             >
               <Printer size={14} />
               <span>Reprint #{lastInvoice.invoiceNumber}</span>
@@ -774,7 +759,6 @@ export const PosView: React.FC = () => {
         </div>
       )}
 
-      {/* CAMERA SCANNER MODAL */}
       {showCameraScanner && (
         <div className="modal-overlay">
           <div className="modal-content" style={{ maxWidth: '420px', padding: '1.25rem' }}>
@@ -809,17 +793,14 @@ export const PosView: React.FC = () => {
         </div>
       )}
 
-      {/* Main POS Split Layout */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr', gap: '1rem', alignItems: 'start' }}>
-        {/* Left Column: Search & Cart */}
         <div>
-          {/* Search Box */}
           <div className="card" style={{ padding: '0.85rem', marginBottom: '0.85rem', position: 'relative' }}>
             <div style={{ position: 'relative' }}>
               <input
                 ref={searchInputRef}
                 className="input"
-                placeholder="Scan barcode (EAN-13, Custom NMP) or search brand / generic (F2)..."
+                placeholder="Scan barcode or search brand, generic (F2)..."
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 onKeyDown={async (e) => {
@@ -839,7 +820,7 @@ export const PosView: React.FC = () => {
                           }
                         }
                       } catch (err) {
-                        console.error('Direct barcode lookup error:', err);
+                        console.error(err);
                       }
                     }
                   }
@@ -858,7 +839,6 @@ export const PosView: React.FC = () => {
               )}
             </div>
 
-            {/* Live Search Results Dropdown */}
             {searchResults.length > 0 && (
               <div
                 style={{
@@ -878,9 +858,9 @@ export const PosView: React.FC = () => {
               >
                 {searchResults.map((p) => {
                   const packSize = Number(p.pack_size) > 0 ? Number(p.pack_size) : 100;
-                  const unitsPerStrip = (packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : packSize;
+                  const tabletsPerPack = (packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : (packSize > 1 ? 10 : 1);
                   const unitPrice = p.fefo_batch ? Number(p.fefo_batch.sale_price) : 0;
-                  const stripPrice = unitPrice * unitsPerStrip;
+                  const packPrice = unitPrice * tabletsPerPack;
                   const boxPrice = unitPrice * packSize;
 
                   return (
@@ -910,47 +890,47 @@ export const PosView: React.FC = () => {
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <div style={{ textAlign: 'right', fontSize: '0.72rem' }}>
+                        <div style={{ textAlign: 'right', fontSize: '0.74rem' }}>
                           <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>
                             Tablet: <strong>Rs. {unitPrice.toFixed(2)}</strong>
                           </div>
                           <div style={{ color: 'var(--text-secondary)' }}>
-                            Blister ({unitsPerStrip}s): <strong>Rs. {stripPrice.toFixed(2)}</strong>
+                            Pack ({tabletsPerPack}s): <strong>Rs. {packPrice.toFixed(2)}</strong>
                           </div>
                           <div style={{ color: 'var(--text-secondary)' }}>
                             Box ({packSize}s): <strong>Rs. {boxPrice.toFixed(2)}</strong>
                           </div>
-                          <div style={{ fontSize: '0.68rem', color: p.total_stock > 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 600, marginTop: '0.1rem' }}>
-                            {p.total_stock > 0 ? `${p.total_stock} loose left` : 'Out of Stock'}
+                          <div style={{ fontSize: '0.7rem', color: p.total_stock > 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 700, marginTop: '0.1rem' }}>
+                            {p.total_stock > 0 ? `${p.total_stock} tablets in stock` : 'Out of Stock'}
                           </div>
                         </div>
 
                         {p.total_stock > 0 && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                             <button
                               type="button"
                               onClick={() => handleAddToCart(p, 'TABLET', 1)}
                               className="btn btn-secondary btn-sm"
-                              style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem', whiteSpace: 'nowrap' }}
-                              title="Add 1 single tablet / loose unit"
+                              style={{ fontSize: '0.68rem', padding: '0.2rem 0.5rem', whiteSpace: 'nowrap' }}
+                              title="Add 1 single tablet / unit"
                             >
                               +1 Tablet
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleAddToCart(p, 'BLISTER', 1)}
+                              onClick={() => handleAddToCart(p, 'PACK', 1)}
                               className="btn btn-secondary btn-sm"
-                              style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem', whiteSpace: 'nowrap', color: 'var(--primary)' }}
-                              title={`Add 1 blister / strip of ${unitsPerStrip} units`}
+                              style={{ fontSize: '0.68rem', padding: '0.2rem 0.5rem', whiteSpace: 'nowrap', color: 'var(--primary)' }}
+                              title={`Add 1 pack (${tabletsPerPack} tablets)`}
                             >
-                              +1 Blister ({unitsPerStrip}s)
+                              +1 Pack ({tabletsPerPack}s)
                             </button>
                             <button
                               type="button"
                               onClick={() => handleAddToCart(p, 'BOX', 1)}
                               className="btn btn-primary btn-sm"
-                              style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem', whiteSpace: 'nowrap' }}
-                              title={`Add entire box of ${packSize} units`}
+                              style={{ fontSize: '0.68rem', padding: '0.2rem 0.5rem', whiteSpace: 'nowrap' }}
+                              title={`Add 1 full box (${packSize} tablets)`}
                             >
                               +1 Box ({packSize}s)
                             </button>
@@ -964,12 +944,11 @@ export const PosView: React.FC = () => {
             )}
           </div>
 
-          {/* Cart Table */}
           <div className="card" style={{ padding: '0.85rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
               <div style={{ fontWeight: 700, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                 <ShoppingCart size={16} />
-                <span>Active Sale Cart ({cart.length} items)</span>
+                <span>Active Dispensing Cart ({cart.length} items)</span>
               </div>
               {cart.length > 0 && (
                 <button onClick={handleClearCart} className="btn btn-secondary btn-sm" style={{ color: 'var(--danger)', fontSize: '0.75rem' }}>
@@ -990,38 +969,32 @@ export const PosView: React.FC = () => {
                 <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                      <th style={{ padding: '0.5rem' }}>Medicine</th>
+                      <th style={{ padding: '0.5rem' }}>Medicine & Packaging</th>
                       <th style={{ padding: '0.5rem' }}>Batch / Expiry</th>
-                      <th style={{ padding: '0.5rem', textAlign: 'right' }}>Price</th>
-                      <th style={{ padding: '0.5rem', textAlign: 'center' }}>Qty</th>
-                      <th style={{ padding: '0.5rem', textAlign: 'right' }}>Total</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'right' }}>Price Rate</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'center' }}>Dispensed Qty</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'right' }}>Subtotal</th>
                       <th style={{ padding: '0.5rem', width: '30px' }}></th>
                     </tr>
                   </thead>
                   <tbody>
                     {cart.map((item, index) => {
                       const pSize = Number(item.packSize) > 0 ? Number(item.packSize) : 100;
-                      const uStrip = (pSize >= 10 && pSize % 10 === 0) ? pSize / 10 : pSize;
-                      
-                      const numBoxes = Math.floor(item.quantity / pSize);
-                      const remAfterBox = item.quantity % pSize;
-                      const numStrips = Math.floor(remAfterBox / uStrip);
-                      const remLoose = remAfterBox % uStrip;
+                      const tPack = Number(item.tabletsPerPack) > 0 ? Number(item.tabletsPerPack) : 10;
+                      const packagingText = formatPackagingBreakdown(item.quantity, pSize, tPack);
 
                       return (
                         <tr key={index} style={{ borderBottom: '1px solid var(--border)' }}>
                           <td style={{ padding: '0.6rem 0.5rem' }}>
-                            <div style={{ fontWeight: 700 }}>{item.brandName}</div>
-                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>{item.brandName}</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.15rem' }}>
                               <span>{item.strength} • {item.dosageForm}</span>
-                              <span style={{ fontSize: '0.65rem', padding: '0.05rem 0.3rem', borderRadius: '3px', background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
-                                Pack: {pSize} ({uStrip}/strip)
+                              <span style={{ fontSize: '0.68rem', padding: '0.05rem 0.35rem', borderRadius: '4px', background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+                                Box: {pSize} Tabs ({tPack} tabs/pack)
                               </span>
                             </div>
-                            <div style={{ fontSize: '0.68rem', fontWeight: 700, marginTop: '0.2rem', display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
-                              {numBoxes > 0 && <span style={{ color: 'var(--primary)' }}>📦 {numBoxes} Box</span>}
-                              {numStrips > 0 && <span style={{ color: '#0284c7' }}>💊 {numStrips} Blister</span>}
-                              {remLoose > 0 && <span style={{ color: 'var(--success)' }}>🔘 {remLoose} Tab</span>}
+                            <div style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--primary)', marginTop: '0.25rem' }}>
+                              Dispensing: {packagingText} ({item.quantity} tablets)
                             </div>
                           </td>
                           <td style={{ padding: '0.6rem 0.5rem' }}>
@@ -1029,7 +1002,7 @@ export const PosView: React.FC = () => {
                               className="input input-sm"
                               value={item.batchId}
                               onChange={(e) => handleSwitchBatch(index, Number(e.target.value))}
-                              style={{ fontSize: '0.72rem', padding: '0.2rem 0.4rem', height: '26px' }}
+                              style={{ fontSize: '0.72rem', padding: '0.2rem 0.4rem', height: '28px' }}
                             >
                               {item.availableBatches?.map(b => (
                                 <option key={b.batch_id} value={b.batch_id}>
@@ -1039,60 +1012,62 @@ export const PosView: React.FC = () => {
                             </select>
                           </td>
                           <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right' }}>
-                            <div style={{ fontWeight: 600 }}>Rs. {item.unitPrice.toFixed(2)} / tab</div>
-                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-                              Rs. {(item.unitPrice * uStrip).toFixed(2)}/blister
+                            <div style={{ fontWeight: 700 }}>Rs. {item.unitPrice.toFixed(2)} / tab</div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                              Rs. {(item.unitPrice * tPack).toFixed(2)} / pack
                             </div>
-                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-                              Rs. {(item.unitPrice * pSize).toFixed(2)}/box
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                              Rs. {(item.unitPrice * pSize).toFixed(2)} / box
                             </div>
                           </td>
                           <td style={{ padding: '0.6rem 0.5rem', textAlign: 'center' }}>
                             <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
                               <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
                                 <button
+                                  type="button"
                                   onClick={() => handleUpdateQty(index, item.quantity - 1)}
-                                  style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.4rem', cursor: 'pointer' }}
-                                  title="Decrease 1 loose tablet"
+                                  style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.5rem', cursor: 'pointer', fontWeight: 800 }}
+                                  title="Decrease 1 tablet"
                                 >
                                   -
                                 </button>
-                                <span style={{ padding: '0.2rem 0.5rem', fontWeight: 700, fontSize: '0.85rem', minWidth: '32px', textAlign: 'center' }}>
+                                <span style={{ padding: '0.2rem 0.6rem', fontWeight: 800, fontSize: '0.88rem', minWidth: '36px', textAlign: 'center' }}>
                                   {item.quantity}
                                 </span>
                                 <button
+                                  type="button"
                                   onClick={() => handleUpdateQty(index, item.quantity + 1)}
-                                  style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.4rem', cursor: 'pointer' }}
-                                  title="Increase 1 loose tablet"
+                                  style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.5rem', cursor: 'pointer', fontWeight: 800 }}
+                                  title="Increase 1 tablet"
                                 >
                                   +
                                 </button>
                               </div>
 
-                              <div style={{ display: 'flex', gap: '0.2rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                              <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', justifyContent: 'center' }}>
                                 <button
                                   type="button"
                                   onClick={() => handleUpdateQty(index, item.quantity + 1)}
                                   className="btn btn-secondary btn-sm"
-                                  style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem', whiteSpace: 'nowrap' }}
+                                  style={{ fontSize: '0.65rem', padding: '0.15rem 0.35rem', whiteSpace: 'nowrap' }}
                                   title="Add 1 tablet"
                                 >
                                   +1 Tab
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleUpdateQty(index, item.quantity + uStrip)}
+                                  onClick={() => handleUpdateQty(index, item.quantity + tPack)}
                                   className="btn btn-secondary btn-sm"
-                                  style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem', whiteSpace: 'nowrap', color: 'var(--primary)' }}
-                                  title={`Add 1 blister (${uStrip} tabs)`}
+                                  style={{ fontSize: '0.65rem', padding: '0.15rem 0.35rem', whiteSpace: 'nowrap', color: 'var(--primary)' }}
+                                  title={`Add 1 pack (${tPack} tabs)`}
                                 >
-                                  +1 Blister
+                                  +1 Pack
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => handleUpdateQty(index, item.quantity + pSize)}
                                   className="btn btn-secondary btn-sm"
-                                  style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem', whiteSpace: 'nowrap' }}
+                                  style={{ fontSize: '0.65rem', padding: '0.15rem 0.35rem', whiteSpace: 'nowrap' }}
                                   title={`Add 1 box (${pSize} tabs)`}
                                 >
                                   +1 Box
@@ -1100,15 +1075,16 @@ export const PosView: React.FC = () => {
                               </div>
                             </div>
                           </td>
-                          <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', fontWeight: 800 }}>
+                          <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', fontWeight: 800, fontSize: '0.9rem' }}>
                             Rs. {item.lineTotal.toFixed(2)}
                           </td>
                           <td style={{ padding: '0.6rem 0.5rem', textAlign: 'center' }}>
                             <button
+                              type="button"
                               onClick={() => handleRemoveItem(index)}
                               style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer' }}
                             >
-                              <X size={14} />
+                              <X size={15} />
                             </button>
                           </td>
                         </tr>
@@ -1121,11 +1097,10 @@ export const PosView: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Column: Customer & Settlement Checkout Panel */}
         <div className="card" style={{ padding: '1.25rem' }}>
           <form onSubmit={handleCheckout} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-              <h2 style={{ fontSize: '1rem', fontWeight: 700 }}>Settlement & Payment</h2>
+              <h2 style={{ fontSize: '1rem', fontWeight: 800 }}>Settlement & Payment</h2>
               {cart.length > 0 && (
                 <button
                   type="button"
@@ -1141,7 +1116,7 @@ export const PosView: React.FC = () => {
                         })
                       });
                     } catch (e: any) {
-                      setErrorMessage('Simulation failed: ' + e.message);
+                      setErrorMessage('Simulation error: ' + e.message);
                     }
                   }}
                   className="btn btn-secondary btn-sm"
@@ -1153,7 +1128,6 @@ export const PosView: React.FC = () => {
               )}
             </div>
 
-            {/* Customer Selector */}
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>
                 Customer / Patient Account
@@ -1165,7 +1139,6 @@ export const PosView: React.FC = () => {
               />
             </div>
 
-            {/* Custom Name on Slip Input */}
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem', color: 'var(--text-secondary)' }}>
                 Custom Name on Receipt / Slip (Optional)
@@ -1173,14 +1146,13 @@ export const PosView: React.FC = () => {
               <input
                 type="text"
                 className="input"
-                placeholder="e.g. Mr. Ali, Patient Room 4, Attendant..."
+                placeholder="e.g. Mr. Tariq, Patient Attendant..."
                 value={customSlipName}
                 onChange={e => setCustomSlipName(e.target.value)}
                 style={{ fontSize: '0.8rem' }}
               />
             </div>
 
-            {/* Payment Mode Selector */}
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>
                 Payment Method
@@ -1189,8 +1161,8 @@ export const PosView: React.FC = () => {
                 {([
                   { id: 'CASH', label: 'Cash' },
                   { id: 'CARD', label: 'Card' },
-                  { id: 'JAZZCASH', label: 'JazzCash QR' },
-                  { id: 'AL_HABIB', label: 'Bank AL Habib QR' },
+                  { id: 'JAZZCASH', label: 'JazzCash' },
+                  { id: 'AL_HABIB', label: 'AL Habib' },
                   { id: 'CREDIT', label: 'Credit' }
                 ] as const).map(mode => (
                   <button
@@ -1205,12 +1177,11 @@ export const PosView: React.FC = () => {
                 ))}
               </div>
 
-              {/* QR payment quick scan helper banner */}
               {paymentMethod === 'JAZZCASH' && (
                 <div style={{ marginTop: '0.4rem', padding: '0.45rem 0.65rem', backgroundColor: '#fff9c4', border: '1px solid #fbc02d', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#f57f17' }}>JazzCash / Raast QR</div>
-                    <div style={{ fontSize: '0.7rem', color: '#333' }}>Till ID: <strong>980 685 083</strong> (*786*10#)</div>
+                    <div style={{ fontSize: '0.7rem', color: '#333' }}>Till ID: <strong>980 685 083</strong></div>
                   </div>
                   <button
                     type="button"
@@ -1243,7 +1214,6 @@ export const PosView: React.FC = () => {
               )}
             </div>
 
-            {/* Bill Discount & Paid Amount */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
@@ -1321,14 +1291,13 @@ export const PosView: React.FC = () => {
               </div>
             </div>
 
-            {/* Summary Breakdown */}
             <div style={{ padding: '0.85rem', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.8rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
                 <span>Subtotal:</span>
                 <span>Rs. {subtotal.toFixed(2)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
-                <span>Print / Receipt Fee:</span>
+                <span>POS Receipt Fee:</span>
                 <span>Rs. {printFee.toFixed(2)}</span>
               </div>
               {discountVal > 0 && (
@@ -1347,7 +1316,7 @@ export const PosView: React.FC = () => {
               </div>
               {change > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: 'var(--success)' }}>
-                  <span>Change Due:</span>
+                  <span>Change Return:</span>
                   <span>Rs. {change.toFixed(2)}</span>
                 </div>
               )}
@@ -1359,7 +1328,6 @@ export const PosView: React.FC = () => {
               )}
             </div>
 
-            {/* Auto-print toggle */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.2rem 0', fontSize: '0.75rem' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', cursor: 'pointer', userSelect: 'none', color: 'var(--text-secondary)' }}>
                 <input
@@ -1376,7 +1344,6 @@ export const PosView: React.FC = () => {
               <span className="badge badge-info" style={{ fontSize: '0.65rem' }}>80mm ESC/POS</span>
             </div>
 
-            {/* Checkout Action Button */}
             <button
               type="submit"
               className="btn btn-primary"
@@ -1390,7 +1357,6 @@ export const PosView: React.FC = () => {
         </div>
       </div>
 
-      {/* Held Bills Modal */}
       {showHeldModal && (
         <div className="modal-overlay">
           <div className="modal-content" style={{ maxWidth: '500px' }}>
@@ -1440,7 +1406,6 @@ export const PosView: React.FC = () => {
         </div>
       )}
 
-      {/* 80mm ESC/POS Thermal Receipt Modal & WhatsApp Sharing */}
       {showReceiptModal && lastInvoice && (
         <div className="modal-overlay">
           <div className="modal-content" style={{ maxWidth: '420px' }}>
@@ -1454,7 +1419,6 @@ export const PosView: React.FC = () => {
               </button>
             </div>
 
-            {/* Printable Area */}
             <div
               id="nmp-pos-receipt"
               className={`printable-receipt ${settings['printer_paper_width'] === '58mm' ? 'receipt-58mm' : ''}`}
@@ -1496,7 +1460,7 @@ export const PosView: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Cashier: {lastInvoice.cashierName}</span>
-                  <span>{new Date(lastInvoice.createdAt).toLocaleDateString()} {new Date(lastInvoice.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                  <span>{new Date(lastInvoice.createdAt).toLocaleDateString()} {new Date(lastInvoice.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Mode of Payment: {lastInvoice.paymentMethod || paymentMethod}</span>
@@ -1510,50 +1474,65 @@ export const PosView: React.FC = () => {
                 <table style={{ width: '100%', fontSize: '0.72rem', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid #000' }}>
-                      <th style={{ textAlign: 'left', background: 'transparent', padding: '0.1rem 0' }}># Description</th>
-                      <th style={{ textAlign: 'center', background: 'transparent', padding: '0.1rem 0' }}>Qty</th>
-                      <th style={{ textAlign: 'right', background: 'transparent', padding: '0.1rem 0' }}>Price</th>
-                      <th style={{ textAlign: 'right', background: 'transparent', padding: '0.1rem 0' }}>Total</th>
+                      <th style={{ textAlign: 'left', background: 'transparent', padding: '0.15rem 0' }}># Item Description</th>
+                      <th style={{ textAlign: 'center', background: 'transparent', padding: '0.15rem 0' }}>Qty / Pack</th>
+                      <th style={{ textAlign: 'right', background: 'transparent', padding: '0.15rem 0' }}>Rate</th>
+                      <th style={{ textAlign: 'right', background: 'transparent', padding: '0.15rem 0' }}>Total</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {lastInvoice.items.map((it: any, i: number) => (
-                      <tr key={i} style={{ borderBottom: i < lastInvoice.items.length - 1 ? '1px dotted #e0e0e0' : 'none' }}>
-                        <td style={{ padding: '0.25rem 0', verticalAlign: 'top' }}>
-                          <div style={{ fontWeight: 700 }}>
-                            {i + 1}  {it.brandName}{it.strength && !it.brandName?.toLowerCase().includes(it.strength.toLowerCase()) ? ` ${it.strength}` : ''}
-                          </div>
-                        </td>
-                        <td style={{ textAlign: 'center', padding: '0.25rem 0', verticalAlign: 'top' }}>{it.quantity}</td>
-                        <td style={{ textAlign: 'right', padding: '0.25rem 0', verticalAlign: 'top' }}>{(it.unitPrice || (it.lineTotal / (it.quantity || 1)))?.toFixed(2)}</td>
-                        <td style={{ textAlign: 'right', padding: '0.25rem 0', verticalAlign: 'top', fontWeight: 600 }}>{it.lineTotal.toFixed(2)}</td>
-                      </tr>
-                    ))}
+                    {lastInvoice.items.map((it: any, i: number) => {
+                      const packSize = Number(it.packSize) || 100;
+                      const tabletsPerPack = (packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : (packSize > 1 ? 10 : 1);
+                      const breakdown = formatPackagingBreakdown(it.quantity || 1, packSize, tabletsPerPack);
+
+                      return (
+                        <tr key={i} style={{ borderBottom: i < lastInvoice.items.length - 1 ? '1px dotted #e0e0e0' : 'none' }}>
+                          <td style={{ padding: '0.3rem 0', verticalAlign: 'top' }}>
+                            <div style={{ fontWeight: 800 }}>
+                              {i + 1}. {it.brandName}
+                            </div>
+                            <div style={{ fontSize: '0.65rem', color: '#555' }}>
+                              [{breakdown}]
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'center', padding: '0.3rem 0', verticalAlign: 'top', fontWeight: 700 }}>
+                            {it.quantity}
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '0.3rem 0', verticalAlign: 'top' }}>
+                            {(it.unitPrice || (it.lineTotal / (it.quantity || 1)))?.toFixed(2)}
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '0.3rem 0', verticalAlign: 'top', fontWeight: 800 }}>
+                            {it.lineTotal.toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
 
               <div style={{ fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>
-                  <span>Total Qty: {lastInvoice.items.reduce((sum: number, it: any) => sum + (it.quantity || 0), 0)}</span>
-                  <span>Total Amount: {lastInvoice.subtotal.toFixed(2)}</span>
+                  <span>Total Tablets: {lastInvoice.items.reduce((sum: number, it: any) => sum + (it.quantity || 0), 0)}</span>
+                  <span>Items Count: {lastInvoice.items.length}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>
-                  <span>Sales Tax:</span>
-                  <span>0.00</span>
+                  <span>Gross Subtotal:</span>
+                  <span>Rs. {lastInvoice.subtotal.toFixed(2)}</span>
                 </div>
                 {lastInvoice.discount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: '#000' }}>
-                    <span>Discount:</span>
-                    <span>-{lastInvoice.discount.toFixed(2)}</span>
+                    <span>Special Discount:</span>
+                    <span>-Rs. {lastInvoice.discount.toFixed(2)}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>
-                  <span>POS Service Fee:</span>
-                  <span>{(lastInvoice.tax || 2.00).toFixed(2)}</span>
+                  <span>POS Receipt Fee:</span>
+                  <span>Rs. {(lastInvoice.tax || 2.00).toFixed(2)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '0.95rem', borderTop: '1px solid #000', paddingTop: '0.25rem', marginTop: '0.1rem' }}>
-                  <span>Payable:</span>
+                  <span>Net Payable:</span>
                   <span>Rs. {lastInvoice.totalAmount.toFixed(2)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -1566,7 +1545,7 @@ export const PosView: React.FC = () => {
                 </div>
                 {lastInvoice.totalAmount > lastInvoice.paidAmount && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: '#b91c1c' }}>
-                    <span>Balance Due:</span>
+                    <span>Balance Due (Udhar):</span>
                     <span>Rs. {(lastInvoice.totalAmount - lastInvoice.paidAmount).toFixed(2)}</span>
                   </div>
                 )}
@@ -1588,10 +1567,10 @@ export const PosView: React.FC = () => {
                   disabled={directPrinting}
                   className="btn btn-primary"
                   style={{ flex: 1.4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontWeight: 700 }}
-                  title="Direct 1-Click Hardware Print to Speed-X (No Dialog)"
+                  title="Direct 1-Click Hardware Print to Speed-X"
                 >
                   <Printer size={16} />
-                  <span>{directPrinting ? 'Printing...' : '⚡ Print to Speed-X (Direct)'}</span>
+                  <span>{directPrinting ? 'Printing...' : '⚡ Print to Speed-X'}</span>
                 </button>
 
                 <button
@@ -1604,7 +1583,6 @@ export const PosView: React.FC = () => {
                   <span>Dialog</span>
                 </button>
 
-                {/* WhatsApp Receipt Share Button */}
                 <button
                   onClick={() => {
                     const phone = (lastInvoice?.customer?.mobile || '').replace(/[^0-9]/g, '');
@@ -1624,7 +1602,6 @@ export const PosView: React.FC = () => {
         </div>
       )}
 
-      {/* QR Code Stand Preview Modal */}
       {activeQrModal && (
         <div className="modal-overlay" onClick={() => setActiveQrModal(null)}>
           <div className="modal-content" style={{ maxWidth: '380px', padding: '1.25rem', textAlign: 'center' }} onClick={e => e.stopPropagation()}>

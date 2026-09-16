@@ -5,7 +5,6 @@ import { logAudit } from '../services/auditService.js';
 
 export const posRouter = Router();
 
-// Fast live search for POS counter with auto-FEFO batch selection
 posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const query = (req.query.q as string || '').trim();
   if (!query) {
@@ -15,7 +14,6 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
 
   const s = `%${query}%`;
 
-  // Search medicines that match barcode exactly or brand/generic partially
   const medicines = db.prepare(`
     SELECT 
       m.id, m.brand_name, m.strength, m.dosage_form, m.pack_size, m.barcode, m.custom_barcode,
@@ -34,7 +32,6 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
     LIMIT 25
   `).all(query, query, s, s) as any[];
 
-  // For each medicine, fetch all non-expired active batches ordered by FEFO (earliest expiry first)
   const results = medicines.map(med => {
     const validBatches = db.prepare(`
       SELECT 
@@ -63,7 +60,6 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
   res.json({ results });
 });
 
-// Single medicine batches (for batch selector dropdown in POS cart)
 posRouter.get('/medicines/:id/batches', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const medicineId = Number(req.params.id);
 
@@ -84,7 +80,6 @@ posRouter.get('/medicines/:id/batches', authenticateToken, (req: AuthenticatedRe
   res.json({ batches });
 });
 
-// Helper to generate unique sequential invoice number
 function generateInvoiceNumber(): string {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const countRow = db.prepare(`
@@ -95,17 +90,16 @@ function generateInvoiceNumber(): string {
   return `INV-${dateStr}-${nextSeq}`;
 }
 
-// Atomic POS Checkout with strict FEFO and Expired Stock Hard Block
 posRouter.post('/checkout', authenticateToken, requirePermission('create_sales'), (req: AuthenticatedRequest, res: Response) => {
   const {
     customerId,
-    items, // Array of { medicineId, batchId, quantity, unitPrice, discount }
+    items,
     subtotal,
     discount,
     tax,
     totalAmount,
     paidAmount,
-    paymentMethod, // CASH, CARD, CREDIT, SPLIT
+    paymentMethod,
     notes
   } = req.body;
 
@@ -122,7 +116,6 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
   const remaining = Math.max(0, billTotal - billPaid);
   const change = Math.max(0, billPaid - billTotal);
 
-  // If credit sale, customer is strictly required
   if (remaining > 0 && !customerId) {
     res.status(400).json({ error: 'Credit / Udhar sales require a registered customer account' });
     return;
@@ -133,7 +126,6 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
       const invoiceNumber = generateInvoiceNumber();
       const today = new Date().toISOString().split('T')[0];
 
-      // 1. Verify and decrement batches (Strict Expiry Hard Block & Stock Invariants)
       const processedItems: any[] = [];
 
       for (const item of items) {
@@ -145,7 +137,7 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         }
 
         const batch = db.prepare(`
-          SELECT b.*, m.brand_name, m.strength
+          SELECT b.*, m.brand_name, m.strength, m.pack_size
           FROM batches b
           JOIN medicines m ON b.medicine_id = m.id
           WHERE b.id = ?
@@ -155,22 +147,18 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
           throw new Error(`Batch ID ${batchId} does not exist`);
         }
 
-        // SERVER-SIDE INVARIANT: EXPIRED STOCK HARD BLOCK
         if (batch.expiry_date <= today) {
           throw new Error(`EXPIRED STOCK CANNOT BE SOLD! Batch ${batch.batch_number} of ${batch.brand_name} expired on ${batch.expiry_date}.`);
         }
 
-        // SERVER-SIDE INVARIANT: NEGATIVE STOCK PROHIBITED
         if (batch.quantity < qty) {
           throw new Error(`Insufficient stock for ${batch.brand_name} (Batch ${batch.batch_number}). Requested: ${qty}, Available: ${batch.quantity}`);
         }
 
         const newBatchQty = batch.quantity - qty;
 
-        // Decrement batch stock
         db.prepare('UPDATE batches SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newBatchQty, batchId);
 
-        // Record stock movement (Traceability)
         db.prepare(`
           INSERT INTO stock_movements (
             batch_id, movement_type, quantity_change, balance_after,
@@ -196,6 +184,7 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
           expiryDate: batch.expiry_date,
           brandName: batch.brand_name,
           strength: batch.strength,
+          packSize: batch.pack_size,
           quantity: qty,
           unitPrice,
           discount: itemDiscount,
@@ -204,7 +193,6 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         });
       }
 
-      // 2. Insert Sale Record
       const insertSale = db.prepare(`
         INSERT INTO sales (
           invoice_number, customer_id, cashier_id, subtotal, discount, tax,
@@ -230,7 +218,6 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
 
       const saleId = saleResult.lastInsertRowid;
 
-      // 3. Insert Sale Items
       const insertSaleItem = db.prepare(`
         INSERT INTO sale_items (
           sale_id, medicine_id, batch_id, quantity, unit_price,
@@ -251,7 +238,6 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         );
       }
 
-      // 4. Record Cashbook Inflow (for cash portion)
       const cashPortion = paymentMethod === 'CASH' ? Math.min(billPaid, billTotal) : (paymentMethod === 'SPLIT' ? Number(billPaid) : 0);
       if (cashPortion > 0) {
         db.prepare(`
@@ -266,7 +252,6 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         );
       }
 
-      // 5. Update Customer Ledger & Balance if Credit Sale
       if (remaining > 0 && customerId) {
         const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId) as any;
         if (customer) {
@@ -287,7 +272,6 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         }
       }
 
-      // 6. Audit Logging
       logAudit({
         userId: req.user?.id,
         action: 'CREATE_SALE',
@@ -318,7 +302,6 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
   }
 });
 
-// Held Bills API
 posRouter.get('/held', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const held = db.prepare(`
     SELECT h.*, u.full_name as cashier_name
@@ -358,7 +341,6 @@ posRouter.delete('/held/:id', authenticateToken, (req: AuthenticatedRequest, res
   res.json({ message: 'Held bill removed' });
 });
 
-// Receipt / Invoice lookup
 posRouter.get('/invoices/:invoiceNumber', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const invoiceNum = req.params.invoiceNumber;
 
@@ -381,7 +363,7 @@ posRouter.get('/invoices/:invoiceNumber', authenticateToken, (req: Authenticated
   const items = db.prepare(`
     SELECT 
       si.*,
-      m.brand_name, m.strength, m.dosage_form,
+      m.brand_name, m.strength, m.dosage_form, m.pack_size,
       b.batch_number, b.expiry_date
     FROM sale_items si
     JOIN medicines m ON si.medicine_id = m.id
@@ -392,11 +374,8 @@ posRouter.get('/invoices/:invoiceNumber', authenticateToken, (req: Authenticated
   res.json({ sale, items });
 });
 
-// ==========================================
-// Offline Sales Batch Sync Endpoint
-// ==========================================
 posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sales'), (req: AuthenticatedRequest, res: Response) => {
-  const { sales } = req.body; // Array of offline sale objects
+  const { sales } = req.body;
 
   if (!sales || !Array.isArray(sales) || sales.length === 0) {
     res.status(400).json({ error: 'No offline sales provided for synchronization.' });
@@ -443,7 +422,7 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
           }
 
           const batch = db.prepare(`
-            SELECT b.*, m.brand_name, m.strength
+            SELECT b.*, m.brand_name, m.strength, m.pack_size
             FROM batches b
             JOIN medicines m ON b.medicine_id = m.id
             WHERE b.id = ?
@@ -453,11 +432,9 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
             throw new Error(`Batch ID ${batchId} not found on server`);
           }
 
-          // Decrement batch stock (allow zero floor)
           const newBatchQty = Math.max(0, batch.quantity - qty);
           db.prepare('UPDATE batches SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newBatchQty, batchId);
 
-          // Stock movement
           db.prepare(`
             INSERT INTO stock_movements (
               batch_id, movement_type, quantity_change, balance_after,
@@ -479,6 +456,9 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
           processedItems.push({
             medicineId: batch.medicine_id,
             batchId: batch.id,
+            brandName: batch.brand_name,
+            strength: batch.strength,
+            packSize: batch.pack_size,
             quantity: qty,
             unitPrice,
             discount: itemDiscount,
@@ -487,7 +467,6 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
           });
         }
 
-        // Insert Sale
         const saleResult = db.prepare(`
           INSERT INTO sales (
             invoice_number, customer_id, cashier_id, subtotal, discount, tax,
@@ -512,7 +491,6 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
 
         const saleId = saleResult.lastInsertRowid;
 
-        // Insert Sale Items
         const insertSaleItem = db.prepare(`
           INSERT INTO sale_items (
             sale_id, medicine_id, batch_id, quantity, unit_price,
@@ -533,7 +511,6 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
           );
         }
 
-        // Cashbook entry
         const cashPortion = paymentMethod === 'CASH' ? Math.min(billPaid, billTotal) : (paymentMethod === 'SPLIT' ? Number(billPaid) : 0);
         if (cashPortion > 0) {
           db.prepare(`
@@ -549,7 +526,6 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
           );
         }
 
-        // Customer ledger if credit
         if (remaining > 0 && customerId) {
           const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId) as any;
           if (customer) {
@@ -604,4 +580,3 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
     failed: failedInvoices
   });
 });
-

@@ -17,7 +17,9 @@ import {
   Sparkles,
   MapPin,
   Search,
-  CheckCircle2
+  CheckCircle2,
+  Package,
+  Layers
 } from 'lucide-react';
 
 export interface BatchItem {
@@ -67,23 +69,19 @@ export const InventoryView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Existing Medicines for Quick Selection
   const [medicinesList, setMedicinesList] = useState<any[]>([]);
 
-  // Adjustment Modal State
   const [selectedBatch, setSelectedBatch] = useState<BatchItem | null>(null);
   const [newQty, setNewQty] = useState<string>('');
   const [adjustReason, setAdjustReason] = useState<string>('Physical count verification');
   const [adjustError, setAdjustError] = useState<string | null>(null);
   const [adjustSuccess, setAdjustSuccess] = useState<string | null>(null);
 
-  // Manual Medicine & Stock Entry Modal State
   const [showAddStockModal, setShowAddStockModal] = useState(false);
   const [entryMode, setEntryMode] = useState<'new_med' | 'existing_med'>('new_med');
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
-  // Form State
   const [selectedMedId, setSelectedMedId] = useState<string>('');
   const [brandName, setBrandName] = useState('');
   const [genericName, setGenericName] = useState('');
@@ -94,30 +92,27 @@ export const InventoryView: React.FC = () => {
   const [rackLocation, setRackLocation] = useState('Rack A-01');
   const [barcode, setBarcode] = useState('');
 
-  // Batch & Packaging State (3-Level: Box -> Strip/Blister -> Tablet)
   const [batchNumber, setBatchNumber] = useState('');
   const [mfgDate, setMfgDate] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
 
-  const [stripsPerBox, setStripsPerBox] = useState<string>('10');
-  const [unitsPerStrip, setUnitsPerStrip] = useState<string>('10');
-  const [packsReceived, setPacksReceived] = useState<string>('5'); // Boxes received
+  const [packsPerBox, setPacksPerBox] = useState<string>('10');
+  const [tabletsPerPack, setTabletsPerPack] = useState<string>('10');
+  const [boxesReceived, setBoxesReceived] = useState<string>('5');
   const [bonusQuantity, setBonusQuantity] = useState<string>('0');
 
-  // Purchase Cost State
-  const [packPurchasePrice, setPackPurchasePrice] = useState<string>('300'); // Box purchase cost
-  const [stripPurchasePrice, setStripPurchasePrice] = useState<string>('30.00'); // Strip cost
-  const [unitPurchasePrice, setUnitPurchasePrice] = useState<string>('3.00'); // Tablet cost
+  const [boxPurchasePrice, setBoxPurchasePrice] = useState<string>('300.00');
+  const [packPurchasePrice, setPackPurchasePrice] = useState<string>('30.00');
+  const [tabletPurchasePrice, setTabletPurchasePrice] = useState<string>('3.00');
 
-  // Selling Prices & Independent Discounts
-  const [packSalePrice, setPackSalePrice] = useState<string>('400'); // Box MRP
+  const [boxSalePrice, setBoxSalePrice] = useState<string>('400.00');
   const [boxDiscountPercent, setBoxDiscountPercent] = useState<string>('0');
 
-  const [stripSalePrice, setStripSalePrice] = useState<string>('40.00'); // Strip MRP
-  const [stripDiscountPercent, setStripDiscountPercent] = useState<string>('0');
+  const [packSalePrice, setPackSalePrice] = useState<string>('40.00');
+  const [packDiscountPercent, setPackDiscountPercent] = useState<string>('0');
 
-  const [unitSalePrice, setUnitSalePrice] = useState<string>('4.50'); // Tablet MRP
-  const [unitDiscountPercent, setUnitDiscountPercent] = useState<string>('0');
+  const [tabletSalePrice, setTabletSalePrice] = useState<string>('4.50');
+  const [tabletDiscountPercent, setTabletDiscountPercent] = useState<string>('0');
   const [notes, setNotes] = useState('');
 
   const fetchInventoryData = async () => {
@@ -135,7 +130,7 @@ export const InventoryView: React.FC = () => {
       if (movRes.ok) setMovements((await movRes.json()).movements || []);
       if (medRes.ok) setMedicinesList((await medRes.json()).medicines || []);
     } catch (err) {
-      console.error('Error fetching inventory:', err);
+      console.error(err);
     } finally {
       setIsLoading(false);
     }
@@ -145,126 +140,134 @@ export const InventoryView: React.FC = () => {
     fetchInventoryData();
   }, [token]);
 
-  // Handle auto batch generation
   const handleAutoBatch = () => {
     const yr = new Date().getFullYear();
     const rand = Math.floor(1000 + Math.random() * 9000);
     setBatchNumber(`BN-${yr}-${rand}`);
   };
 
-  // Handle auto barcode generation
   const handleAutoBarcode = () => {
     const rand = Math.floor(100000 + Math.random() * 900000);
     setBarcode(`NMP-${rand}`);
   };
 
-  // Quick expiry buttons
   const setQuickExpiry = (yearsToAdd: number) => {
     const d = new Date();
     d.setFullYear(d.getFullYear() + yearsToAdd);
     setExpiryDate(d.toISOString().split('T')[0]);
   };
 
-  // 3-Level Packaging Math
-  const numericStripsPerBox = Math.max(1, Number(stripsPerBox) || 1);
-  const numericUnitsPerStrip = Math.max(1, Number(unitsPerStrip) || 1);
-  const totalUnitsPerBox = numericStripsPerBox * numericUnitsPerStrip;
+  const numPacksPerBox = Math.max(1, Number(packsPerBox) || 1);
+  const numTabletsPerPack = Math.max(1, Number(tabletsPerPack) || 1);
+  const totalTabletsPerBox = numPacksPerBox * numTabletsPerPack;
 
-  const numericBoxes = Math.max(0, Number(packsReceived) || 0);
-  const numericBonus = Math.max(0, Number(bonusQuantity) || 0);
+  const numBoxes = Math.max(0, Number(boxesReceived) || 0);
+  const numBonus = Math.max(0, Number(bonusQuantity) || 0);
 
-  const totalStripsReceived = numericBoxes * numericStripsPerBox;
-  const totalSellableUnits = (numericBoxes * totalUnitsPerBox) + numericBonus;
+  const totalPacksReceived = numBoxes * numPacksPerBox;
+  const totalSellableTablets = (numBoxes * totalTabletsPerBox) + numBonus;
 
-  // Auto-calculation input handlers
-  const handleStripsPerBoxChange = (val: string) => {
-    setStripsPerBox(val);
-    const sBox = Math.max(1, Number(val) || 1);
-    const totUnits = sBox * numericUnitsPerStrip;
-    const boxCost = Number(packPurchasePrice) || 0;
+  const handlePacksPerBoxChange = (val: string) => {
+    setPacksPerBox(val);
+    const pBox = Math.max(1, Number(val) || 1);
+    const boxCost = Number(boxPurchasePrice) || 0;
     if (boxCost > 0) {
-      setStripPurchasePrice((boxCost / sBox).toFixed(2));
-      setUnitPurchasePrice((boxCost / totUnits).toFixed(2));
+      setPackPurchasePrice((boxCost / pBox).toFixed(2));
+      setTabletPurchasePrice((boxCost / (pBox * numTabletsPerPack)).toFixed(2));
     }
-    const boxMRP = Number(packSalePrice) || 0;
+    const boxMRP = Number(boxSalePrice) || 0;
     if (boxMRP > 0) {
-      const newStripMRP = boxMRP / sBox;
-      setStripSalePrice(newStripMRP.toFixed(2));
-      setUnitSalePrice((newStripMRP / numericUnitsPerStrip).toFixed(2));
+      const pMRP = boxMRP / pBox;
+      setPackSalePrice(pMRP.toFixed(2));
+      setTabletSalePrice((pMRP / numTabletsPerPack).toFixed(2));
     }
   };
 
-  const handleUnitsPerStripChange = (val: string) => {
-    setUnitsPerStrip(val);
-    const uStrip = Math.max(1, Number(val) || 1);
-    const totUnits = numericStripsPerBox * uStrip;
-    const boxCost = Number(packPurchasePrice) || 0;
-    if (boxCost > 0) {
-      setUnitPurchasePrice((boxCost / totUnits).toFixed(2));
+  const handleTabletsPerPackChange = (val: string) => {
+    setTabletsPerPack(val);
+    const tPack = Math.max(1, Number(val) || 1);
+    const pCost = Number(packPurchasePrice) || 0;
+    if (pCost > 0) {
+      setTabletPurchasePrice((pCost / tPack).toFixed(2));
     }
-    const sMRP = Number(stripSalePrice) || 0;
-    if (sMRP > 0) {
-      setUnitSalePrice((sMRP / uStrip).toFixed(2));
+    const pMRP = Number(packSalePrice) || 0;
+    if (pMRP > 0) {
+      setTabletSalePrice((pMRP / tPack).toFixed(2));
     }
   };
 
-  const handlePackPurchaseChange = (val: string) => {
+  const handleBoxPurchaseCostChange = (val: string) => {
+    setBoxPurchasePrice(val);
+    const bCost = Number(val) || 0;
+    if (bCost >= 0) {
+      const pCost = bCost / numPacksPerBox;
+      setPackPurchasePrice(pCost.toFixed(2));
+      setTabletPurchasePrice((pCost / numTabletsPerPack).toFixed(2));
+    }
+  };
+
+  const handlePackPurchaseCostChange = (val: string) => {
     setPackPurchasePrice(val);
-    const boxCost = Number(val) || 0;
-    if (boxCost >= 0) {
-      setStripPurchasePrice((boxCost / numericStripsPerBox).toFixed(2));
-      setUnitPurchasePrice((boxCost / totalUnitsPerBox).toFixed(2));
+    const pCost = Number(val) || 0;
+    if (pCost >= 0) {
+      setBoxPurchasePrice((pCost * numPacksPerBox).toFixed(2));
+      setTabletPurchasePrice((pCost / numTabletsPerPack).toFixed(2));
     }
   };
 
-  const handlePackSaleChange = (val: string) => {
+  const handleTabletPurchaseCostChange = (val: string) => {
+    setTabletPurchasePrice(val);
+    const tCost = Number(val) || 0;
+    if (tCost >= 0) {
+      setPackPurchasePrice((tCost * numTabletsPerPack).toFixed(2));
+      setBoxPurchasePrice((tCost * totalTabletsPerBox).toFixed(2));
+    }
+  };
+
+  const handleBoxSaleMRPChange = (val: string) => {
+    setBoxSalePrice(val);
+    const bMRP = Number(val) || 0;
+    if (bMRP >= 0) {
+      const pMRP = bMRP / numPacksPerBox;
+      setPackSalePrice(pMRP.toFixed(2));
+      setTabletSalePrice((pMRP / numTabletsPerPack).toFixed(2));
+    }
+  };
+
+  const handlePackSaleMRPChange = (val: string) => {
     setPackSalePrice(val);
-    const boxMRP = Number(val) || 0;
-    if (boxMRP >= 0) {
-      const sMRP = boxMRP / numericStripsPerBox;
-      setStripSalePrice(sMRP.toFixed(2));
-      setUnitSalePrice((sMRP / numericUnitsPerStrip).toFixed(2));
+    const pMRP = Number(val) || 0;
+    if (pMRP >= 0) {
+      setBoxSalePrice((pMRP * numPacksPerBox).toFixed(2));
+      setTabletSalePrice((pMRP / numTabletsPerPack).toFixed(2));
     }
   };
 
-  const handleStripSaleChange = (val: string) => {
-    setStripSalePrice(val);
-    const sMRP = Number(val) || 0;
-    if (sMRP >= 0) {
-      setUnitSalePrice((sMRP / numericUnitsPerStrip).toFixed(2));
-    }
+  const handleTabletSaleMRPChange = (val: string) => {
+    setTabletSalePrice(val);
   };
 
-  const handleUnitSaleChange = (val: string) => {
-    setUnitSalePrice(val);
-  };
+  const numBoxCost = Number(boxPurchasePrice) || 0;
+  const numBoxMRP = Number(boxSalePrice) || 0;
+  const numBoxDiscount = Number(boxDiscountPercent) || 0;
+  const netBoxPrice = numBoxMRP * (1 - (numBoxDiscount / 100));
+  const boxProfit = netBoxPrice - numBoxCost;
+  const boxMarginPercent = numBoxCost > 0 ? ((boxProfit / numBoxCost) * 100).toFixed(1) : '0';
 
-  // Profit Margin & Net Price Calculations
-  // 1. Box Level
-  const numericBoxCost = Number(packPurchasePrice) || 0;
-  const numericBoxMRP = Number(packSalePrice) || 0;
-  const numericBoxDiscount = Number(boxDiscountPercent) || 0;
-  const netBoxPrice = numericBoxMRP * (1 - (numericBoxDiscount / 100));
-  const boxProfit = netBoxPrice - numericBoxCost;
-  const boxMarginPercent = numericBoxCost > 0 ? ((boxProfit / numericBoxCost) * 100).toFixed(1) : '0';
+  const numPackCost = Number(packPurchasePrice) || 0;
+  const numPackMRP = Number(packSalePrice) || 0;
+  const numPackDiscount = Number(packDiscountPercent) || 0;
+  const netPackPrice = numPackMRP * (1 - (numPackDiscount / 100));
+  const packProfit = netPackPrice - numPackCost;
+  const packMarginPercent = numPackCost > 0 ? ((packProfit / numPackCost) * 100).toFixed(1) : '0';
 
-  // 2. Strip / Blister Level
-  const numericStripCost = Number(stripPurchasePrice) || (numericBoxCost / numericStripsPerBox);
-  const numericStripMRP = Number(stripSalePrice) || 0;
-  const numericStripDiscount = Number(stripDiscountPercent) || 0;
-  const netStripPrice = numericStripMRP * (1 - (numericStripDiscount / 100));
-  const stripProfit = netStripPrice - numericStripCost;
-  const stripMarginPercent = numericStripCost > 0 ? ((stripProfit / numericStripCost) * 100).toFixed(1) : '0';
+  const numTabletCost = Number(tabletPurchasePrice) || 0;
+  const numTabletMRP = Number(tabletSalePrice) || 0;
+  const numTabletDiscount = Number(tabletDiscountPercent) || 0;
+  const netTabletPrice = numTabletMRP * (1 - (numTabletDiscount / 100));
+  const tabletProfit = netTabletPrice - numTabletCost;
+  const tabletMarginPercent = numTabletCost > 0 ? ((tabletProfit / numTabletCost) * 100).toFixed(1) : '0';
 
-  // 3. Loose Tablet Level
-  const numericUnitCost = Number(unitPurchasePrice) || (numericBoxCost / totalUnitsPerBox);
-  const numericUnitMRP = Number(unitSalePrice) || 0;
-  const numericUnitDiscount = Number(unitDiscountPercent) || 0;
-  const netUnitPrice = numericUnitMRP * (1 - (numericUnitDiscount / 100));
-  const unitProfit = netUnitPrice - numericUnitCost;
-  const unitMarginPercent = numericUnitCost > 0 ? ((unitProfit / numericUnitCost) * 100).toFixed(1) : '0';
-
-  // Handle Medicine selection for existing medicine mode
   const handleSelectExistingMed = (medId: string) => {
     setSelectedMedId(medId);
     if (!medId) return;
@@ -275,18 +278,17 @@ export const InventoryView: React.FC = () => {
       setDosageForm(med.dosage_form || 'Tablet');
       const pSize = Number(med.pack_size || 100);
       if (pSize >= 10 && pSize % 10 === 0) {
-        setStripsPerBox('10');
-        setUnitsPerStrip(String(pSize / 10));
+        setPacksPerBox('10');
+        setTabletsPerPack(String(pSize / 10));
       } else {
-        setStripsPerBox('1');
-        setUnitsPerStrip(String(pSize));
+        setPacksPerBox('1');
+        setTabletsPerPack(String(pSize));
       }
       setRackLocation(med.rack_location || 'Rack A-01');
       if (med.barcode) setBarcode(med.barcode);
     }
   };
 
-  // Save manual medicine and batch stock
   const handleSaveDirectStock = async (e: React.FormEvent) => {
     e.preventDefault();
     setModalError(null);
@@ -297,16 +299,16 @@ export const InventoryView: React.FC = () => {
         batchNumber,
         mfgDate: mfgDate || null,
         expiryDate,
-        packSize: totalUnitsPerBox,
-        packsReceived: numericBoxes,
-        bonusQuantity: numericBonus,
-        packPurchasePrice: Number(packPurchasePrice) || 0,
-        unitPurchasePrice: Number(unitPurchasePrice) || 0,
-        packSalePrice: Number(packSalePrice) || 0,
-        unitSalePrice: Number(unitSalePrice) || 0,
-        discountPercent: numericBoxDiscount,
+        packSize: totalTabletsPerBox,
+        packsReceived: numBoxes,
+        bonusQuantity: numBonus,
+        packPurchasePrice: numBoxCost,
+        unitPurchasePrice: numTabletCost,
+        packSalePrice: numBoxMRP,
+        unitSalePrice: numTabletMRP,
+        discountPercent: numBoxDiscount,
         rackLocation,
-        notes
+        notes: notes ? `${notes} | PackMRP: ${numPackMRP}, PackCost: ${numPackCost}` : `PackMRP: ${numPackMRP}, PackCost: ${numPackCost}`
       };
 
       if (entryMode === 'existing_med' && selectedMedId) {
@@ -335,9 +337,8 @@ export const InventoryView: React.FC = () => {
         throw new Error(data.error || 'Failed to register medicine and stock');
       }
 
-      setAdjustSuccess(`Successfully added stock for ${brandName || 'Medicine'} (${totalSellableUnits} units in batch ${batchNumber}).`);
+      setAdjustSuccess(`Successfully added stock for ${brandName || 'Medicine'} (${totalSellableTablets} tablets across ${numBoxes} boxes in batch ${batchNumber}).`);
       setShowAddStockModal(false);
-      // Reset form
       setBrandName('');
       setGenericName('');
       setBatchNumber('');
@@ -364,7 +365,7 @@ export const InventoryView: React.FC = () => {
 
     const qty = Number(newQty);
     if (isNaN(qty) || qty < 0) {
-      setAdjustError('Negative stock is strictly prohibited by business invariants');
+      setAdjustError('Negative stock is strictly prohibited');
       return;
     }
 
@@ -411,12 +412,11 @@ export const InventoryView: React.FC = () => {
 
   return (
     <div className="page-container">
-      {/* Top Header & Quick Action Buttons */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>Batch Inventory & Stock Control</h1>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-            FEFO Stock Tracking • Pack & Unit Pricing • Physical Count Reconciliation
+            FEFO Stock Tracking • 3-Level Packaging (Tablet → Pack → Box) • Physical Count Verification
           </p>
         </div>
 
@@ -429,7 +429,7 @@ export const InventoryView: React.FC = () => {
                 setQuickExpiry(2);
               }}
               className="btn btn-primary"
-              style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.55rem 1rem', fontWeight: 700 }}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.55rem 1.1rem', fontWeight: 700 }}
             >
               <PlusCircle size={16} />
               <span>+ Add Medicine & Stock Manually</span>
@@ -450,7 +450,6 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* Valuation Metric Cards */}
       {valuation && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
           <div className="card" style={{ padding: '1rem 1.25rem' }}>
@@ -495,7 +494,6 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* Tabs & Search Bar Strip */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
           <button
@@ -553,8 +551,8 @@ export const InventoryView: React.FC = () => {
                   <th>Batch / Lot #</th>
                   <th>Expiry Date</th>
                   <th>Days Left</th>
-                  <th>Purchase Cost</th>
-                  <th>Unit MRP</th>
+                  <th>Tablet Cost</th>
+                  <th>Tablet MRP</th>
                   <th>Gross Margin</th>
                   <th>Stock Units</th>
                   <th>Shelf Rack</th>
@@ -682,32 +680,27 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* COMPREHENSIVE MANUAL MEDICINE & BATCH STOCK ENTRY MODAL                   */}
-      {/* ========================================================================= */}
       {showAddStockModal && (
         <div className="modal-overlay" style={{ zIndex: 1100 }}>
-          <div className="modal-content" style={{ maxWidth: '720px', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
-            {/* Modal Header */}
+          <div className="modal-content" style={{ maxWidth: '800px', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '1.1rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-app)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <div style={{ width: '34px', height: '34px', borderRadius: '8px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <PlusCircle size={18} />
+                <div style={{ width: '36px', height: '36px', borderRadius: '8px', backgroundColor: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <PlusCircle size={20} />
                 </div>
                 <div>
-                  <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>Manual Medicine & Stock Entry</h3>
+                  <h3 style={{ fontSize: '1.15rem', fontWeight: 800 }}>Manual Medicine & Stock Entry</h3>
                   <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    Add new products, packaging pack sizes, unit rates, and initial batch stock
+                    Standard 3-Tier Hierarchy: Tablet / Unit → Pack (Strip) → Box (Carton)
                   </p>
                 </div>
               </div>
 
-              <button onClick={() => setShowAddStockModal(false)} className="btn btn-secondary btn-sm" style={{ padding: '0.3rem' }}>
+              <button onClick={() => setShowAddStockModal(false)} className="btn btn-secondary btn-sm" style={{ padding: '0.35rem' }}>
                 <X size={16} />
               </button>
             </div>
 
-            {/* Modal Body */}
             <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', flex: 1 }}>
               {modalError && (
                 <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--danger-light)', color: 'var(--danger-text)', borderRadius: 'var(--radius-md)', fontSize: '0.82rem' }}>
@@ -715,18 +708,17 @@ export const InventoryView: React.FC = () => {
                 </div>
               )}
 
-              {/* Mode Toggle: Create New vs Link Existing */}
               <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', padding: '0.3rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
                 <button
                   type="button"
                   onClick={() => setEntryMode('new_med')}
                   style={{
                     flex: 1,
-                    padding: '0.45rem',
+                    padding: '0.5rem',
                     borderRadius: '6px',
                     border: 'none',
                     fontWeight: 700,
-                    fontSize: '0.8rem',
+                    fontSize: '0.82rem',
                     cursor: 'pointer',
                     backgroundColor: entryMode === 'new_med' ? 'var(--primary)' : 'transparent',
                     color: entryMode === 'new_med' ? '#fff' : 'var(--text-secondary)'
@@ -739,11 +731,11 @@ export const InventoryView: React.FC = () => {
                   onClick={() => setEntryMode('existing_med')}
                   style={{
                     flex: 1,
-                    padding: '0.45rem',
+                    padding: '0.5rem',
                     borderRadius: '6px',
                     border: 'none',
                     fontWeight: 700,
-                    fontSize: '0.8rem',
+                    fontSize: '0.82rem',
                     cursor: 'pointer',
                     backgroundColor: entryMode === 'existing_med' ? 'var(--primary)' : 'transparent',
                     color: entryMode === 'existing_med' ? '#fff' : 'var(--text-secondary)'
@@ -754,10 +746,9 @@ export const InventoryView: React.FC = () => {
               </div>
 
               <form id="direct-stock-form" onSubmit={handleSaveDirectStock} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                {/* SECTION 1: MEDICINE MASTER DETAILS */}
-                <div style={{ padding: '1rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                <div style={{ padding: '1.1rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem', textTransform: 'uppercase' }}>
-                    <Pill size={14} />
+                    <Pill size={15} />
                     <span>1. Medicine Master Information</span>
                   </div>
 
@@ -775,7 +766,7 @@ export const InventoryView: React.FC = () => {
                         <option value="">-- Choose registered medicine from catalog --</option>
                         {medicinesList.map(m => (
                           <option key={m.id} value={m.id}>
-                            {m.brand_name} {m.strength} ({m.dosage_form}) • Rack: {m.rack_location || 'N/A'} • Pack: {m.pack_size} units
+                            {m.brand_name} {m.strength} ({m.dosage_form}) • Rack: {m.rack_location || 'N/A'} • Box Pack: {m.pack_size} units
                           </option>
                         ))}
                       </select>
@@ -791,7 +782,7 @@ export const InventoryView: React.FC = () => {
                         <input
                           type="text"
                           className="input"
-                          placeholder="e.g. Panadol Extra, Augmentin, Brufen"
+                          placeholder="e.g. Panadol, Augmentin, Synflex, Sunflex"
                           value={brandName}
                           onChange={e => setBrandName(e.target.value)}
                           required
@@ -807,7 +798,7 @@ export const InventoryView: React.FC = () => {
                         <input
                           type="text"
                           className="input"
-                          placeholder="e.g. Paracetamol + Caffeine"
+                          placeholder="e.g. Paracetamol, Naproxen Sodium"
                           value={genericName}
                           onChange={e => setGenericName(e.target.value)}
                         />
@@ -822,7 +813,7 @@ export const InventoryView: React.FC = () => {
                         <StrengthInput
                           value={strength}
                           onChange={val => setStrength(val)}
-                          placeholder="e.g. 500mg, 10mg/5ml..."
+                          placeholder="e.g. 500mg, 550mg, 10mg/5ml..."
                         />
                       </div>
 
@@ -840,25 +831,24 @@ export const InventoryView: React.FC = () => {
                           <option value="Tablet">Tablet</option>
                           <option value="Capsule">Capsule</option>
                           <option value="Syrup">Syrup / Suspension</option>
-                          <option value="Injection">Injection (Vial/Ampoule)</option>
+                          <option value="Injection">Injection</option>
                           <option value="Cream">Cream / Ointment</option>
                           <option value="Drops">Eye / Ear Drops</option>
                           <option value="Inhaler">Inhaler / Respules</option>
                           <option value="Sachet">Sachet / Powder</option>
-                          <option value="Infusion">IV Infusion</option>
                         </select>
                       </div>
 
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
                           <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            Manufacturer / Brand Company
+                            Manufacturer / Pharma Company
                           </label>
                         </div>
                         <input
                           type="text"
                           className="input"
-                          placeholder="e.g. GSK, Getz, Searle, Abbott"
+                          placeholder="e.g. Searle, GSK, Getz, Abbott"
                           value={manufacturerName}
                           onChange={e => setManufacturerName(e.target.value)}
                         />
@@ -886,7 +876,7 @@ export const InventoryView: React.FC = () => {
                         <input
                           type="text"
                           className="input"
-                          placeholder="e.g. Rack A-02, Fridge 01"
+                          placeholder="e.g. Rack A-04, Fridge 01"
                           value={rackLocation}
                           onChange={e => setRackLocation(e.target.value)}
                         />
@@ -909,7 +899,7 @@ export const InventoryView: React.FC = () => {
                         <input
                           type="text"
                           className="input"
-                          placeholder="Scan box or generate NMP-XXXX"
+                          placeholder="Scan box or auto-generate"
                           value={barcode}
                           onChange={e => setBarcode(e.target.value)}
                         />
@@ -918,10 +908,9 @@ export const InventoryView: React.FC = () => {
                   )}
                 </div>
 
-                {/* SECTION 2: BATCH & EXPIRY DETAILS */}
-                <div style={{ padding: '1rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                <div style={{ padding: '1.1rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem', textTransform: 'uppercase' }}>
-                    <Calendar size={14} />
+                    <Calendar size={15} />
                     <span>2. Batch Number & Expiration Control</span>
                   </div>
 
@@ -982,24 +971,23 @@ export const InventoryView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* SECTION 3: 3-LEVEL PACKAGING & MULTI-TIER PRICING (BOX → BLISTER/STRIP → TABLET) */}
-                <div style={{ padding: '1rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                <div style={{ padding: '1.1rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem', textTransform: 'uppercase' }}>
-                    <Calculator size={14} />
-                    <span>3. 3-Level Packaging Model & Multi-Tier Pricing (Box → Blister/Strip → Tablet)</span>
+                    <Calculator size={15} />
+                    <span>3. Packaging Setup & Customizable Multi-Tier Pricing (Tablet → Pack → Box)</span>
                   </div>
 
-                  {/* Part A: Packaging Hierarchy & Stock Reception */}
-                  <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-                      📦 1. Packaging Hierarchy Setup
+                  <div style={{ marginBottom: '1rem', padding: '0.85rem', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <Layers size={14} color="var(--primary)" />
+                      <span>Packaging Hierarchy Definition</span>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
-                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            Strips / Blisters per Box *
+                          <label style={{ fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                            Packs per Box *
                           </label>
                         </div>
                         <input
@@ -1007,16 +995,16 @@ export const InventoryView: React.FC = () => {
                           min="1"
                           className="input"
                           placeholder="e.g. 10"
-                          value={stripsPerBox}
-                          onChange={e => handleStripsPerBoxChange(e.target.value)}
+                          value={packsPerBox}
+                          onChange={e => handlePacksPerBoxChange(e.target.value)}
                           required
                         />
                       </div>
 
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
-                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            Tablets / Units per Strip *
+                          <label style={{ fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                            Tablets per Pack *
                           </label>
                         </div>
                         <input
@@ -1024,15 +1012,15 @@ export const InventoryView: React.FC = () => {
                           min="1"
                           className="input"
                           placeholder="e.g. 10"
-                          value={unitsPerStrip}
-                          onChange={e => handleUnitsPerStripChange(e.target.value)}
+                          value={tabletsPerPack}
+                          onChange={e => handleTabletsPerPackChange(e.target.value)}
                           required
                         />
                       </div>
 
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
-                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
                             Boxes Received *
                           </label>
                         </div>
@@ -1041,16 +1029,16 @@ export const InventoryView: React.FC = () => {
                           min="1"
                           className="input"
                           placeholder="e.g. 5"
-                          value={packsReceived}
-                          onChange={e => setPacksReceived(e.target.value)}
+                          value={boxesReceived}
+                          onChange={e => setBoxesReceived(e.target.value)}
                           required
                         />
                       </div>
 
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
-                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            Bonus Loose Units (Optional)
+                          <label style={{ fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                            Bonus Tablets (Loose)
                           </label>
                         </div>
                         <input
@@ -1064,44 +1052,40 @@ export const InventoryView: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Auto-Calculated Stock Breakdown Cards */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.5rem', marginTop: '0.75rem' }}>
-                      <div style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.4rem 0.65rem' }}>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Total Units / Box</div>
-                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--primary)' }}>
-                          {totalUnitsPerBox} <span style={{ fontSize: '0.7rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Tablets</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.6rem', marginTop: '0.85rem' }}>
+                      <div style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.5rem 0.75rem' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Tablets / Box</div>
+                        <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--primary)', marginTop: '0.15rem' }}>
+                          {totalTabletsPerBox} <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Tablets</span>
                         </div>
                       </div>
 
-                      <div style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.4rem 0.65rem' }}>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Total Strips Received</div>
-                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--primary)' }}>
-                          {totalStripsReceived} <span style={{ fontSize: '0.7rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Strips/Blisters</span>
+                      <div style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.5rem 0.75rem' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Total Packs Received</div>
+                        <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--primary)', marginTop: '0.15rem' }}>
+                          {totalPacksReceived} <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Packs</span>
                         </div>
                       </div>
 
-                      <div style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.4rem 0.65rem' }}>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Total Loose Stock</div>
-                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--success)' }}>
-                          {totalSellableUnits} <span style={{ fontSize: '0.7rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Tablets</span>
+                      <div style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.5rem 0.75rem' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Total Loose Inventory</div>
+                        <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--success)', marginTop: '0.15rem' }}>
+                          {totalSellableTablets} <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Tablets</span>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Part B: Purchase Cost Breakdown */}
-                  <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-                      💰 2. Purchase Cost Auto-Calculator
+                  <div style={{ marginBottom: '1rem', padding: '0.85rem', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.6rem' }}>
+                      💰 Purchase Cost Breakdown (All Inputs Fully Customizable)
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
-                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            Box Purchase Cost (Rs./Box) *
-                          </label>
-                        </div>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.25rem' }}>
+                          Box Purchase Cost (Rs.)
+                        </label>
                         <div style={{ position: 'relative' }}>
                           <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
                           <input
@@ -1111,68 +1095,69 @@ export const InventoryView: React.FC = () => {
                             className="input"
                             style={{ paddingLeft: '2.2rem' }}
                             placeholder="300.00"
-                            value={packPurchasePrice}
-                            onChange={e => handlePackPurchaseChange(e.target.value)}
+                            value={boxPurchasePrice}
+                            onChange={e => handleBoxPurchaseCostChange(e.target.value)}
                             required
                           />
                         </div>
                       </div>
 
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
-                          <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                            Strip Cost (Auto-Calc)
-                          </label>
-                        </div>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.25rem' }}>
+                          Pack Purchase Cost (Rs.)
+                        </label>
                         <div style={{ position: 'relative' }}>
                           <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
                           <input
                             type="number"
                             step="0.01"
-                            readOnly
+                            min="0"
                             className="input"
-                            style={{ paddingLeft: '2.2rem', backgroundColor: 'var(--bg-app)', color: 'var(--text-muted)' }}
-                            value={stripPurchasePrice}
+                            style={{ paddingLeft: '2.2rem' }}
+                            placeholder="30.00"
+                            value={packPurchasePrice}
+                            onChange={e => handlePackPurchaseCostChange(e.target.value)}
+                            required
                           />
                         </div>
                       </div>
 
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
-                          <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                            Tablet Cost (Auto-Calc)
-                          </label>
-                        </div>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.25rem' }}>
+                          Tablet Purchase Cost (Rs.)
+                        </label>
                         <div style={{ position: 'relative' }}>
                           <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
                           <input
                             type="number"
                             step="0.01"
-                            readOnly
+                            min="0"
                             className="input"
-                            style={{ paddingLeft: '2.2rem', backgroundColor: 'var(--bg-app)', color: 'var(--text-muted)' }}
-                            value={unitPurchasePrice}
+                            style={{ paddingLeft: '2.2rem' }}
+                            placeholder="3.00"
+                            value={tabletPurchasePrice}
+                            onChange={e => handleTabletPurchaseCostChange(e.target.value)}
+                            required
                           />
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Part C: 3-Tier Selling Prices & Independent Discount Fields */}
-                  <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-                      🏷️ 3. Independent Selling Prices & Discounts (Box, Blister & Loose Unit)
+                  <div style={{ padding: '0.85rem', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.6rem' }}>
+                      🏷️ Independent Selling MRP & Discount Fields (Tablet, Pack & Box)
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '0.75rem' }}>
-                      {/* Box Level Card */}
-                      <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                          <span>📦 BOX / PACK (Entire Box)</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
+                      <div style={{ padding: '0.85rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <Package size={15} />
+                          <span>BOX (Carton Container)</span>
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem' }}>Box Selling MRP *</label>
+                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>Box Selling MRP *</label>
                           <div style={{ position: 'relative' }}>
                             <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
                             <input
@@ -1182,15 +1167,15 @@ export const InventoryView: React.FC = () => {
                               className="input"
                               style={{ paddingLeft: '2.2rem' }}
                               placeholder="400.00"
-                              value={packSalePrice}
-                              onChange={e => handlePackSaleChange(e.target.value)}
+                              value={boxSalePrice}
+                              onChange={e => handleBoxSaleMRPChange(e.target.value)}
                               required
                             />
                           </div>
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem' }}>Box Discount %</label>
+                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>Box Discount %</label>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                             <input
                               type="number"
@@ -1198,21 +1183,21 @@ export const InventoryView: React.FC = () => {
                               max="100"
                               step="0.5"
                               className="input input-sm"
-                              style={{ width: '80px', height: '30px', fontSize: '0.8rem' }}
+                              style={{ width: '85px', height: '32px', fontSize: '0.82rem' }}
                               value={boxDiscountPercent}
                               onChange={e => setBoxDiscountPercent(e.target.value)}
                             />
-                            <span style={{ fontWeight: 700, fontSize: '0.8rem' }}>%</span>
+                            <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>%</span>
                           </div>
                         </div>
 
-                        <div style={{ marginTop: 'auto', paddingTop: '0.4rem', borderTop: '1px dashed var(--border)', fontSize: '0.72rem' }}>
+                        <div style={{ marginTop: 'auto', paddingTop: '0.4rem', borderTop: '1px dashed var(--border)', fontSize: '0.74rem' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
                             <span>Net Box Price:</span>
                             <strong style={{ color: 'var(--text-primary)' }}>Rs. {netBoxPrice.toFixed(2)}</strong>
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.15rem' }}>
-                            <span>Box Profit:</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.2rem' }}>
+                            <span>Box Margin:</span>
                             <strong style={{ color: Number(boxMarginPercent) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
                               +{boxMarginPercent}% (Rs. {boxProfit.toFixed(2)})
                             </strong>
@@ -1220,14 +1205,14 @@ export const InventoryView: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Blister / Strip Level Card */}
-                      <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                          <span>💊 BLISTER / STRIP (1 Pack Inside)</span>
+                      <div style={{ padding: '0.85rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <Layers size={15} />
+                          <span>PACK (Strip / Blister)</span>
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem' }}>Strip Selling MRP *</label>
+                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>Pack Selling MRP *</label>
                           <div style={{ position: 'relative' }}>
                             <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
                             <input
@@ -1237,15 +1222,15 @@ export const InventoryView: React.FC = () => {
                               className="input"
                               style={{ paddingLeft: '2.2rem' }}
                               placeholder="40.00"
-                              value={stripSalePrice}
-                              onChange={e => handleStripSaleChange(e.target.value)}
+                              value={packSalePrice}
+                              onChange={e => handlePackSaleMRPChange(e.target.value)}
                               required
                             />
                           </div>
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem' }}>Strip Discount %</label>
+                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>Pack Discount %</label>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                             <input
                               type="number"
@@ -1253,36 +1238,36 @@ export const InventoryView: React.FC = () => {
                               max="100"
                               step="0.5"
                               className="input input-sm"
-                              style={{ width: '80px', height: '30px', fontSize: '0.8rem' }}
-                              value={stripDiscountPercent}
-                              onChange={e => setStripDiscountPercent(e.target.value)}
+                              style={{ width: '85px', height: '32px', fontSize: '0.82rem' }}
+                              value={packDiscountPercent}
+                              onChange={e => setPackDiscountPercent(e.target.value)}
                             />
-                            <span style={{ fontWeight: 700, fontSize: '0.8rem' }}>%</span>
+                            <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>%</span>
                           </div>
                         </div>
 
-                        <div style={{ marginTop: 'auto', paddingTop: '0.4rem', borderTop: '1px dashed var(--border)', fontSize: '0.72rem' }}>
+                        <div style={{ marginTop: 'auto', paddingTop: '0.4rem', borderTop: '1px dashed var(--border)', fontSize: '0.74rem' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
-                            <span>Net Strip Price:</span>
-                            <strong style={{ color: 'var(--text-primary)' }}>Rs. {netStripPrice.toFixed(2)}</strong>
+                            <span>Net Pack Price:</span>
+                            <strong style={{ color: 'var(--text-primary)' }}>Rs. {netPackPrice.toFixed(2)}</strong>
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.15rem' }}>
-                            <span>Strip Profit:</span>
-                            <strong style={{ color: Number(stripMarginPercent) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                              +{stripMarginPercent}% (Rs. {stripProfit.toFixed(2)})
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.2rem' }}>
+                            <span>Pack Margin:</span>
+                            <strong style={{ color: Number(packMarginPercent) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                              +{packMarginPercent}% (Rs. {packProfit.toFixed(2)})
                             </strong>
                           </div>
                         </div>
                       </div>
 
-                      {/* Loose Tablet Level Card */}
-                      <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                          <span>🔘 LOOSE TABLET / UNIT (1 Tablet)</span>
+                      <div style={{ padding: '0.85rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <Pill size={15} />
+                          <span>TABLET (Individual Loose Unit)</span>
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem' }}>Tablet Selling MRP *</label>
+                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>Tablet Selling MRP *</label>
                           <div style={{ position: 'relative' }}>
                             <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
                             <input
@@ -1292,15 +1277,15 @@ export const InventoryView: React.FC = () => {
                               className="input"
                               style={{ paddingLeft: '2.2rem' }}
                               placeholder="4.50"
-                              value={unitSalePrice}
-                              onChange={e => handleUnitSaleChange(e.target.value)}
+                              value={tabletSalePrice}
+                              onChange={e => handleTabletSaleMRPChange(e.target.value)}
                               required
                             />
                           </div>
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem' }}>Tablet Discount %</label>
+                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>Tablet Discount %</label>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                             <input
                               type="number"
@@ -1308,23 +1293,23 @@ export const InventoryView: React.FC = () => {
                               max="100"
                               step="0.5"
                               className="input input-sm"
-                              style={{ width: '80px', height: '30px', fontSize: '0.8rem' }}
-                              value={unitDiscountPercent}
-                              onChange={e => setUnitDiscountPercent(e.target.value)}
+                              style={{ width: '85px', height: '32px', fontSize: '0.82rem' }}
+                              value={tabletDiscountPercent}
+                              onChange={e => setTabletDiscountPercent(e.target.value)}
                             />
-                            <span style={{ fontWeight: 700, fontSize: '0.8rem' }}>%</span>
+                            <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>%</span>
                           </div>
                         </div>
 
-                        <div style={{ marginTop: 'auto', paddingTop: '0.4rem', borderTop: '1px dashed var(--border)', fontSize: '0.72rem' }}>
+                        <div style={{ marginTop: 'auto', paddingTop: '0.4rem', borderTop: '1px dashed var(--border)', fontSize: '0.74rem' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
-                            <span>Net Unit Price:</span>
-                            <strong style={{ color: 'var(--text-primary)' }}>Rs. {netUnitPrice.toFixed(2)}</strong>
+                            <span>Net Tablet Price:</span>
+                            <strong style={{ color: 'var(--text-primary)' }}>Rs. {netTabletPrice.toFixed(2)}</strong>
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.15rem' }}>
-                            <span>Tablet Profit:</span>
-                            <strong style={{ color: Number(unitMarginPercent) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                              +{unitMarginPercent}% (Rs. {unitProfit.toFixed(2)})
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.2rem' }}>
+                            <span>Tablet Margin:</span>
+                            <strong style={{ color: Number(tabletMarginPercent) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                              +{tabletMarginPercent}% (Rs. {tabletProfit.toFixed(2)})
                             </strong>
                           </div>
                         </div>
@@ -1333,15 +1318,14 @@ export const InventoryView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Optional Notes */}
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                    Reference Notes / Inward Remark (Optional)
+                    Reference Notes / Distributor Remark (Optional)
                   </label>
                   <input
                     type="text"
                     className="input"
-                    placeholder="e.g. Direct distributor sample, physical opening stock"
+                    placeholder="e.g. Inward consignment from distributor, sample pack"
                     value={notes}
                     onChange={e => setNotes(e.target.value)}
                   />
@@ -1349,7 +1333,6 @@ export const InventoryView: React.FC = () => {
               </form>
             </div>
 
-            {/* Modal Footer */}
             <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border)', backgroundColor: 'var(--bg-app)', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
               <button
                 type="button"
@@ -1367,10 +1350,7 @@ export const InventoryView: React.FC = () => {
                 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700 }}
               >
                 {modalLoading ? (
-                  <>
-                    <div style={{ width: '14px', height: '14px', border: '2px solid #fff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                    <span>Saving to Inventory...</span>
-                  </>
+                  <span>Saving to Inventory...</span>
                 ) : (
                   <>
                     <CheckCircle2 size={16} />
@@ -1383,9 +1363,6 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* PHYSICAL COUNT ADJUSTMENT MODAL                                           */}
-      {/* ========================================================================= */}
       {selectedBatch && (
         <div className="modal-overlay">
           <div className="modal-content" style={{ maxWidth: '480px' }}>

@@ -4,9 +4,6 @@ import { authenticateToken } from '../middleware/auth.js';
 
 export const clinicalRouter = Router();
 
-// ==========================================
-// 1. DRUG-DRUG INTERACTION & SAFETY CHECKER
-// ==========================================
 clinicalRouter.post('/check-interactions', authenticateToken, (req: Request, res: Response) => {
   try {
     const { medicineIds, customerId } = req.body;
@@ -15,7 +12,6 @@ clinicalRouter.post('/check-interactions', authenticateToken, (req: Request, res
       return res.status(400).json({ error: 'At least one medicine ID is required.' });
     }
 
-    // 1. Fetch medicine details including generic and therapeutic class
     const placeholders = medicineIds.map(() => '?').join(',');
     const medicines = db.prepare(`
       SELECT 
@@ -38,7 +34,6 @@ clinicalRouter.post('/check-interactions', authenticateToken, (req: Request, res
 
     const genericIds = medicines.map(m => m.generic_id).filter(Boolean);
 
-    // 2. Check Database for verified Drug-Drug Interactions (pairwise)
     const interactions: any[] = [];
     if (genericIds.length > 1) {
       const gPlaceholders = genericIds.map(() => '?').join(',');
@@ -53,7 +48,6 @@ clinicalRouter.post('/check-interactions', authenticateToken, (req: Request, res
         WHERE (di.generic_a_id IN (${gPlaceholders}) AND di.generic_b_id IN (${gPlaceholders}))
       `).all(...genericIds, ...genericIds) as any[];
 
-      // Filter to only combinations present in our selected medicines
       rows.forEach(r => {
         const medA = medicines.find(m => m.generic_id === r.generic_a_id);
         const medB = medicines.find(m => m.generic_id === r.generic_b_id);
@@ -61,7 +55,7 @@ clinicalRouter.post('/check-interactions', authenticateToken, (req: Request, res
           interactions.push({
             drugA: { id: medA.medicine_id, brandName: medA.brand_name, generic: r.generic_a_name },
             drugB: { id: medB.medicine_id, brandName: medB.brand_name, generic: r.generic_b_name },
-            severity: r.severity, // CONTRAINDICATED, MAJOR, MODERATE, MINOR
+            severity: r.severity,
             effect: r.effect,
             management: r.management,
             evidenceLevel: r.evidence_level
@@ -70,7 +64,6 @@ clinicalRouter.post('/check-interactions', authenticateToken, (req: Request, res
       });
     }
 
-    // 3. Duplicate Therapy / Therapeutic Class Overlap
     const duplicateTherapies: any[] = [];
     const classMap = new Map<string, any[]>();
     medicines.forEach(m => {
@@ -91,7 +84,6 @@ clinicalRouter.post('/check-interactions', authenticateToken, (req: Request, res
       }
     });
 
-    // 4. Patient Allergy Cross-Check
     const allergyAlerts: any[] = [];
     if (customerId) {
       const customer = db.prepare('SELECT id, name, allergy_notes FROM customers WHERE id = ?').get(customerId) as any;
@@ -104,7 +96,7 @@ clinicalRouter.post('/check-interactions', authenticateToken, (req: Request, res
 
           const hasConflict =
             (allergyText.includes('penicillin') && (gen.includes('amoxicillin') || gen.includes('ampicillin') || tclass.includes('penicillin'))) ||
-            (allergyText.includes('aspirin') && (gen.includes('aspirin') || tclass.includes('nsaid'))) ||
+            (allergyText.includes('aspirin') && (gen.includes('aspirin') || tclass.includes('nsaid') || gen.includes('naproxen') || gen.includes('ibuprofen'))) ||
             (allergyText.includes('sulfa') && gen.includes('sulfa')) ||
             allergyText.includes(gen) ||
             allergyText.includes(brand);
@@ -123,7 +115,6 @@ clinicalRouter.post('/check-interactions', authenticateToken, (req: Request, res
       }
     }
 
-    // 5. Pregnancy & Lactation Warnings
     const pregnancyWarnings: any[] = [];
     medicines.forEach(m => {
       if (m.pregnancy_category && ['C', 'D', 'X'].includes(m.pregnancy_category)) {
@@ -161,9 +152,6 @@ clinicalRouter.post('/check-interactions', authenticateToken, (req: Request, res
   }
 });
 
-// ==========================================
-// 2. MEDICINE CLINICAL MONOGRAPH
-// ==========================================
 clinicalRouter.get('/medicine/:id/monograph', authenticateToken, (req: Request, res: Response) => {
   try {
     const medicineId = req.params.id;
@@ -197,7 +185,6 @@ clinicalRouter.get('/medicine/:id/monograph', authenticateToken, (req: Request, 
       return res.status(404).json({ error: 'Medicine not found' });
     }
 
-    // Fetch known interactions for this medicine's generic
     let knownInteractions: any[] = [];
     if (info.generic_id) {
       knownInteractions = db.prepare(`
@@ -211,7 +198,6 @@ clinicalRouter.get('/medicine/:id/monograph', authenticateToken, (req: Request, 
       `).all(info.generic_id, info.generic_id, info.generic_id);
     }
 
-    // Fetch in-stock generic substitutes
     let substitutes: any[] = [];
     if (info.generic_id) {
       substitutes = db.prepare(`
@@ -242,10 +228,16 @@ clinicalRouter.get('/medicine/:id/monograph', authenticateToken, (req: Request, 
   }
 });
 
-// ==========================================
-// 3. PHARMA DICTIONARY & FULL DRUG PROFILE MONOGRAPH
-// ==========================================
 const DRUG_ALIAS_MAP: Record<string, string> = {
+  'sunfl': 'Naproxen Sodium',
+  'sunflex': 'Naproxen Sodium',
+  'synflex': 'Naproxen Sodium',
+  'naprosyn': 'Naproxen Sodium',
+  'aleve': 'Naproxen Sodium',
+  'naproxen': 'Naproxen Sodium',
+  'aceclofenac': 'Aceclofenac',
+  'hifenac': 'Aceclofenac',
+  'zerodol': 'Aceclofenac',
   'ondasteron': 'Ondansetron',
   'ondasteran': 'Ondansetron',
   'ondasetron': 'Ondansetron',
@@ -256,15 +248,17 @@ const DRUG_ALIAS_MAP: Record<string, string> = {
   'paracetmol': 'Paracetamol',
   'panadol': 'Paracetamol',
   'calpol': 'Paracetamol',
-  'amoxil': 'Amoxicillin',
-  'augmentin': 'Amoxicillin',
+  'amoxil': 'Amoxicillin + Clavulanic Acid',
+  'augmentin': 'Amoxicillin + Clavulanic Acid',
   'risek': 'Omeprazole',
   'losec': 'Omeprazole',
   'norvasc': 'Amlodipine',
-  'glucophage': 'Metformin',
+  'glucophage': 'Metformin HCl',
   'brufen': 'Ibuprofen',
   'advil': 'Ibuprofen',
+  'motrin': 'Ibuprofen',
   'voltaren': 'Diclofenac',
+  'voltral': 'Diclofenac',
   'caflam': 'Diclofenac',
   'flagyl': 'Metronidazole',
   'ponstan': 'Mefenamic Acid',
@@ -273,11 +267,13 @@ const DRUG_ALIAS_MAP: Record<string, string> = {
   'zithromax': 'Azithromycin',
   'azomax': 'Azithromycin',
   'ciprobay': 'Ciprofloxacin',
+  'ciproxin': 'Ciprofloxacin',
   'rocephin': 'Ceftriaxone',
-  'cozaar': 'Losartan',
-  'eziday': 'Losartan',
+  'cozaar': 'Losartan Potassium',
+  'eziday': 'Losartan Potassium',
   'lipitor': 'Atorvastatin',
   'singulair': 'Montelukast',
+  'montika': 'Montelukast',
   'myteka': 'Montelukast',
   'zyrtec': 'Cetirizine',
   'rigix': 'Cetirizine',
@@ -296,19 +292,109 @@ const DRUG_ALIAS_MAP: Record<string, string> = {
   'imodium': 'Loperamide'
 };
 
-clinicalRouter.get('/dictionary', authenticateToken, (req: Request, res: Response) => {
+async function fetchOpenFdaDrug(searchTerm: string) {
+  try {
+    const cleanTerm = searchTerm.replace(/[^a-zA-Z0-9 ]/g, '').trim();
+    if (!cleanTerm || cleanTerm.length < 3) return null;
+
+    const queryUrl = `https://api.fda.gov/drug/label.json?search=openfda.generic_name:"${encodeURIComponent(cleanTerm)}"+openfda.brand_name:"${encodeURIComponent(cleanTerm)}"&limit=1`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+
+    const response = await fetch(queryUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!data.results || data.results.length === 0) return null;
+
+    const item = data.results[0];
+    const genericName = item.openfda?.generic_name?.[0] || cleanTerm;
+    const brandName = item.openfda?.brand_name?.[0] || '';
+    const pharmClass = item.openfda?.pharm_class_epc?.[0] || item.openfda?.pharm_class_moa?.[0] || 'Pharmaceutical Agent';
+
+    const insertGen = db.prepare(`
+      INSERT INTO generics (name, therapeutic_class, description)
+      VALUES (?, ?, ?)
+      ON CONFLICT(name) DO UPDATE SET
+        therapeutic_class = COALESCE(excluded.therapeutic_class, generics.therapeutic_class)
+      RETURNING id
+    `);
+
+    const genRes = insertGen.get(
+      genericName,
+      pharmClass,
+      item.description?.[0]?.slice(0, 500) || `FDA-approved pharmaceutical: ${genericName}.`
+    ) as any;
+
+    if (!genRes?.id) return null;
+
+    const pregnancyText = (item.pregnancy?.[0] || '').toUpperCase();
+    let pregnancyCat = 'C';
+    if (pregnancyText.includes('CATEGORY A')) pregnancyCat = 'A';
+    else if (pregnancyText.includes('CATEGORY B')) pregnancyCat = 'B';
+    else if (pregnancyText.includes('CATEGORY D')) pregnancyCat = 'D';
+    else if (pregnancyText.includes('CATEGORY X') || pregnancyText.includes('CONTRAINDICATED IN PREGNANCY')) pregnancyCat = 'X';
+
+    const insertInfo = db.prepare(`
+      INSERT OR REPLACE INTO drug_clinical_info (
+        generic_id, atc_code, rx_status, pharmacological_class, countries_available,
+        pregnancy_category, lactation_safety,
+        adult_dosage, pediatric_dosage, hepatic_renal_precautions,
+        indications_approved, pharmacology_moa,
+        contraindications_absolute, boxed_warnings, side_effects_common,
+        food_interactions, clinical_source, source_version, last_reviewed
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    insertInfo.run(
+      genRes.id,
+      item.openfda?.spl_set_id?.[0]?.slice(0, 10) || 'FDA-LIVE',
+      item.openfda?.product_type?.[0]?.includes('OTC') ? 'OTC' : 'Rx',
+      pharmClass,
+      'USA (FDA), Global Formulary',
+      pregnancyCat,
+      item.nursing_mothers?.[0]?.slice(0, 300) || 'Consult physician prior to nursing.',
+      item.dosage_and_administration?.[0]?.slice(0, 500) || 'Follow standard licensed product labeling.',
+      item.pediatric_use?.[0]?.slice(0, 400) || 'Consult pediatric reference.',
+      item.use_in_specific_populations?.[0]?.slice(0, 400) || 'Monitor hepatic and renal clearance.',
+      item.indications_and_usage?.[0]?.slice(0, 500) || 'FDA registered clinical indication.',
+      item.mechanism_of_action?.[0]?.slice(0, 500) || item.clinical_pharmacology?.[0]?.slice(0, 500) || 'See prescribing information.',
+      item.contraindications?.[0]?.slice(0, 500) || 'Hypersensitivity to active molecule.',
+      item.boxed_warning?.[0]?.slice(0, 500) || null,
+      item.adverse_reactions?.[0]?.slice(0, 500) || 'Gastrointestinal upset, headache, rash.',
+      item.drug_and_or_laboratory_test_interactions?.[0]?.slice(0, 400) || 'Take with water as directed.',
+      'US FDA Public OpenFDA Live Registry',
+      'v2026.Live',
+      new Date().toISOString().split('T')[0]
+    );
+
+    if (brandName) {
+      db.prepare(`
+        INSERT OR IGNORE INTO medicines (
+          brand_name, generic_id, strength, dosage_form, pack_size, rack_location, min_stock_level, reorder_level
+        ) VALUES (?, ?, ?, ?, 10, 'General', 5, 10)
+      `).run(brandName, genRes.id, 'Standard', 'Tablet');
+    }
+
+    return genRes.id;
+  } catch {
+    return null;
+  }
+}
+
+clinicalRouter.get('/dictionary', authenticateToken, async (req: Request, res: Response) => {
   try {
     const search = ((req.query.search as string) || '').trim();
     const letter = ((req.query.letter as string) || '').trim().toUpperCase();
     const therapeuticClass = ((req.query.class as string) || '').trim();
     const rxStatus = ((req.query.rxStatus as string) || '').trim();
     const sort = ((req.query.sort as string) || 'AZ').trim();
-
     const country = ((req.query.country as string) || '').trim();
 
     const buildQuery = (searchTerm: string, useFuzzy = false) => {
       let queryStr = `
-        SELECT 
+        SELECT DISTINCT
           g.id as generic_id,
           g.name as generic_name,
           g.therapeutic_class,
@@ -316,19 +402,22 @@ clinicalRouter.get('/dictionary', authenticateToken, (req: Request, res: Respons
           ci.*
         FROM generics g
         LEFT JOIN drug_clinical_info ci ON g.id = ci.generic_id
+        LEFT JOIN medicines m ON m.generic_id = g.id
         WHERE 1=1
       `;
 
       const params: any[] = [];
 
-      if (letter === '0-9' || letter === '0–9') {
-        queryStr += ` AND SUBSTR(g.name, 1, 1) BETWEEN '0' AND '9'`;
-      } else if (letter && letter.length === 1) {
-        queryStr += ` AND UPPER(g.name) LIKE ?`;
-        params.push(`${letter}%`);
+      if (!searchTerm) {
+        if (letter === '0-9' || letter === '0–9') {
+          queryStr += ` AND SUBSTR(g.name, 1, 1) BETWEEN '0' AND '9'`;
+        } else if (letter && letter.length === 1) {
+          queryStr += ` AND UPPER(g.name) LIKE ?`;
+          params.push(`${letter}%`);
+        }
       }
 
-      if (country) {
+      if (country && country !== 'Global') {
         queryStr += ` AND (ci.countries_available LIKE ? OR ci.countries_available IS NULL)`;
         params.push(`%${country}%`);
       }
@@ -338,20 +427,22 @@ clinicalRouter.get('/dictionary', authenticateToken, (req: Request, res: Respons
         const mappedAlias = DRUG_ALIAS_MAP[lowerSearch];
 
         if (mappedAlias) {
-          queryStr += ` AND (g.name LIKE ? OR g.name LIKE ? OR g.description LIKE ? OR EXISTS (SELECT 1 FROM medicines m WHERE m.generic_id = g.id AND m.brand_name LIKE ?))`;
+          queryStr += ` AND (g.name LIKE ? OR g.name LIKE ? OR g.description LIKE ? OR m.brand_name LIKE ?)`;
           const mainTerm = `%${searchTerm}%`;
           const aliasTerm = `%${mappedAlias}%`;
           params.push(mainTerm, aliasTerm, aliasTerm, mainTerm);
-        } else if (useFuzzy && searchTerm.length >= 4) {
-          const prefix = `%${searchTerm.slice(0, 4)}%`;
-          const suffix = `%${searchTerm.slice(-4)}%`;
+        } else if (useFuzzy && searchTerm.length >= 3) {
+          const prefix = `%${searchTerm.slice(0, 3)}%`;
           queryStr += ` AND (
-            g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR 
-            g.therapeutic_class LIKE ? OR g.description LIKE ? OR
-            EXISTS (SELECT 1 FROM medicines m WHERE m.generic_id = g.id AND (m.brand_name LIKE ? OR m.brand_name LIKE ?))
+            g.name LIKE ? OR 
+            g.name LIKE ? OR 
+            g.therapeutic_class LIKE ? OR 
+            g.description LIKE ? OR
+            m.brand_name LIKE ? OR
+            m.brand_name LIKE ?
           )`;
           const mainTerm = `%${searchTerm}%`;
-          params.push(mainTerm, prefix, suffix, mainTerm, mainTerm, mainTerm, prefix);
+          params.push(mainTerm, prefix, mainTerm, mainTerm, mainTerm, prefix);
         } else {
           queryStr += ` AND (
             g.name LIKE ? OR 
@@ -360,19 +451,11 @@ clinicalRouter.get('/dictionary', authenticateToken, (req: Request, res: Respons
             ci.atc_code LIKE ? OR
             ci.indications_approved LIKE ? OR
             ci.indications_common LIKE ? OR
-            EXISTS (
-              SELECT 1 FROM medicines m 
-              LEFT JOIN manufacturers man ON m.manufacturer_id = man.id
-              WHERE m.generic_id = g.id AND (
-                m.brand_name LIKE ? OR 
-                m.strength LIKE ? OR 
-                m.dosage_form LIKE ? OR 
-                man.name LIKE ?
-              )
-            )
+            m.brand_name LIKE ? OR
+            m.strength LIKE ?
           )`;
           const term = `%${searchTerm}%`;
-          params.push(term, term, term, term, term, term, term, term, term, term);
+          params.push(term, term, term, term, term, term, term, term);
         }
       }
 
@@ -400,13 +483,17 @@ clinicalRouter.get('/dictionary', authenticateToken, (req: Request, res: Respons
     let { queryStr, params } = buildQuery(search, false);
     let genericsList = db.prepare(queryStr).all(...params) as any[];
 
-    // If search returned empty, attempt fuzzy prefix/suffix fallback
     if (genericsList.length === 0 && search) {
       const fallback = buildQuery(search, true);
       genericsList = db.prepare(fallback.queryStr).all(...fallback.params) as any[];
+
+      if (genericsList.length === 0) {
+        await fetchOpenFdaDrug(search);
+        const retry = buildQuery(search, false);
+        genericsList = db.prepare(retry.queryStr).all(...retry.params) as any[];
+      }
     }
 
-    // Fetch linked brands and dosage forms for each generic
     const dictionaryEntries = genericsList.map(g => {
       const linkedMedicines = db.prepare(`
         SELECT 
@@ -443,7 +530,6 @@ clinicalRouter.get('/dictionary', authenticateToken, (req: Request, res: Respons
   }
 });
 
-// Drug Class Directory Endpoint
 clinicalRouter.get('/classes', authenticateToken, (_req: Request, res: Response) => {
   try {
     const classes = db.prepare(`
@@ -462,7 +548,6 @@ clinicalRouter.get('/classes', authenticateToken, (_req: Request, res: Response)
   }
 });
 
-// Manufacturer Directory Endpoint
 clinicalRouter.get('/manufacturers', authenticateToken, (_req: Request, res: Response) => {
   try {
     const manufacturers = db.prepare(`
@@ -484,7 +569,6 @@ clinicalRouter.get('/manufacturers', authenticateToken, (_req: Request, res: Res
   }
 });
 
-// Full 34-point Drug Monograph Endpoint
 clinicalRouter.get('/monograph/:genericId', authenticateToken, (req: Request, res: Response) => {
   try {
     const genericId = Number(req.params.genericId);
@@ -538,9 +622,6 @@ clinicalRouter.get('/monograph/:genericId', authenticateToken, (req: Request, re
   }
 });
 
-// ==========================================
-// 4. PILL IDENTIFIER API
-// ==========================================
 clinicalRouter.get('/pill-identifier', authenticateToken, (req: Request, res: Response) => {
   try {
     const imprint = ((req.query.imprint as string) || '').trim();
@@ -595,9 +676,6 @@ clinicalRouter.get('/pill-identifier', authenticateToken, (req: Request, res: Re
   }
 });
 
-// ==========================================
-// 5. CLINICAL REFERENCE CHARTS API
-// ==========================================
 clinicalRouter.get('/charts/:chartType', authenticateToken, (req: Request, res: Response) => {
   try {
     const chartType = req.params.chartType;
@@ -622,9 +700,10 @@ clinicalRouter.get('/charts/:chartType', authenticateToken, (req: Request, res: 
         chartType,
         title: 'NSAIDs Selectivity, Efficacy & Risk Matrix',
         data: [
+          { drug: 'Naproxen', coxSelectivity: 'Non-selective', giRisk: 'Moderate-High', cvRisk: 'Lowest CV Risk (Safest)', renalRisk: 'Moderate', dose: '275mg-550mg PO BID (max 1375mg/d)' },
+          { drug: 'Aceclofenac', coxSelectivity: 'COX-2 Preferential', giRisk: 'Low-Moderate (Well tolerated)', cvRisk: 'Moderate', renalRisk: 'Moderate', dose: '100mg PO BID (max 200mg/d)' },
           { drug: 'Ibuprofen', coxSelectivity: 'Non-selective (COX-1 = COX-2)', giRisk: 'Moderate', cvRisk: 'Low', renalRisk: 'Moderate', dose: '400mg-800mg PO TID (max 3200mg/d)' },
           { drug: 'Celecoxib', coxSelectivity: 'COX-2 Selective', giRisk: 'Low', cvRisk: 'High', renalRisk: 'Moderate', dose: '100mg-200mg PO daily/BID' },
-          { drug: 'Naproxen', coxSelectivity: 'Non-selective', giRisk: 'Moderate-High', cvRisk: 'Lowest CV Risk', renalRisk: 'Moderate', dose: '250mg-500mg PO BID' },
           { drug: 'Diclofenac', coxSelectivity: 'Slight COX-2 Preference', giRisk: 'Moderate', cvRisk: 'Moderate-High', renalRisk: 'Moderate', dose: '50mg PO BID/TID or 75mg SR' },
           { drug: 'Ketorolac', coxSelectivity: 'COX-1 Selective', giRisk: 'Very High (Max 5 days)', cvRisk: 'Moderate', renalRisk: 'High', dose: '10mg PO q4-6h (max 40mg/d)' }
         ]
@@ -641,9 +720,6 @@ clinicalRouter.get('/charts/:chartType', authenticateToken, (req: Request, res: 
   }
 });
 
-// ==========================================
-// 6. FAVORITES & PHARMACIST NOTES API
-// ==========================================
 clinicalRouter.get('/favorites', authenticateToken, (req: any, res: Response) => {
   try {
     const userId = req.user.id;
@@ -718,12 +794,9 @@ clinicalRouter.post('/notes', authenticateToken, (req: any, res: Response) => {
   }
 });
 
-// ==========================================
-// 4. CLINICAL AI CONSULTATION ENGINE
-// ==========================================
 clinicalRouter.post('/ai-consult', authenticateToken, (req: Request, res: Response) => {
   try {
-    const { query, medicineId, customerId } = req.body;
+    const { query, medicineId } = req.body;
 
     if (!query || typeof query !== 'string' || query.trim().length === 0) {
       return res.status(400).json({ error: 'Query prompt is required.' });
@@ -755,7 +828,6 @@ clinicalRouter.post('/ai-consult', authenticateToken, (req: Request, res: Respon
       }
     }
 
-    // Generate clinical guidance response
     const qLower = query.toLowerCase();
     let verifiedData = '';
     let aiExplanation = '';
@@ -820,4 +892,3 @@ clinicalRouter.post('/ai-consult', authenticateToken, (req: Request, res: Respon
     res.status(500).json({ error: 'Failed to process clinical AI consultation', details: err.message });
   }
 });
-

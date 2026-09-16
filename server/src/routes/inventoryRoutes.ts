@@ -5,7 +5,6 @@ import { logAudit } from '../services/auditService.js';
 
 export const inventoryRouter = Router();
 
-// Get all inventory batches with status, shelf, and days remaining
 inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const medicineId = req.query.medicineId ? Number(req.query.medicineId) : undefined;
   const status = req.query.status as string | undefined;
@@ -46,7 +45,6 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
   res.json({ batches });
 });
 
-// Inventory stock valuation and summary KPIs
 inventoryRouter.get('/valuation', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const valuation = db.prepare(`
     SELECT 
@@ -73,7 +71,6 @@ inventoryRouter.get('/valuation', authenticateToken, (req: AuthenticatedRequest,
   });
 });
 
-// Audit ledger of stock movements
 inventoryRouter.get('/movements', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const batchId = req.query.batchId ? Number(req.query.batchId) : undefined;
   const limit = Math.min(100, Math.max(10, Number(req.query.limit) || 50));
@@ -104,7 +101,6 @@ inventoryRouter.get('/movements', authenticateToken, (req: AuthenticatedRequest,
   res.json({ movements });
 });
 
-// Atomic stock adjustment (physical inventory count correction)
 inventoryRouter.post('/adjust', authenticateToken, requirePermission('adjust_stock'), (req: AuthenticatedRequest, res: Response) => {
   const { batchId, newQuantity, reason, adjustmentType } = req.body;
 
@@ -131,10 +127,8 @@ inventoryRouter.post('/adjust', authenticateToken, requirePermission('adjust_sto
         return { message: 'Stock quantity unchanged', previousQty: batch.quantity, newQty: targetQty, difference: 0 };
       }
 
-      // Update batch quantity
       db.prepare('UPDATE batches SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(targetQty, batchId);
 
-      // Record immutable stock movement
       db.prepare(`
         INSERT INTO stock_movements (
           batch_id, movement_type, quantity_change, balance_after,
@@ -151,7 +145,6 @@ inventoryRouter.post('/adjust', authenticateToken, requirePermission('adjust_sto
         req.user?.id
       );
 
-      // Audit log
       logAudit({
         userId: req.user?.id,
         action: 'STOCK_ADJUSTMENT',
@@ -171,11 +164,9 @@ inventoryRouter.post('/adjust', authenticateToken, requirePermission('adjust_sto
   }
 });
 
-// Direct manual medicine and batch stock entry
 inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('manage_inventory'), (req: AuthenticatedRequest, res: Response) => {
   const {
     medicineId,
-    // New Medicine fields (if medicineId is not provided)
     brandName,
     genericId,
     genericName,
@@ -192,7 +183,6 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
     minStockLevel = 10,
     reorderLevel = 20,
     isPrescriptionRequired = 0,
-    // Batch & Stock fields
     batchNumber,
     mfgDate,
     expiryDate,
@@ -227,7 +217,6 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
     return;
   }
 
-  // Calculate unit prices if only pack prices were supplied (or vice versa)
   let finalUnitPurchase = Number(unitPurchasePrice);
   if (!finalUnitPurchase && packPurchasePrice) {
     finalUnitPurchase = Number(packPurchasePrice) / numericPackSize;
@@ -247,13 +236,11 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
     const result = runTransaction(() => {
       let finalMedId = medicineId ? Number(medicineId) : null;
 
-      // 1. If medicine does not exist, create it
       if (!finalMedId) {
         if (!brandName || !brandName.trim()) {
           throw new Error('Brand name is required for new medicine');
         }
 
-        // Handle category if name provided
         let finalCatId = categoryId ? Number(categoryId) : null;
         if (!finalCatId && categoryName && categoryName.trim()) {
           const existingCat = db.prepare('SELECT id FROM categories WHERE name LIKE ?').get(categoryName.trim()) as any;
@@ -265,7 +252,6 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
           }
         }
 
-        // Handle manufacturer if name provided
         let finalManId = manufacturerId ? Number(manufacturerId) : null;
         if (!finalManId && manufacturerName && manufacturerName.trim()) {
           const existingMan = db.prepare('SELECT id FROM manufacturers WHERE name LIKE ?').get(manufacturerName.trim()) as any;
@@ -277,19 +263,17 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
           }
         }
 
-        // Handle generic molecule if name provided
         let finalGenId = genericId ? Number(genericId) : null;
         if (!finalGenId && genericName && genericName.trim()) {
           const existingGen = db.prepare('SELECT id FROM generics WHERE name LIKE ?').get(genericName.trim()) as any;
           if (existingGen) {
             finalGenId = existingGen.id;
           } else {
-            const newGen = db.prepare('INSERT INTO generics (name) VALUES (?)').run(genericName.trim());
+            const newGen = db.prepare('INSERT INTO generics (name) VALUES (?, ?, ?)').run(genericName.trim(), 'General', 'Auto-created generic');
             finalGenId = Number(newGen.lastInsertRowid);
           }
         }
 
-        // Auto barcode if not provided
         let finalBarcode = barcode && barcode.trim() ? barcode.trim() : null;
         let finalCustom = customBarcode && customBarcode.trim() ? customBarcode.trim() : null;
         if (!finalBarcode && !finalCustom) {
@@ -322,12 +306,10 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
         finalMedId = Number(medInsert.lastInsertRowid);
       }
 
-      // 2. Check if batch with same number exists for this medicine
       const existingBatch = db.prepare('SELECT id, quantity FROM batches WHERE medicine_id = ? AND batch_number = ?').get(finalMedId, batchNumber.trim()) as any;
       let batchId: number;
 
       if (existingBatch) {
-        // Increment quantity of existing batch
         const newTotal = existingBatch.quantity + totalUnits;
         db.prepare(`
           UPDATE batches SET
@@ -351,7 +333,6 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
         );
         batchId = existingBatch.id;
       } else {
-        // Create new batch
         const batchInsert = db.prepare(`
           INSERT INTO batches (
             medicine_id, batch_number, mfg_date, expiry_date,
@@ -373,7 +354,6 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
         batchId = Number(batchInsert.lastInsertRowid);
       }
 
-      // 3. Record stock movement audit entry
       db.prepare(`
         INSERT INTO stock_movements (
           batch_id, movement_type, quantity_change, balance_after,
@@ -384,11 +364,10 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
         totalUnits,
         totalUnits,
         `DIR-${Date.now()}`,
-        `Manual stock entry: ${numericPacks} packs (${numericPackSize}/pack) @ Rs. ${finalUnitSale}/unit`,
+        `Manual stock: ${numericPacks} boxes (${numericPackSize} tablets/box) @ Rs. ${finalUnitSale.toFixed(2)}/tablet | ${notes || ''}`.trim(),
         req.user?.id
       );
 
-      // 4. Audit Log
       logAudit({
         userId: req.user?.id,
         action: 'MANUAL_STOCK_ENTRY',
@@ -422,4 +401,3 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
     res.status(400).json({ error: err.message });
   }
 });
-
