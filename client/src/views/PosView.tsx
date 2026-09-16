@@ -333,7 +333,7 @@ export const PosView: React.FC = () => {
 
     const batch = product.fefo_batch;
     const packSize = Number(product.pack_size) > 0 ? Number(product.pack_size) : 100;
-    const tabletsPerPack = (packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : (packSize > 1 ? 10 : 1);
+    const tabletsPerPack = Number(product.tablets_per_pack) > 0 ? Number(product.tablets_per_pack) : ((packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : (packSize > 1 ? 10 : 1));
 
     let looseUnitsToAdd = 1;
     if (unitType === 'BOX') {
@@ -858,7 +858,7 @@ export const PosView: React.FC = () => {
               >
                 {searchResults.map((p) => {
                   const packSize = Number(p.pack_size) > 0 ? Number(p.pack_size) : 100;
-                  const tabletsPerPack = (packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : (packSize > 1 ? 10 : 1);
+                  const tabletsPerPack = Number(p.tablets_per_pack) > 0 ? Number(p.tablets_per_pack) : ((packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : (packSize > 1 ? 10 : 1));
                   const unitPrice = p.fefo_batch ? Number(p.fefo_batch.sale_price) : 0;
                   const packPrice = unitPrice * tabletsPerPack;
                   const boxPrice = unitPrice * packSize;
@@ -1483,7 +1483,7 @@ export const PosView: React.FC = () => {
                   <tbody>
                     {lastInvoice.items.map((it: any, i: number) => {
                       const packSize = Number(it.packSize) || 100;
-                      const tabletsPerPack = (packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : (packSize > 1 ? 10 : 1);
+                      const tabletsPerPack = Number(it.tabletsPerPack) || 10;
                       const breakdown = formatPackagingBreakdown(it.quantity || 1, packSize, tabletsPerPack);
 
                       return (

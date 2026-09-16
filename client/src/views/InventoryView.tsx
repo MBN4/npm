@@ -19,7 +19,10 @@ import {
   Search,
   CheckCircle2,
   Package,
-  Layers
+  Layers,
+  Zap,
+  Edit,
+  Trash2
 } from 'lucide-react';
 
 export interface BatchItem {
@@ -28,6 +31,8 @@ export interface BatchItem {
   brand_name: string;
   strength?: string;
   dosage_form?: string;
+  pack_size?: number;
+  tablets_per_pack?: number;
   barcode?: string;
   medicine_rack?: string;
   batch_number: string;
@@ -76,6 +81,15 @@ export const InventoryView: React.FC = () => {
   const [adjustReason, setAdjustReason] = useState<string>('Physical count verification');
   const [adjustError, setAdjustError] = useState<string | null>(null);
   const [adjustSuccess, setAdjustSuccess] = useState<string | null>(null);
+
+  const [editingBatch, setEditingBatch] = useState<BatchItem | null>(null);
+  const [editBatchNumber, setEditBatchNumber] = useState('');
+  const [editExpiryDate, setEditExpiryDate] = useState('');
+  const [editPurchasePrice, setEditPurchasePrice] = useState('');
+  const [editSalePrice, setEditSalePrice] = useState('');
+  const [editRackLocation, setEditRackLocation] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
 
   const [showAddStockModal, setShowAddStockModal] = useState(false);
   const [entryMode, setEntryMode] = useState<'new_med' | 'existing_med'>('new_med');
@@ -167,84 +181,20 @@ export const InventoryView: React.FC = () => {
   const totalPacksReceived = numBoxes * numPacksPerBox;
   const totalSellableTablets = (numBoxes * totalTabletsPerBox) + numBonus;
 
-  const handlePacksPerBoxChange = (val: string) => {
-    setPacksPerBox(val);
-    const pBox = Math.max(1, Number(val) || 1);
-    const boxCost = Number(boxPurchasePrice) || 0;
-    if (boxCost > 0) {
-      setPackPurchasePrice((boxCost / pBox).toFixed(2));
-      setTabletPurchasePrice((boxCost / (pBox * numTabletsPerPack)).toFixed(2));
-    }
-    const boxMRP = Number(boxSalePrice) || 0;
-    if (boxMRP > 0) {
-      const pMRP = boxMRP / pBox;
-      setPackSalePrice(pMRP.toFixed(2));
-      setTabletSalePrice((pMRP / numTabletsPerPack).toFixed(2));
+  const handleAutoCalcCostRatios = () => {
+    const bCost = Number(boxPurchasePrice) || 0;
+    if (bCost > 0) {
+      setPackPurchasePrice((bCost / numPacksPerBox).toFixed(2));
+      setTabletPurchasePrice((bCost / totalTabletsPerBox).toFixed(2));
     }
   };
 
-  const handleTabletsPerPackChange = (val: string) => {
-    setTabletsPerPack(val);
-    const tPack = Math.max(1, Number(val) || 1);
-    const pCost = Number(packPurchasePrice) || 0;
-    if (pCost > 0) {
-      setTabletPurchasePrice((pCost / tPack).toFixed(2));
+  const handleAutoCalcSaleRatios = () => {
+    const bMRP = Number(boxSalePrice) || 0;
+    if (bMRP > 0) {
+      setPackSalePrice((bMRP / numPacksPerBox).toFixed(2));
+      setTabletSalePrice((bMRP / totalTabletsPerBox).toFixed(2));
     }
-    const pMRP = Number(packSalePrice) || 0;
-    if (pMRP > 0) {
-      setTabletSalePrice((pMRP / tPack).toFixed(2));
-    }
-  };
-
-  const handleBoxPurchaseCostChange = (val: string) => {
-    setBoxPurchasePrice(val);
-    const bCost = Number(val) || 0;
-    if (bCost >= 0) {
-      const pCost = bCost / numPacksPerBox;
-      setPackPurchasePrice(pCost.toFixed(2));
-      setTabletPurchasePrice((pCost / numTabletsPerPack).toFixed(2));
-    }
-  };
-
-  const handlePackPurchaseCostChange = (val: string) => {
-    setPackPurchasePrice(val);
-    const pCost = Number(val) || 0;
-    if (pCost >= 0) {
-      setBoxPurchasePrice((pCost * numPacksPerBox).toFixed(2));
-      setTabletPurchasePrice((pCost / numTabletsPerPack).toFixed(2));
-    }
-  };
-
-  const handleTabletPurchaseCostChange = (val: string) => {
-    setTabletPurchasePrice(val);
-    const tCost = Number(val) || 0;
-    if (tCost >= 0) {
-      setPackPurchasePrice((tCost * numTabletsPerPack).toFixed(2));
-      setBoxPurchasePrice((tCost * totalTabletsPerBox).toFixed(2));
-    }
-  };
-
-  const handleBoxSaleMRPChange = (val: string) => {
-    setBoxSalePrice(val);
-    const bMRP = Number(val) || 0;
-    if (bMRP >= 0) {
-      const pMRP = bMRP / numPacksPerBox;
-      setPackSalePrice(pMRP.toFixed(2));
-      setTabletSalePrice((pMRP / numTabletsPerPack).toFixed(2));
-    }
-  };
-
-  const handlePackSaleMRPChange = (val: string) => {
-    setPackSalePrice(val);
-    const pMRP = Number(val) || 0;
-    if (pMRP >= 0) {
-      setBoxSalePrice((pMRP * numPacksPerBox).toFixed(2));
-      setTabletSalePrice((pMRP / numTabletsPerPack).toFixed(2));
-    }
-  };
-
-  const handleTabletSaleMRPChange = (val: string) => {
-    setTabletSalePrice(val);
   };
 
   const numBoxCost = Number(boxPurchasePrice) || 0;
@@ -277,13 +227,9 @@ export const InventoryView: React.FC = () => {
       setStrength(med.strength || '');
       setDosageForm(med.dosage_form || 'Tablet');
       const pSize = Number(med.pack_size || 100);
-      if (pSize >= 10 && pSize % 10 === 0) {
-        setPacksPerBox('10');
-        setTabletsPerPack(String(pSize / 10));
-      } else {
-        setPacksPerBox('1');
-        setTabletsPerPack(String(pSize));
-      }
+      const tPack = Number(med.tablets_per_pack) > 0 ? Number(med.tablets_per_pack) : 10;
+      setTabletsPerPack(String(tPack));
+      setPacksPerBox(String(Math.max(1, Math.floor(pSize / tPack))));
       setRackLocation(med.rack_location || 'Rack A-01');
       if (med.barcode) setBarcode(med.barcode);
     }
@@ -300,6 +246,7 @@ export const InventoryView: React.FC = () => {
         mfgDate: mfgDate || null,
         expiryDate,
         packSize: totalTabletsPerBox,
+        tabletsPerPack: numTabletsPerPack,
         packsReceived: numBoxes,
         bonusQuantity: numBonus,
         packPurchasePrice: numBoxCost,
@@ -397,6 +344,77 @@ export const InventoryView: React.FC = () => {
     }
   };
 
+  const handleOpenEdit = (batch: BatchItem) => {
+    setEditingBatch(batch);
+    setEditBatchNumber(batch.batch_number);
+    setEditExpiryDate(batch.expiry_date);
+    setEditPurchasePrice(String(batch.purchase_price));
+    setEditSalePrice(String(batch.sale_price));
+    setEditRackLocation(batch.medicine_rack || '');
+    setEditError(null);
+  };
+
+  const handleSaveBatchEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBatch) return;
+    setEditError(null);
+    setEditLoading(true);
+
+    try {
+      const res = await fetch(`/api/inventory/batches/${editingBatch.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          batchNumber: editBatchNumber,
+          expiryDate: editExpiryDate,
+          purchasePrice: Number(editPurchasePrice) || 0,
+          salePrice: Number(editSalePrice) || 0,
+          rackLocation: editRackLocation
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to update batch');
+      }
+
+      setAdjustSuccess(`Batch ${editBatchNumber} updated successfully.`);
+      setEditingBatch(null);
+      fetchInventoryData();
+    } catch (err: any) {
+      setEditError(err.message || 'Update failed');
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleDeleteBatch = async (batch: BatchItem) => {
+    if (!window.confirm(`Are you sure you want to permanently delete Batch ${batch.batch_number} of ${batch.brand_name}?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/inventory/batches/${batch.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to delete batch');
+        return;
+      }
+
+      setAdjustSuccess(data.message || `Batch ${batch.batch_number} deleted.`);
+      fetchInventoryData();
+    } catch (err: any) {
+      alert(err.message || 'Delete error');
+    }
+  };
+
   const filteredBatches = batches.filter(b => {
     const matchesSearch = !searchQuery.trim() || 
       b.brand_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -416,7 +434,7 @@ export const InventoryView: React.FC = () => {
         <div>
           <h1 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>Batch Inventory & Stock Control</h1>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-            FEFO Stock Tracking • 3-Level Packaging (Tablet → Pack → Box) • Physical Count Verification
+            FEFO Stock Tracking • 3-Level Packaging (Tablet → Pack → Box) • Customizable Pricing
           </p>
         </div>
 
@@ -576,7 +594,7 @@ export const InventoryView: React.FC = () => {
                         <td>
                           <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{b.brand_name}</div>
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                            {b.dosage_form} • {b.strength || 'Standard'}
+                            {b.dosage_form} • {b.strength || 'Standard'} • {b.tablets_per_pack || 10}/pack
                           </div>
                         </td>
                         <td>
@@ -616,16 +634,42 @@ export const InventoryView: React.FC = () => {
                           ) : '—'}
                         </td>
                         <td>
-                          {hasPermission('adjust_stock') && (
-                            <button
-                              onClick={() => handleOpenAdjustment(b)}
-                              className="btn btn-secondary btn-sm"
-                              style={{ fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
-                            >
-                              <SlidersHorizontal size={12} />
-                              <span>Adjust</span>
-                            </button>
-                          )}
+                          <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
+                            {hasPermission('adjust_stock') && (
+                              <button
+                                onClick={() => handleOpenAdjustment(b)}
+                                className="btn btn-secondary btn-sm"
+                                style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                                title="Adjust physical stock quantity"
+                              >
+                                <SlidersHorizontal size={12} />
+                                <span>Adjust</span>
+                              </button>
+                            )}
+
+                            {hasPermission('manage_inventory') && (
+                              <>
+                                <button
+                                  onClick={() => handleOpenEdit(b)}
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--primary)' }}
+                                  title="Edit batch pricing and details"
+                                >
+                                  <Edit size={12} />
+                                  <span>Edit</span>
+                                </button>
+
+                                <button
+                                  onClick={() => handleDeleteBatch(b)}
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', color: 'var(--danger)' }}
+                                  title="Delete batch"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -883,26 +927,45 @@ export const InventoryView: React.FC = () => {
                       </div>
 
                       <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
                           <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
                             Barcode (EAN-13 or Custom)
                           </label>
+                        </div>
+                        <div style={{ position: 'relative' }}>
+                          <input
+                            type="text"
+                            className="input"
+                            style={{ paddingRight: '4.8rem' }}
+                            placeholder="Scan or auto-create"
+                            value={barcode}
+                            onChange={e => setBarcode(e.target.value)}
+                          />
                           <button
                             type="button"
                             onClick={handleAutoBarcode}
-                            style={{ border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.2rem', whiteSpace: 'nowrap' }}
+                            style={{
+                              position: 'absolute',
+                              right: '4px',
+                              top: '50%',
+                              transform: 'translateY(-50%)',
+                              border: '1px solid var(--border)',
+                              background: 'var(--bg-app)',
+                              color: 'var(--primary)',
+                              fontSize: '0.7rem',
+                              fontWeight: 700,
+                              borderRadius: '6px',
+                              padding: '0.2rem 0.45rem',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.2rem'
+                            }}
                           >
                             <Sparkles size={11} />
-                            <span>Auto Generate</span>
+                            <span>Auto</span>
                           </button>
                         </div>
-                        <input
-                          type="text"
-                          className="input"
-                          placeholder="Scan box or auto-generate"
-                          value={barcode}
-                          onChange={e => setBarcode(e.target.value)}
-                        />
                       </div>
                     </div>
                   )}
@@ -916,25 +979,44 @@ export const InventoryView: React.FC = () => {
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
                         <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Batch / Lot Number *</label>
+                      </div>
+                      <div style={{ position: 'relative' }}>
+                        <input
+                          type="text"
+                          className="input"
+                          style={{ paddingRight: '4.8rem' }}
+                          placeholder="e.g. BN-2026-99"
+                          value={batchNumber}
+                          onChange={e => setBatchNumber(e.target.value)}
+                          required
+                        />
                         <button
                           type="button"
                           onClick={handleAutoBatch}
-                          style={{ border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}
+                          style={{
+                            position: 'absolute',
+                            right: '4px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            border: '1px solid var(--border)',
+                            background: 'var(--bg-app)',
+                            color: 'var(--primary)',
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            borderRadius: '6px',
+                            padding: '0.2rem 0.45rem',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.2rem'
+                          }}
                         >
                           <Sparkles size={11} />
-                          <span>Auto Generate</span>
+                          <span>Auto</span>
                         </button>
                       </div>
-                      <input
-                        type="text"
-                        className="input"
-                        placeholder="e.g. BN-2026-99"
-                        value={batchNumber}
-                        onChange={e => setBatchNumber(e.target.value)}
-                        required
-                      />
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -996,7 +1078,7 @@ export const InventoryView: React.FC = () => {
                           className="input"
                           placeholder="e.g. 10"
                           value={packsPerBox}
-                          onChange={e => handlePacksPerBoxChange(e.target.value)}
+                          onChange={e => setPacksPerBox(e.target.value)}
                           required
                         />
                       </div>
@@ -1011,9 +1093,9 @@ export const InventoryView: React.FC = () => {
                           type="number"
                           min="1"
                           className="input"
-                          placeholder="e.g. 10"
+                          placeholder="e.g. 8"
                           value={tabletsPerPack}
-                          onChange={e => handleTabletsPerPackChange(e.target.value)}
+                          onChange={e => setTabletsPerPack(e.target.value)}
                           required
                         />
                       </div>
@@ -1077,8 +1159,20 @@ export const InventoryView: React.FC = () => {
                   </div>
 
                   <div style={{ marginBottom: '1rem', padding: '0.85rem', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.6rem' }}>
-                      💰 Purchase Cost Breakdown (All Inputs Fully Customizable)
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                      <div style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                        💰 Purchase Cost Breakdown (All Inputs Independently Customizable)
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAutoCalcCostRatios}
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: '0.68rem', padding: '0.15rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--primary)' }}
+                        title="Auto-calculate Pack and Tablet costs by dividing Box Cost"
+                      >
+                        <Zap size={12} />
+                        <span>Auto-split from Box</span>
+                      </button>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
@@ -1096,7 +1190,7 @@ export const InventoryView: React.FC = () => {
                             style={{ paddingLeft: '2.2rem' }}
                             placeholder="300.00"
                             value={boxPurchasePrice}
-                            onChange={e => handleBoxPurchaseCostChange(e.target.value)}
+                            onChange={e => setBoxPurchasePrice(e.target.value)}
                             required
                           />
                         </div>
@@ -1116,7 +1210,7 @@ export const InventoryView: React.FC = () => {
                             style={{ paddingLeft: '2.2rem' }}
                             placeholder="30.00"
                             value={packPurchasePrice}
-                            onChange={e => handlePackPurchaseCostChange(e.target.value)}
+                            onChange={e => setPackPurchasePrice(e.target.value)}
                             required
                           />
                         </div>
@@ -1136,7 +1230,7 @@ export const InventoryView: React.FC = () => {
                             style={{ paddingLeft: '2.2rem' }}
                             placeholder="3.00"
                             value={tabletPurchasePrice}
-                            onChange={e => handleTabletPurchaseCostChange(e.target.value)}
+                            onChange={e => setTabletPurchasePrice(e.target.value)}
                             required
                           />
                         </div>
@@ -1145,8 +1239,20 @@ export const InventoryView: React.FC = () => {
                   </div>
 
                   <div style={{ padding: '0.85rem', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.6rem' }}>
-                      🏷️ Independent Selling MRP & Discount Fields (Tablet, Pack & Box)
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                      <div style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                        🏷️ Independent Selling MRP & Discount Fields (Tablet, Pack & Box)
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAutoCalcSaleRatios}
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: '0.68rem', padding: '0.15rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--primary)' }}
+                        title="Auto-calculate Pack and Tablet MRP from Box MRP"
+                      >
+                        <Zap size={12} />
+                        <span>Auto-split from Box</span>
+                      </button>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
@@ -1168,7 +1274,7 @@ export const InventoryView: React.FC = () => {
                               style={{ paddingLeft: '2.2rem' }}
                               placeholder="400.00"
                               value={boxSalePrice}
-                              onChange={e => handleBoxSaleMRPChange(e.target.value)}
+                              onChange={e => setBoxSalePrice(e.target.value)}
                               required
                             />
                           </div>
@@ -1223,7 +1329,7 @@ export const InventoryView: React.FC = () => {
                               style={{ paddingLeft: '2.2rem' }}
                               placeholder="40.00"
                               value={packSalePrice}
-                              onChange={e => handlePackSaleMRPChange(e.target.value)}
+                              onChange={e => setPackSalePrice(e.target.value)}
                               required
                             />
                           </div>
@@ -1278,7 +1384,7 @@ export const InventoryView: React.FC = () => {
                               style={{ paddingLeft: '2.2rem' }}
                               placeholder="4.50"
                               value={tabletSalePrice}
-                              onChange={e => handleTabletSaleMRPChange(e.target.value)}
+                              onChange={e => setTabletSalePrice(e.target.value)}
                               required
                             />
                           </div>
@@ -1359,6 +1465,107 @@ export const InventoryView: React.FC = () => {
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {editingBatch && (
+        <div className="modal-overlay" style={{ zIndex: 1100 }}>
+          <div className="modal-content" style={{ maxWidth: '520px' }}>
+            <div style={{ padding: '1.2rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Edit size={18} color="var(--primary)" />
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 800 }}>Edit Batch #{editingBatch.batch_number}</h3>
+              </div>
+              <button onClick={() => setEditingBatch(null)} className="btn btn-secondary btn-sm" style={{ padding: '0.25rem' }}>
+                <X size={15} />
+              </button>
+            </div>
+
+            {editError && (
+              <div style={{ margin: '1rem 1.5rem 0', padding: '0.75rem', background: 'var(--danger-light)', color: 'var(--danger-text)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem' }}>
+                {editError}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveBatchEdit} style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ background: 'var(--bg-app)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                <div style={{ fontWeight: 800 }}>{editingBatch.brand_name} {editingBatch.strength}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                  Current Stock: <strong>{editingBatch.quantity} Units</strong>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>Batch Number *</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={editBatchNumber}
+                  onChange={e => setEditBatchNumber(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>Expiry Date *</label>
+                <input
+                  type="date"
+                  className="input"
+                  value={editExpiryDate}
+                  onChange={e => setEditExpiryDate(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>Unit Purchase Cost (Rs.) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="input"
+                    value={editPurchasePrice}
+                    onChange={e => setEditPurchasePrice(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>Unit Sale MRP (Rs.) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    className="input"
+                    value={editSalePrice}
+                    onChange={e => setEditSalePrice(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>Shelf / Rack Location</label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="e.g. Rack A-01"
+                  value={editRackLocation}
+                  onChange={e => setEditRackLocation(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                <button type="button" onClick={() => setEditingBatch(null)} className="btn btn-secondary">
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={editLoading}>
+                  {editLoading ? 'Updating...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

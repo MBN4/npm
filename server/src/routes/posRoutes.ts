@@ -16,7 +16,9 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
 
   const medicines = db.prepare(`
     SELECT 
-      m.id, m.brand_name, m.strength, m.dosage_form, m.pack_size, m.barcode, m.custom_barcode,
+      m.id, m.brand_name, m.strength, m.dosage_form, m.pack_size,
+      COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
+      m.barcode, m.custom_barcode,
       m.rack_location, m.is_prescription_required,
       g.name as generic_name,
       c.name as category_name
@@ -137,7 +139,7 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         }
 
         const batch = db.prepare(`
-          SELECT b.*, m.brand_name, m.strength, m.pack_size
+          SELECT b.*, m.brand_name, m.strength, m.pack_size, COALESCE(m.tablets_per_pack, 10) as tablets_per_pack
           FROM batches b
           JOIN medicines m ON b.medicine_id = m.id
           WHERE b.id = ?
@@ -185,6 +187,7 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
           brandName: batch.brand_name,
           strength: batch.strength,
           packSize: batch.pack_size,
+          tabletsPerPack: batch.tablets_per_pack,
           quantity: qty,
           unitPrice,
           discount: itemDiscount,
@@ -364,6 +367,7 @@ posRouter.get('/invoices/:invoiceNumber', authenticateToken, (req: Authenticated
     SELECT 
       si.*,
       m.brand_name, m.strength, m.dosage_form, m.pack_size,
+      COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
       b.batch_number, b.expiry_date
     FROM sale_items si
     JOIN medicines m ON si.medicine_id = m.id
@@ -422,7 +426,7 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
           }
 
           const batch = db.prepare(`
-            SELECT b.*, m.brand_name, m.strength, m.pack_size
+            SELECT b.*, m.brand_name, m.strength, m.pack_size, COALESCE(m.tablets_per_pack, 10) as tablets_per_pack
             FROM batches b
             JOIN medicines m ON b.medicine_id = m.id
             WHERE b.id = ?
@@ -459,6 +463,7 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
             brandName: batch.brand_name,
             strength: batch.strength,
             packSize: batch.pack_size,
+            tabletsPerPack: batch.tablets_per_pack,
             quantity: qty,
             unitPrice,
             discount: itemDiscount,

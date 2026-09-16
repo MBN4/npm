@@ -3,6 +3,10 @@ import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requirePermission, AuthenticatedRequest } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
 
+try {
+  db.exec('ALTER TABLE medicines ADD COLUMN tablets_per_pack INTEGER DEFAULT 10');
+} catch {}
+
 export const inventoryRouter = Router();
 
 inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
@@ -12,7 +16,9 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
   let query = `
     SELECT 
       b.*,
-      m.brand_name, m.strength, m.dosage_form, m.barcode, m.rack_location as medicine_rack,
+      m.brand_name, m.strength, m.dosage_form, m.pack_size,
+      COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
+      m.barcode, m.rack_location as medicine_rack,
       s.name as supplier_name,
       CASE 
         WHEN b.expiry_date <= date('now') THEN 'EXPIRED'
@@ -43,6 +49,91 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
 
   const batches = db.prepare(query).all(...params);
   res.json({ batches });
+});
+
+inventoryRouter.put('/batches/:id', authenticateToken, requirePermission('manage_inventory'), (req: AuthenticatedRequest, res: Response) => {
+  const batchId = Number(req.params.id);
+  const { batchNumber, expiryDate, mfgDate, purchasePrice, salePrice, rackLocation, status } = req.body;
+
+  const existing = db.prepare('SELECT * FROM batches WHERE id = ?').get(batchId) as any;
+  if (!existing) {
+    res.status(404).json({ error: 'Batch not found' });
+    return;
+  }
+
+  try {
+    db.prepare(`
+      UPDATE batches SET
+        batch_number = COALESCE(?, batch_number),
+        expiry_date = COALESCE(?, expiry_date),
+        mfg_date = COALESCE(?, mfg_date),
+        purchase_price = COALESCE(?, purchase_price),
+        sale_price = COALESCE(?, sale_price),
+        rack_location = COALESCE(?, rack_location),
+        status = COALESCE(?, status),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      batchNumber ? batchNumber.trim() : null,
+      expiryDate || null,
+      mfgDate || null,
+      purchasePrice !== undefined ? Number(purchasePrice) : null,
+      salePrice !== undefined ? Number(salePrice) : null,
+      rackLocation ? rackLocation.trim() : null,
+      status || null,
+      batchId
+    );
+
+    logAudit({
+      userId: req.user?.id,
+      action: 'UPDATE_BATCH',
+      entity: 'BATCHES',
+      entityId: batchId,
+      oldValues: existing,
+      newValues: { batchNumber, expiryDate, salePrice, purchasePrice, rackLocation },
+      ipAddress: req.ip
+    });
+
+    res.json({ message: 'Batch updated successfully' });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+inventoryRouter.delete('/batches/:id', authenticateToken, requirePermission('manage_inventory'), (req: AuthenticatedRequest, res: Response) => {
+  const batchId = Number(req.params.id);
+
+  const existing = db.prepare('SELECT * FROM batches WHERE id = ?').get(batchId) as any;
+  if (!existing) {
+    res.status(404).json({ error: 'Batch not found' });
+    return;
+  }
+
+  const hasSales = db.prepare('SELECT COUNT(*) as cnt FROM sale_items WHERE batch_id = ?').get(batchId) as { cnt: number };
+  if (hasSales.cnt > 0) {
+    res.status(400).json({ error: `Cannot delete batch ${existing.batch_number}: It is linked to ${hasSales.cnt} historic sales invoices. You can adjust its stock to 0 instead.` });
+    return;
+  }
+
+  try {
+    runTransaction(() => {
+      db.prepare('DELETE FROM stock_movements WHERE batch_id = ?').run(batchId);
+      db.prepare('DELETE FROM batches WHERE id = ?').run(batchId);
+
+      logAudit({
+        userId: req.user?.id,
+        action: 'DELETE_BATCH',
+        entity: 'BATCHES',
+        entityId: batchId,
+        oldValues: existing,
+        ipAddress: req.ip
+      });
+    });
+
+    res.json({ message: `Batch ${existing.batch_number} deleted successfully` });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 inventoryRouter.get('/valuation', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
@@ -177,6 +268,7 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
     strength,
     dosageForm,
     packSize = 1,
+    tabletsPerPack = 10,
     barcode,
     customBarcode,
     rackLocation,
@@ -208,6 +300,7 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
   }
 
   const numericPackSize = Math.max(1, Number(packSize) || 1);
+  const numericTabletsPerPack = Math.max(1, Number(tabletsPerPack) || 1);
   const numericPacks = Math.max(0, Number(packsReceived) || 0);
   const numericBonus = Math.max(0, Number(bonusQuantity) || 0);
   const totalUnits = (numericPacks * numericPackSize) + numericBonus;
@@ -283,9 +376,9 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
         const medInsert = db.prepare(`
           INSERT INTO medicines (
             brand_name, generic_id, category_id, manufacturer_id, strength, dosage_form,
-            pack_size, barcode, custom_barcode, rack_location, min_stock_level, reorder_level,
+            pack_size, tablets_per_pack, barcode, custom_barcode, rack_location, min_stock_level, reorder_level,
             is_prescription_required, notes
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           brandName.trim(),
           finalGenId,
@@ -294,6 +387,7 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
           strength ? strength.trim() : null,
           dosageForm || 'Tablet',
           numericPackSize,
+          numericTabletsPerPack,
           finalBarcode,
           finalCustom,
           rackLocation ? rackLocation.trim() : null,
@@ -304,6 +398,8 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
         );
 
         finalMedId = Number(medInsert.lastInsertRowid);
+      } else {
+        db.prepare('UPDATE medicines SET pack_size = ?, tablets_per_pack = ? WHERE id = ?').run(numericPackSize, numericTabletsPerPack, finalMedId);
       }
 
       const existingBatch = db.prepare('SELECT id, quantity FROM batches WHERE medicine_id = ? AND batch_number = ?').get(finalMedId, batchNumber.trim()) as any;
@@ -364,7 +460,7 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
         totalUnits,
         totalUnits,
         `DIR-${Date.now()}`,
-        `Manual stock: ${numericPacks} boxes (${numericPackSize} tablets/box) @ Rs. ${finalUnitSale.toFixed(2)}/tablet | ${notes || ''}`.trim(),
+        `Manual stock: ${numericPacks} boxes (${numericPackSize} tablets/box, ${numericTabletsPerPack} tablets/pack) @ Rs. ${finalUnitSale.toFixed(2)}/tablet | ${notes || ''}`.trim(),
         req.user?.id
       );
 
@@ -379,6 +475,7 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
           totalUnits,
           numericPacks,
           packSize: numericPackSize,
+          tabletsPerPack: numericTabletsPerPack,
           unitPurchasePrice: finalUnitPurchase,
           unitSalePrice: finalUnitSale,
           discountPercent
@@ -391,6 +488,7 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
         medicineId: finalMedId,
         batchId,
         totalUnits,
+        tabletsPerPack: numericTabletsPerPack,
         unitSalePrice: finalUnitSale,
         unitPurchasePrice: finalUnitPurchase
       };
