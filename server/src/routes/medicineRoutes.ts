@@ -14,13 +14,14 @@ medicineRouter.get('/', authenticateToken, (req: AuthenticatedRequest, res: Resp
   const lowStockOnly = req.query.lowStock === 'true';
 
   let query = `
-    SELECT 
+    SELECT
       m.id, m.brand_name, m.strength, m.dosage_form, m.pack_size,
+      m.therapeutic_class, m.stock_unit, m.packaging_type, m.tablets_per_pack,
       m.barcode, m.custom_barcode, m.rack_location,
       m.min_stock_level, m.reorder_level, m.is_prescription_required, m.is_active, m.notes,
       c.name as category_name,
       mf.name as manufacturer_name,
-      g.name as generic_name, g.therapeutic_class,
+      g.name as generic_name, g.therapeutic_class as generic_therapeutic_class,
       COALESCE(SUM(CASE WHEN b.expiry_date > date('now') AND b.status = 'ACTIVE' THEN b.quantity ELSE 0 END), 0) as available_stock,
       COALESCE(SUM(CASE WHEN b.expiry_date <= date('now') THEN b.quantity ELSE 0 END), 0) as expired_stock,
       COUNT(b.id) as total_batches,
@@ -82,7 +83,7 @@ medicineRouter.get('/:id', authenticateToken, (req: AuthenticatedRequest, res: R
       m.*,
       c.name as category_name,
       mf.name as manufacturer_name,
-      g.name as generic_name, g.therapeutic_class
+      g.name as generic_name, g.therapeutic_class as generic_therapeutic_class
     FROM medicines m
     LEFT JOIN categories c ON m.category_id = c.id
     LEFT JOIN manufacturers mf ON m.manufacturer_id = mf.id
@@ -116,6 +117,7 @@ medicineRouter.get('/:id', authenticateToken, (req: AuthenticatedRequest, res: R
 medicineRouter.post('/', authenticateToken, requirePermission('manage_medicines'), (req: AuthenticatedRequest, res: Response) => {
   const {
     brandName, genericId, categoryId, manufacturerId, strength, dosageForm,
+    therapeuticClass, stockUnit, packagingType,
     packSize, barcode, customBarcode, rackLocation, minStockLevel, reorderLevel,
     isPrescriptionRequired, notes
   } = req.body;
@@ -151,9 +153,10 @@ medicineRouter.post('/', authenticateToken, requirePermission('manage_medicines'
     const result = db.prepare(`
       INSERT INTO medicines (
         brand_name, generic_id, category_id, manufacturer_id, strength, dosage_form,
+        therapeutic_class, stock_unit, packaging_type,
         pack_size, barcode, custom_barcode, rack_location, min_stock_level, reorder_level,
         is_prescription_required, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       brandName.trim(),
       genericId || null,
@@ -161,6 +164,9 @@ medicineRouter.post('/', authenticateToken, requirePermission('manage_medicines'
       manufacturerId || null,
       strength || null,
       dosageForm || 'Tablet',
+      therapeuticClass ? String(therapeuticClass).trim() : null,
+      stockUnit ? String(stockUnit).trim() : null,
+      packagingType === 'SIMPLE' ? 'SIMPLE' : 'MULTI_TIER',
       packSize || 1,
       barcode ? barcode.trim() : null,
       finalCustomBarcode,
@@ -191,6 +197,7 @@ medicineRouter.put('/:id', authenticateToken, requirePermission('manage_medicine
   const id = Number(req.params.id);
   const {
     brandName, genericId, categoryId, manufacturerId, strength, dosageForm,
+    therapeuticClass, stockUnit, packagingType,
     packSize, barcode, customBarcode, rackLocation, minStockLevel, reorderLevel,
     isPrescriptionRequired, isActive, notes
   } = req.body;
@@ -214,7 +221,8 @@ medicineRouter.put('/:id', authenticateToken, requirePermission('manage_medicine
     db.prepare(`
       UPDATE medicines SET
         brand_name = ?, generic_id = ?, category_id = ?, manufacturer_id = ?,
-        strength = ?, dosage_form = ?, pack_size = ?, barcode = ?, custom_barcode = ?,
+        strength = ?, dosage_form = ?, therapeutic_class = ?, stock_unit = ?, packaging_type = ?,
+        pack_size = ?, barcode = ?, custom_barcode = ?,
         rack_location = ?, min_stock_level = ?, reorder_level = ?,
         is_prescription_required = ?, is_active = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
@@ -225,6 +233,9 @@ medicineRouter.put('/:id', authenticateToken, requirePermission('manage_medicine
       manufacturerId ?? existing.manufacturer_id,
       strength ?? existing.strength,
       dosageForm ?? existing.dosage_form,
+      therapeuticClass !== undefined ? (therapeuticClass ? String(therapeuticClass).trim() : null) : existing.therapeutic_class,
+      stockUnit !== undefined ? (stockUnit ? String(stockUnit).trim() : null) : existing.stock_unit,
+      packagingType === 'SIMPLE' || packagingType === 'MULTI_TIER' ? packagingType : existing.packaging_type,
       packSize ?? existing.pack_size,
       barcode ?? existing.barcode,
       customBarcode ?? existing.custom_barcode,

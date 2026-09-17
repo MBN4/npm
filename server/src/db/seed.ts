@@ -87,15 +87,53 @@ export function seedDatabase() {
     insertSetting.run('near_expiry_threshold_days', '90', 'Default near expiry alert window in days');
     insertSetting.run('low_stock_threshold_default', '15', 'Default minimum stock count before alert');
 
-    const insertCategory = db.prepare('INSERT OR IGNORE INTO categories (name, description) VALUES (?, ?)');
-    insertCategory.run('Antibiotics', 'Broad & narrow spectrum antibacterial agents');
-    insertCategory.run('Analgesics & Pain', 'NSAIDs, antipyretics and pain relievers');
-    insertCategory.run('Cardiovascular', 'Antihypertensives, statins and cardiac drugs');
-    insertCategory.run('Gastrointestinal', 'Antacids, PPIs, antiemetics');
-    insertCategory.run('Respiratory', 'Bronchodilators, antihistamines, cough syrups');
-    insertCategory.run('Endocrine & Diabetes', 'Antidiabetic oral agents, insulins and thyroid drugs');
-    insertCategory.run('CNS & Psychiatry', 'Anxiolytics, antidepressants and antiepileptics');
-    insertCategory.run('Oncology & Antineoplastics', 'Antimetabolites and chemotherapy agents');
+    // Main Category master list (product type, NOT therapeutic class - see medicines.therapeutic_class)
+    const insertCategory = db.prepare('INSERT OR IGNORE INTO categories (name, description, sort_order) VALUES (?, ?, ?)');
+    const MAIN_CATEGORIES: Array<[string, string]> = [
+      ['Tablets', 'Regular, Chewable, Dispersible, Effervescent, Sublingual, Buccal, Enteric-Coated, Sustained/Extended Release'],
+      ['Capsules', 'Hard Gelatin, Softgel, Enteric-Coated, Modified/Extended Release'],
+      ['Syrups & Oral Liquids', 'Syrup, Suspension, Oral Solution, Dry Syrup, Drops, Elixir, Linctus'],
+      ['Sachets & Powders', 'Sachet, Granules, ORS, Electrolyte Powder, Medicinal Powder'],
+      ['Injections', 'Ampoule, Vial, Prefilled Syringe, Powder for Injection, IM, IV, SC'],
+      ['IV Fluids', 'Normal Saline, Dextrose, Ringer Lactate, DNS, Dextrose-Saline, Mannitol, other IV solutions'],
+      ['Eye Products', 'Eye Drops, Eye Ointment, Eye Gel, Artificial Tears'],
+      ['Ear Products', 'Ear Drops, Ear Solutions'],
+      ['Nasal Products', 'Nasal Drops, Nasal Spray, Saline Spray'],
+      ['Oral / Throat Products', 'Mouthwash, Gargle, Throat Spray, Lozenges, Oral Gel'],
+      ['Topical Medicines', 'Cream, Ointment, Gel, Lotion, Paste, Powder, Solution, Liniment'],
+      ['Sprays', 'Throat Spray, Nasal Spray, Skin Spray, Antiseptic Spray, Pain Spray'],
+      ['Inhalation & Respiratory', 'Inhaler, Rotacap, Nebule/Respule, Nebulizer Solution, Spacer'],
+      ['Suppositories & Rectal', 'Suppository, Enema, Rectal Cream/Ointment'],
+      ['Vaginal / Gynaecology', 'Vaginal Tablet, Pessary, Vaginal Cream/Gel, Vaginal Wash'],
+      ['Milk & Infant Formula', 'Stage 1, Stage 2, Stage 3/Growing-Up Milk, Premature/Special Formula, Lactose-Free'],
+      ['Nutrition & Supplements', 'Multivitamins, Minerals, Calcium, Iron, Vitamin D, Protein, Nutritional Drinks, Pregnancy Supplements'],
+      ['Baby Care', 'Feeding Bottles, Nipples/Teats, Pacifiers, Baby Lotion, Baby Oil, Baby Shampoo, Baby Soap, Baby Powder'],
+      ['Diapers / Pampers', 'Newborn, Small, Medium, Large, XL, XXL, Pants, Adult Diapers'],
+      ['Cosmetics & Beauty', 'Face Cream, Moisturizer, Cleanser, Face Wash, Bleach, Facial Kit, Face Mask, Serum, Scrub, Makeup'],
+      ['Skin Care / Dermocosmetics', 'Sunscreen, Acne Care, Whitening/Brightening, Anti-Aging, Dry-Skin Care, Lip Care'],
+      ['Hair Care', 'Shampoo, Conditioner, Hair Oil, Hair Serum, Hair Color/Dye, Hair Treatment'],
+      ['Personal Hygiene', 'Soap, Handwash, Sanitizer, Body Wash, Deodorant, Talcum Powder'],
+      ['Feminine Hygiene', 'Sanitary Pads, Panty Liners, Intimate Wash, Maternity Pads'],
+      ['Dental / Oral Care', 'Toothpaste, Toothbrush, Mouthwash, Dental Floss, Denture Products, Oral Gel'],
+      ['Contraceptive / Family Planning', 'Condoms, Pregnancy Tests, Ovulation Tests'],
+      ['Syringes & Needles', '1 mL, 2/3 mL, 5 mL, 10 mL, 20 mL, 50/60 mL, Insulin Syringe, Needle'],
+      ['IV Administration', 'IV Set, Blood Set, Burette Set, Extension Line, Three-Way Stopcock'],
+      ['IV Cannulas', '14G, 16G, 18G, 20G, 22G, 24G, 26G'],
+      ['Catheters & Tubes', "Foley Catheter, Nelaton Catheter, NG/Ryle's Tube, Feeding Tube, Suction Catheter"],
+      ['Wound Care / Dressing', 'Cotton, Gauze, Bandage, Crepe Bandage, Surgical Tape, Dressing Pad, Plaster, Sterile Dressing'],
+      ['Surgical & Disposable', 'Gloves, Masks, Surgical Caps, Shoe Covers, Disposable Gowns, Examination Sheets'],
+      ['Antiseptics & Disinfectants', 'Spirit, Povidone-Iodine, Chlorhexidine, Hydrogen Peroxide, Surface Disinfectant'],
+      ['Medical Devices', 'BP Monitor, Glucometer, Thermometer, Pulse Oximeter, Nebulizer'],
+      ['Diabetes Care', 'Glucometer Strips, Lancets, Insulin Pen, Pen Needles, Insulin Syringes'],
+      ['Orthopedic / Support', 'Knee Support, Ankle Support, Wrist Support, Cervical Collar, Lumbar Belt'],
+      ['First Aid', 'First-Aid Kit, Hot/Cold Pack, Burn Dressing, Emergency Supplies'],
+      ['Sexual Wellness', 'Lubricants, Pregnancy/Fertility Testing Products'],
+      ['Herbal / Unani', 'Herbal Tablets/Capsules, Syrups, Oils, Powders, Herbal Supplements'],
+      ['General / FMCG', 'Water, Beverages, Snacks, Tissues and other non-pharmacy retail products']
+    ];
+    MAIN_CATEGORIES.forEach(([name, description], idx) => {
+      insertCategory.run(name, description, idx + 1);
+    });
 
     const insertMfg = db.prepare('INSERT OR IGNORE INTO manufacturers (name, contact_person, phone, email, address) VALUES (?, ?, ?, ?, ?)');
     insertMfg.run('GSK Pakistan', 'Tariq Javed', '021-3456789', 'orders@gsk.pk', 'Karachi, Pakistan');

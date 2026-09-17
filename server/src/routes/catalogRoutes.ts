@@ -7,7 +7,7 @@ export const catalogRouter = Router();
 
 // --- Categories ---
 catalogRouter.get('/categories', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  const categories = db.prepare('SELECT * FROM categories ORDER BY name ASC').all();
+  const categories = db.prepare('SELECT * FROM categories ORDER BY sort_order ASC, name ASC').all();
   res.json({ categories });
 });
 
@@ -19,7 +19,7 @@ catalogRouter.post('/categories', authenticateToken, requirePermission('manage_m
   }
 
   try {
-    const result = db.prepare('INSERT INTO categories (name, description) VALUES (?, ?)').run(name.trim(), description || null);
+    const result = db.prepare('INSERT INTO categories (name, description, sort_order) VALUES (?, ?, 999)').run(name.trim(), description || null);
     logAudit({
       userId: req.user?.id,
       action: 'CREATE_CATEGORY',

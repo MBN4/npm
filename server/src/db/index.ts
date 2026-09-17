@@ -91,6 +91,77 @@ export function initDatabase() {
       }
     }
   }
+
+  // Auto-migrate medicines table columns (Main Category / Subcategory / Therapeutic Class / packaging-type rework)
+  const medicinesInfo = db.pragma('table_info(medicines)') as Array<{ name: string }>;
+  if (medicinesInfo && medicinesInfo.length > 0) {
+    const existingCols = new Set(medicinesInfo.map(c => c.name));
+    const requiredCols: Array<[string, string]> = [
+      ['tablets_per_pack', 'INTEGER DEFAULT 10'],
+      ['therapeutic_class', 'TEXT'],
+      ['stock_unit', 'TEXT'],
+      ['packaging_type', "TEXT NOT NULL DEFAULT 'MULTI_TIER'"]
+    ];
+    for (const [colName, colType] of requiredCols) {
+      if (!existingCols.has(colName)) {
+        try {
+          db.exec(`ALTER TABLE medicines ADD COLUMN ${colName} ${colType};`);
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+  }
+
+  // Auto-migrate categories table columns
+  const categoriesInfo = db.pragma('table_info(categories)') as Array<{ name: string }>;
+  if (categoriesInfo && categoriesInfo.length > 0) {
+    const existingCols = new Set(categoriesInfo.map(c => c.name));
+    if (!existingCols.has('sort_order')) {
+      try {
+        db.exec(`ALTER TABLE categories ADD COLUMN sort_order INTEGER DEFAULT 0;`);
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+
+  // Backfill sort_order on the 40-item Main Category master list (covers DBs where these
+  // category rows were already created, by hand or by an earlier seed run, before sort_order existed)
+  try {
+    const MAIN_CATEGORY_ORDER = [
+      'Tablets', 'Capsules', 'Syrups & Oral Liquids', 'Sachets & Powders', 'Injections',
+      'IV Fluids', 'Eye Products', 'Ear Products', 'Nasal Products', 'Oral / Throat Products',
+      'Topical Medicines', 'Sprays', 'Inhalation & Respiratory', 'Suppositories & Rectal', 'Vaginal / Gynaecology',
+      'Milk & Infant Formula', 'Nutrition & Supplements', 'Baby Care', 'Diapers / Pampers', 'Cosmetics & Beauty',
+      'Skin Care / Dermocosmetics', 'Hair Care', 'Personal Hygiene', 'Feminine Hygiene', 'Dental / Oral Care',
+      'Contraceptive / Family Planning', 'Syringes & Needles', 'IV Administration', 'IV Cannulas', 'Catheters & Tubes',
+      'Wound Care / Dressing', 'Surgical & Disposable', 'Antiseptics & Disinfectants', 'Medical Devices', 'Diabetes Care',
+      'Orthopedic / Support', 'First Aid', 'Sexual Wellness', 'Herbal / Unani', 'General / FMCG'
+    ];
+    const updateOrder = db.prepare('UPDATE categories SET sort_order = ? WHERE name = ? AND sort_order = 0');
+    MAIN_CATEGORY_ORDER.forEach((name, idx) => updateOrder.run(idx + 1, name));
+  } catch (e) {
+    // ignore
+  }
+
+  // One-time cleanup: remove legacy therapeutic-style categories from the original 8-item seed,
+  // now superseded by the 40-item Main Category master list - only if unused, never touches real data.
+  try {
+    const legacyNames = ['Antibiotics', 'Analgesics & Pain', 'Cardiovascular', 'Gastrointestinal', 'Respiratory', 'Endocrine & Diabetes', 'CNS & Psychiatry', 'Oncology & Antineoplastics'];
+    const placeholders = legacyNames.map(() => '?').join(',');
+    const unused = db.prepare(`
+      SELECT c.id, c.name FROM categories c
+      WHERE c.name IN (${placeholders})
+      AND NOT EXISTS (SELECT 1 FROM medicines m WHERE m.category_id = c.id)
+    `).all(...legacyNames) as Array<{ id: number; name: string }>;
+    if (unused.length > 0) {
+      const deleteStmt = db.prepare('DELETE FROM categories WHERE id = ?');
+      for (const cat of unused) deleteStmt.run(cat.id);
+    }
+  } catch (e) {
+    // ignore
+  }
 }
 
 // Transaction runner utility for ACID compliance

@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS categories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT UNIQUE NOT NULL,
   description TEXT,
-  is_active INTEGER DEFAULT 1
+  is_active INTEGER DEFAULT 1,
+  sort_order INTEGER DEFAULT 0 -- Main Category display order (matches the pharmacy's master category list)
 );
 
 CREATE TABLE IF NOT EXISTS manufacturers (
@@ -87,7 +88,11 @@ CREATE TABLE IF NOT EXISTS medicines (
   category_id INTEGER,
   manufacturer_id INTEGER,
   strength TEXT,
-  dosage_form TEXT, -- Tablet, Capsule, Syrup, Injection, etc.
+  dosage_form TEXT, -- Subcategory / Product Type (e.g. Chewable Tablet, Syrup, Eye Drops) - free text, driven by the Main Category's subcategory list
+  therapeutic_class TEXT, -- e.g. Analgesic/Antipyretic, Antibiotic, NSAID - independent of Main Category
+  stock_unit TEXT, -- Display label for the loose sellable unit: Tablet, Capsule, Bottle, Vial, Tube, Piece, etc.
+  tablets_per_pack INTEGER DEFAULT 10, -- Units per Pack (MULTI_TIER) or Units per Box (SIMPLE, packaging_type)
+  packaging_type TEXT NOT NULL DEFAULT 'MULTI_TIER', -- MULTI_TIER (Unit->Pack->Box, tablets/capsules) or SIMPLE (Unit->Box, everything else)
   pack_size INTEGER DEFAULT 1,
   barcode TEXT UNIQUE,
   custom_barcode TEXT,

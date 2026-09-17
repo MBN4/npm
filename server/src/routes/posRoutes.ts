@@ -18,6 +18,7 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
     SELECT 
       m.id, m.brand_name, m.strength, m.dosage_form, m.pack_size,
       COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
+      m.stock_unit, m.packaging_type,
       m.barcode, m.custom_barcode,
       m.rack_location, m.is_prescription_required,
       g.name as generic_name,
@@ -368,6 +369,7 @@ posRouter.get('/invoices/:invoiceNumber', authenticateToken, (req: Authenticated
       si.*,
       m.brand_name, m.strength, m.dosage_form, m.pack_size,
       COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
+      m.stock_unit,
       b.batch_number, b.expiry_date
     FROM sale_items si
     JOIN medicines m ON si.medicine_id = m.id

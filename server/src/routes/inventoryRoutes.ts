@@ -3,10 +3,6 @@ import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requirePermission, AuthenticatedRequest } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
 
-try {
-  db.exec('ALTER TABLE medicines ADD COLUMN tablets_per_pack INTEGER DEFAULT 10');
-} catch {}
-
 export const inventoryRouter = Router();
 
 inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
@@ -267,6 +263,9 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
     manufacturerName,
     strength,
     dosageForm,
+    therapeuticClass,
+    stockUnit,
+    packagingType,
     packSize = 1,
     tabletsPerPack = 10,
     barcode,
@@ -340,7 +339,7 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
           if (existingCat) {
             finalCatId = existingCat.id;
           } else {
-            const newCat = db.prepare('INSERT INTO categories (name, description) VALUES (?, ?)').run(categoryName.trim(), 'Auto-created category');
+            const newCat = db.prepare('INSERT INTO categories (name, description, sort_order) VALUES (?, ?, 999)').run(categoryName.trim(), 'Auto-created category');
             finalCatId = Number(newCat.lastInsertRowid);
           }
         }
@@ -362,7 +361,7 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
           if (existingGen) {
             finalGenId = existingGen.id;
           } else {
-            const newGen = db.prepare('INSERT INTO generics (name) VALUES (?, ?, ?)').run(genericName.trim(), 'General', 'Auto-created generic');
+            const newGen = db.prepare('INSERT INTO generics (name, therapeutic_class, description) VALUES (?, ?, ?)').run(genericName.trim(), 'General', 'Auto-created generic');
             finalGenId = Number(newGen.lastInsertRowid);
           }
         }
@@ -376,9 +375,10 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
         const medInsert = db.prepare(`
           INSERT INTO medicines (
             brand_name, generic_id, category_id, manufacturer_id, strength, dosage_form,
+            therapeutic_class, stock_unit, packaging_type,
             pack_size, tablets_per_pack, barcode, custom_barcode, rack_location, min_stock_level, reorder_level,
             is_prescription_required, notes
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           brandName.trim(),
           finalGenId,
@@ -386,6 +386,9 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
           finalManId,
           strength ? strength.trim() : null,
           dosageForm || 'Tablet',
+          therapeuticClass ? String(therapeuticClass).trim() : null,
+          stockUnit ? String(stockUnit).trim() : null,
+          packagingType === 'SIMPLE' ? 'SIMPLE' : 'MULTI_TIER',
           numericPackSize,
           numericTabletsPerPack,
           finalBarcode,
