@@ -14,6 +14,7 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
       b.*,
       m.brand_name, m.strength, m.dosage_form, m.pack_size,
       COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
+      m.stock_unit, m.packaging_type,
       m.barcode, m.rack_location as medicine_rack,
       s.name as supplier_name,
       CASE 
@@ -402,7 +403,19 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
 
         finalMedId = Number(medInsert.lastInsertRowid);
       } else {
-        db.prepare('UPDATE medicines SET pack_size = ?, tablets_per_pack = ? WHERE id = ?').run(numericPackSize, numericTabletsPerPack, finalMedId);
+        db.prepare(`
+          UPDATE medicines SET
+            pack_size = ?, tablets_per_pack = ?,
+            stock_unit = COALESCE(?, stock_unit),
+            packaging_type = COALESCE(?, packaging_type)
+          WHERE id = ?
+        `).run(
+          numericPackSize,
+          numericTabletsPerPack,
+          stockUnit ? String(stockUnit).trim() : null,
+          packagingType === 'SIMPLE' || packagingType === 'MULTI_TIER' ? packagingType : null,
+          finalMedId
+        );
       }
 
       const existingBatch = db.prepare('SELECT id, quantity FROM batches WHERE medicine_id = ? AND batch_number = ?').get(finalMedId, batchNumber.trim()) as any;
@@ -463,7 +476,7 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
         totalUnits,
         totalUnits,
         `DIR-${Date.now()}`,
-        `Manual stock: ${numericPacks} boxes (${numericPackSize} tablets/box, ${numericTabletsPerPack} tablets/pack) @ Rs. ${finalUnitSale.toFixed(2)}/tablet | ${notes || ''}`.trim(),
+        `Manual stock: ${numericPacks} outer packages (${numericPackSize} ${stockUnit || 'units'} each${packagingType === 'MULTI_TIER' ? `, ${numericTabletsPerPack} ${stockUnit || 'units'}/pack` : ''}) @ Rs. ${finalUnitSale.toFixed(2)}/${stockUnit || 'unit'} | ${notes || ''}`.trim(),
         req.user?.id
       );
 

@@ -12,14 +12,12 @@ import {
   Camera,
   MessageCircle,
   CheckCircle,
-  QrCode,
-  Package,
-  Layers,
-  Pill
+  QrCode
 } from 'lucide-react';
 import { saveOfflineSale } from '../services/offlineSync.js';
 import { printThermalElement } from '../utils/thermalPrinter.js';
 import { CustomerSelect } from '../components/CustomerSelect.js';
+import { getProductPackaging } from '../utils/productPackaging.js';
 
 export interface CartItem {
   medicineId: number;
@@ -28,6 +26,8 @@ export interface CartItem {
   dosageForm?: string;
   packSize?: number;
   tabletsPerPack?: number;
+  stockUnit?: string;
+  packagingType?: 'MULTI_TIER' | 'SIMPLE';
   batchId: number;
   batchNumber: string;
   expiryDate: string;
@@ -332,6 +332,7 @@ export const PosView: React.FC = () => {
     }
 
     const batch = product.fefo_batch;
+    const packaging = getProductPackaging(product.dosage_form, product.stock_unit);
     const packSize = Number(product.pack_size) > 0 ? Number(product.pack_size) : 100;
     const tabletsPerPack = Number(product.tablets_per_pack) > 0 ? Number(product.tablets_per_pack) : ((packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : (packSize > 1 ? 10 : 1));
 
@@ -348,7 +349,7 @@ export const PosView: React.FC = () => {
     if (existingIndex > -1) {
       const updated = [...cart];
       if (updated[existingIndex].quantity + looseUnitsToAdd > batch.quantity) {
-        setErrorMessage(`Cannot exceed available stock (${batch.quantity} tablets).`);
+        setErrorMessage(`Cannot exceed available stock (${batch.quantity} ${packaging.unitPlural.toLowerCase()}).`);
         return;
       }
       updated[existingIndex].quantity += looseUnitsToAdd;
@@ -356,7 +357,7 @@ export const PosView: React.FC = () => {
       setCart(updated);
     } else {
       if (looseUnitsToAdd > batch.quantity) {
-        setErrorMessage(`Cannot exceed available stock (${batch.quantity} tablets).`);
+        setErrorMessage(`Cannot exceed available stock (${batch.quantity} ${packaging.unitPlural.toLowerCase()}).`);
         return;
       }
       const newItem: CartItem = {
@@ -366,6 +367,8 @@ export const PosView: React.FC = () => {
         dosageForm: product.dosage_form,
         packSize,
         tabletsPerPack,
+        stockUnit: product.stock_unit || packaging.unit,
+        packagingType: product.packaging_type || packaging.packagingType,
         batchId: batch.batch_id,
         batchNumber: batch.batch_number,
         expiryDate: batch.expiry_date,
@@ -394,7 +397,8 @@ export const PosView: React.FC = () => {
 
     const item = cart[index];
     if (newQty > item.availableStock) {
-      setErrorMessage(`Cannot exceed available stock (${item.availableStock} tablets).`);
+      const packaging = getProductPackaging(item.dosageForm, item.stockUnit);
+      setErrorMessage(`Cannot exceed available stock (${item.availableStock} ${packaging.unitPlural.toLowerCase()}).`);
       return;
     }
 
@@ -649,18 +653,19 @@ export const PosView: React.FC = () => {
     }
   };
 
-  const formatPackagingBreakdown = (quantity: number, packSize: number = 100, tabletsPerPack: number = 10) => {
+  const formatPackagingBreakdown = (quantity: number, packSize: number = 100, tabletsPerPack: number = 10, dosageForm?: string, stockUnit?: string) => {
+    const packaging = getProductPackaging(dosageForm, stockUnit);
     const pSize = packSize > 0 ? packSize : 100;
     const tPack = tabletsPerPack > 0 ? tabletsPerPack : 10;
     const boxes = Math.floor(quantity / pSize);
     const rem = quantity % pSize;
-    const packs = Math.floor(rem / tPack);
-    const tablets = rem % tPack;
+    const packs = packaging.packagingType === 'MULTI_TIER' ? Math.floor(rem / tPack) : 0;
+    const units = packaging.packagingType === 'MULTI_TIER' ? rem % tPack : rem;
 
     const parts: string[] = [];
-    if (boxes > 0) parts.push(`${boxes} Box`);
-    if (packs > 0) parts.push(`${packs} Pack`);
-    if (tablets > 0 || parts.length === 0) parts.push(`${tablets} Tab`);
+    if (boxes > 0) parts.push(`${boxes} ${packaging.outer}`);
+    if (packs > 0) parts.push(`${packs} ${packaging.middle}`);
+    if (units > 0 || parts.length === 0) parts.push(`${units} ${packaging.unit}`);
     return parts.join(' + ');
   };
 
@@ -859,6 +864,8 @@ export const PosView: React.FC = () => {
                 {searchResults.map((p) => {
                   const packSize = Number(p.pack_size) > 0 ? Number(p.pack_size) : 100;
                   const tabletsPerPack = Number(p.tablets_per_pack) > 0 ? Number(p.tablets_per_pack) : ((packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : (packSize > 1 ? 10 : 1));
+                  const packaging = getProductPackaging(p.dosage_form, p.stock_unit);
+                  const isMultiTier = (p.packaging_type || packaging.packagingType) === 'MULTI_TIER';
                   const unitPrice = p.fefo_batch ? Number(p.fefo_batch.sale_price) : 0;
                   const packPrice = unitPrice * tabletsPerPack;
                   const boxPrice = unitPrice * packSize;
@@ -892,16 +899,16 @@ export const PosView: React.FC = () => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                         <div style={{ textAlign: 'right', fontSize: '0.74rem' }}>
                           <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>
-                            Tablet: <strong>Rs. {unitPrice.toFixed(2)}</strong>
+                            {packaging.unit}: <strong>Rs. {unitPrice.toFixed(2)}</strong>
                           </div>
+                          {isMultiTier && <div style={{ color: 'var(--text-secondary)' }}>
+                            {packaging.middle} ({tabletsPerPack}s): <strong>Rs. {packPrice.toFixed(2)}</strong>
+                          </div>}
                           <div style={{ color: 'var(--text-secondary)' }}>
-                            Pack ({tabletsPerPack}s): <strong>Rs. {packPrice.toFixed(2)}</strong>
-                          </div>
-                          <div style={{ color: 'var(--text-secondary)' }}>
-                            Box ({packSize}s): <strong>Rs. {boxPrice.toFixed(2)}</strong>
+                            {packaging.outer} ({packSize}s): <strong>Rs. {boxPrice.toFixed(2)}</strong>
                           </div>
                           <div style={{ fontSize: '0.7rem', color: p.total_stock > 0 ? 'var(--success)' : 'var(--danger)', fontWeight: 700, marginTop: '0.1rem' }}>
-                            {p.total_stock > 0 ? `${p.total_stock} tablets in stock` : 'Out of Stock'}
+                            {p.total_stock > 0 ? `${p.total_stock} ${packaging.unitPlural.toLowerCase()} in stock` : 'Out of Stock'}
                           </div>
                         </div>
 
@@ -912,27 +919,28 @@ export const PosView: React.FC = () => {
                               onClick={() => handleAddToCart(p, 'TABLET', 1)}
                               className="btn btn-secondary btn-sm"
                               style={{ fontSize: '0.68rem', padding: '0.2rem 0.5rem', whiteSpace: 'nowrap' }}
-                              title="Add 1 single tablet / unit"
+                              title={`Add 1 ${packaging.unit.toLowerCase()}`}
                             >
-                              +1 Tablet
+                              +1 {packaging.unit}
                             </button>
-                            <button
+                            {isMultiTier && <button
                               type="button"
                               onClick={() => handleAddToCart(p, 'PACK', 1)}
                               className="btn btn-secondary btn-sm"
                               style={{ fontSize: '0.68rem', padding: '0.2rem 0.5rem', whiteSpace: 'nowrap', color: 'var(--primary)' }}
-                              title={`Add 1 pack (${tabletsPerPack} tablets)`}
+                              title={`Add 1 ${packaging.middle.toLowerCase()} (${tabletsPerPack} ${packaging.unitPlural.toLowerCase()})`}
                             >
-                              +1 Pack ({tabletsPerPack}s)
+                              +1 {packaging.middle} ({tabletsPerPack}s)
                             </button>
+                            }
                             <button
                               type="button"
                               onClick={() => handleAddToCart(p, 'BOX', 1)}
                               className="btn btn-primary btn-sm"
                               style={{ fontSize: '0.68rem', padding: '0.2rem 0.5rem', whiteSpace: 'nowrap' }}
-                              title={`Add 1 full box (${packSize} tablets)`}
+                              title={`Add 1 full ${packaging.outer.toLowerCase()} (${packSize} ${packaging.unitPlural.toLowerCase()})`}
                             >
-                              +1 Box ({packSize}s)
+                              +1 {packaging.outer} ({packSize}s)
                             </button>
                           </div>
                         )}
@@ -981,7 +989,9 @@ export const PosView: React.FC = () => {
                     {cart.map((item, index) => {
                       const pSize = Number(item.packSize) > 0 ? Number(item.packSize) : 100;
                       const tPack = Number(item.tabletsPerPack) > 0 ? Number(item.tabletsPerPack) : 10;
-                      const packagingText = formatPackagingBreakdown(item.quantity, pSize, tPack);
+                      const itemPackaging = getProductPackaging(item.dosageForm, item.stockUnit);
+                      const itemIsMultiTier = (item.packagingType || itemPackaging.packagingType) === 'MULTI_TIER';
+                      const packagingText = formatPackagingBreakdown(item.quantity, pSize, tPack, item.dosageForm, item.stockUnit);
 
                       return (
                         <tr key={index} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -990,11 +1000,11 @@ export const PosView: React.FC = () => {
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.15rem' }}>
                               <span>{item.strength} • {item.dosageForm}</span>
                               <span style={{ fontSize: '0.68rem', padding: '0.05rem 0.35rem', borderRadius: '4px', background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
-                                Box: {pSize} Tabs ({tPack} tabs/pack)
+                                {itemPackaging.outer}: {pSize} {itemPackaging.unitPlural}{itemIsMultiTier ? ` (${tPack} per ${itemPackaging.middle.toLowerCase()})` : ''}
                               </span>
                             </div>
                             <div style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--primary)', marginTop: '0.25rem' }}>
-                              Dispensing: {packagingText} ({item.quantity} tablets)
+                              Dispensing: {packagingText} ({item.quantity} {itemPackaging.unitPlural.toLowerCase()})
                             </div>
                           </td>
                           <td style={{ padding: '0.6rem 0.5rem' }}>
@@ -1012,12 +1022,12 @@ export const PosView: React.FC = () => {
                             </select>
                           </td>
                           <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right' }}>
-                            <div style={{ fontWeight: 700 }}>Rs. {item.unitPrice.toFixed(2)} / tab</div>
+                            <div style={{ fontWeight: 700 }}>Rs. {item.unitPrice.toFixed(2)} / {itemPackaging.unit.toLowerCase()}</div>
+                            {itemIsMultiTier && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                              Rs. {(item.unitPrice * tPack).toFixed(2)} / {itemPackaging.middle.toLowerCase()}
+                            </div>}
                             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                              Rs. {(item.unitPrice * tPack).toFixed(2)} / pack
-                            </div>
-                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                              Rs. {(item.unitPrice * pSize).toFixed(2)} / box
+                              Rs. {(item.unitPrice * pSize).toFixed(2)} / {itemPackaging.outer.toLowerCase()}
                             </div>
                           </td>
                           <td style={{ padding: '0.6rem 0.5rem', textAlign: 'center' }}>
@@ -1027,7 +1037,7 @@ export const PosView: React.FC = () => {
                                   type="button"
                                   onClick={() => handleUpdateQty(index, item.quantity - 1)}
                                   style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.5rem', cursor: 'pointer', fontWeight: 800 }}
-                                  title="Decrease 1 tablet"
+                                  title={`Decrease 1 ${itemPackaging.unit.toLowerCase()}`}
                                 >
                                   -
                                 </button>
@@ -1038,7 +1048,7 @@ export const PosView: React.FC = () => {
                                   type="button"
                                   onClick={() => handleUpdateQty(index, item.quantity + 1)}
                                   style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.5rem', cursor: 'pointer', fontWeight: 800 }}
-                                  title="Increase 1 tablet"
+                                  title={`Increase 1 ${itemPackaging.unit.toLowerCase()}`}
                                 >
                                   +
                                 </button>
@@ -1050,27 +1060,28 @@ export const PosView: React.FC = () => {
                                   onClick={() => handleUpdateQty(index, item.quantity + 1)}
                                   className="btn btn-secondary btn-sm"
                                   style={{ fontSize: '0.65rem', padding: '0.15rem 0.35rem', whiteSpace: 'nowrap' }}
-                                  title="Add 1 tablet"
+                                  title={`Add 1 ${itemPackaging.unit.toLowerCase()}`}
                                 >
-                                  +1 Tab
+                                  +1 {itemPackaging.unit}
                                 </button>
-                                <button
+                                {itemIsMultiTier && <button
                                   type="button"
                                   onClick={() => handleUpdateQty(index, item.quantity + tPack)}
                                   className="btn btn-secondary btn-sm"
                                   style={{ fontSize: '0.65rem', padding: '0.15rem 0.35rem', whiteSpace: 'nowrap', color: 'var(--primary)' }}
-                                  title={`Add 1 pack (${tPack} tabs)`}
+                                  title={`Add 1 ${itemPackaging.middle.toLowerCase()} (${tPack} ${itemPackaging.unitPlural.toLowerCase()})`}
                                 >
-                                  +1 Pack
+                                  +1 {itemPackaging.middle}
                                 </button>
+                                }
                                 <button
                                   type="button"
                                   onClick={() => handleUpdateQty(index, item.quantity + pSize)}
                                   className="btn btn-secondary btn-sm"
                                   style={{ fontSize: '0.65rem', padding: '0.15rem 0.35rem', whiteSpace: 'nowrap' }}
-                                  title={`Add 1 box (${pSize} tabs)`}
+                                  title={`Add 1 ${itemPackaging.outer.toLowerCase()} (${pSize} ${itemPackaging.unitPlural.toLowerCase()})`}
                                 >
-                                  +1 Box
+                                  +1 {itemPackaging.outer}
                                 </button>
                               </div>
                             </div>
@@ -1484,7 +1495,7 @@ export const PosView: React.FC = () => {
                     {lastInvoice.items.map((it: any, i: number) => {
                       const packSize = Number(it.packSize) || 100;
                       const tabletsPerPack = Number(it.tabletsPerPack) || 10;
-                      const breakdown = formatPackagingBreakdown(it.quantity || 1, packSize, tabletsPerPack);
+                      const breakdown = formatPackagingBreakdown(it.quantity || 1, packSize, tabletsPerPack, it.dosageForm, it.stockUnit);
 
                       return (
                         <tr key={i} style={{ borderBottom: i < lastInvoice.items.length - 1 ? '1px dotted #e0e0e0' : 'none' }}>
@@ -1514,7 +1525,7 @@ export const PosView: React.FC = () => {
 
               <div style={{ fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>
-                  <span>Total Tablets: {lastInvoice.items.reduce((sum: number, it: any) => sum + (it.quantity || 0), 0)}</span>
+                  <span>Total Units: {lastInvoice.items.reduce((sum: number, it: any) => sum + (it.quantity || 0), 0)}</span>
                   <span>Items Count: {lastInvoice.items.length}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>

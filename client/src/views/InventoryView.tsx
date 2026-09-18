@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext.js';
 import { TherapeuticCategorySelect } from '../components/TherapeuticCategorySelect.js';
 import { StrengthInput } from '../components/StrengthInput.js';
+import { getProductPackaging } from '../utils/productPackaging.js';
 import {
   Boxes,
   Ban,
@@ -33,6 +34,8 @@ export interface BatchItem {
   dosage_form?: string;
   pack_size?: number;
   tablets_per_pack?: number;
+  stock_unit?: string;
+  packaging_type?: 'MULTI_TIER' | 'SIMPLE';
   barcode?: string;
   medicine_rack?: string;
   batch_number: string;
@@ -129,6 +132,9 @@ export const InventoryView: React.FC = () => {
   const [tabletDiscountPercent, setTabletDiscountPercent] = useState<string>('0');
   const [notes, setNotes] = useState('');
 
+  const packaging = getProductPackaging(dosageForm);
+  const isMultiTier = packaging.packagingType === 'MULTI_TIER';
+
   const fetchInventoryData = async () => {
     setIsLoading(true);
     try {
@@ -171,7 +177,7 @@ export const InventoryView: React.FC = () => {
     setExpiryDate(d.toISOString().split('T')[0]);
   };
 
-  const numPacksPerBox = Math.max(1, Number(packsPerBox) || 1);
+  const numPacksPerBox = isMultiTier ? Math.max(1, Number(packsPerBox) || 1) : 1;
   const numTabletsPerPack = Math.max(1, Number(tabletsPerPack) || 1);
   const totalTabletsPerBox = numPacksPerBox * numTabletsPerPack;
 
@@ -228,8 +234,9 @@ export const InventoryView: React.FC = () => {
       setDosageForm(med.dosage_form || 'Tablet');
       const pSize = Number(med.pack_size || 100);
       const tPack = Number(med.tablets_per_pack) > 0 ? Number(med.tablets_per_pack) : 10;
-      setTabletsPerPack(String(tPack));
-      setPacksPerBox(String(Math.max(1, Math.floor(pSize / tPack))));
+      const existingIsMultiTier = (med.packaging_type || (['Tablet', 'Capsule'].includes(med.dosage_form) ? 'MULTI_TIER' : 'SIMPLE')) === 'MULTI_TIER';
+      setTabletsPerPack(String(existingIsMultiTier ? tPack : pSize));
+      setPacksPerBox(String(existingIsMultiTier ? Math.max(1, Math.floor(pSize / tPack)) : 1));
       setRackLocation(med.rack_location || 'Rack A-01');
       if (med.barcode) setBarcode(med.barcode);
     }
@@ -254,8 +261,12 @@ export const InventoryView: React.FC = () => {
         packSalePrice: numBoxMRP,
         unitSalePrice: numTabletMRP,
         discountPercent: numBoxDiscount,
+        stockUnit: packaging.unit,
+        packagingType: packaging.packagingType,
         rackLocation,
-        notes: notes ? `${notes} | PackMRP: ${numPackMRP}, PackCost: ${numPackCost}` : `PackMRP: ${numPackMRP}, PackCost: ${numPackCost}`
+        notes: isMultiTier
+          ? (notes ? `${notes} | PackMRP: ${numPackMRP}, PackCost: ${numPackCost}` : `PackMRP: ${numPackMRP}, PackCost: ${numPackCost}`)
+          : notes
       };
 
       if (entryMode === 'existing_med' && selectedMedId) {
@@ -284,7 +295,7 @@ export const InventoryView: React.FC = () => {
         throw new Error(data.error || 'Failed to register medicine and stock');
       }
 
-      setAdjustSuccess(`Successfully added stock for ${brandName || 'Medicine'} (${totalSellableTablets} tablets across ${numBoxes} boxes in batch ${batchNumber}).`);
+      setAdjustSuccess(`Successfully added stock for ${brandName || 'Medicine'} (${totalSellableTablets} ${packaging.unitPlural.toLowerCase()} across ${numBoxes} ${packaging.outerPlural.toLowerCase()} in batch ${batchNumber}).`);
       setShowAddStockModal(false);
       setBrandName('');
       setGenericName('');
@@ -434,7 +445,7 @@ export const InventoryView: React.FC = () => {
         <div>
           <h1 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>Batch Inventory & Stock Control</h1>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-            FEFO Stock Tracking • 3-Level Packaging (Tablet → Pack → Box) • Customizable Pricing
+            FEFO Stock Tracking • Product-Specific Packaging • Customizable Pricing
           </p>
         </div>
 
@@ -569,8 +580,8 @@ export const InventoryView: React.FC = () => {
                   <th>Batch / Lot #</th>
                   <th>Expiry Date</th>
                   <th>Days Left</th>
-                  <th>Tablet Cost</th>
-                  <th>Tablet MRP</th>
+                  <th>Unit Cost</th>
+                  <th>Unit MRP</th>
                   <th>Gross Margin</th>
                   <th>Stock Units</th>
                   <th>Shelf Rack</th>
@@ -588,13 +599,14 @@ export const InventoryView: React.FC = () => {
                   filteredBatches.map(b => {
                     const isExpired = b.computed_expiry_status === 'EXPIRED';
                     const isNear = b.computed_expiry_status === 'NEAR_EXPIRY';
+                    const batchPackaging = getProductPackaging(b.dosage_form, b.stock_unit);
 
                     return (
                       <tr key={b.id} style={{ backgroundColor: isExpired ? 'rgba(239, 68, 68, 0.04)' : undefined }}>
                         <td>
                           <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{b.brand_name}</div>
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                            {b.dosage_form} • {b.strength || 'Standard'} • {b.tablets_per_pack || 10}/pack
+                            {b.dosage_form} • {b.strength || 'Standard'} • {b.pack_size || 1} {batchPackaging.unitPlural.toLowerCase()}/{batchPackaging.outer.toLowerCase()}
                           </div>
                         </td>
                         <td>
@@ -735,7 +747,9 @@ export const InventoryView: React.FC = () => {
                 <div>
                   <h3 style={{ fontSize: '1.15rem', fontWeight: 800 }}>Manual Medicine & Stock Entry</h3>
                   <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    Standard 3-Tier Hierarchy: Tablet / Unit → Pack (Strip) → Box (Carton)
+                    {packaging.packagingType === 'MULTI_TIER'
+                      ? `${packaging.unit} → ${packaging.middle} (Strip) → ${packaging.outer} (Carton)`
+                      : `${packaging.unit} → ${packaging.outer} packaging and pricing`}
                   </p>
                 </div>
               </div>
@@ -810,7 +824,7 @@ export const InventoryView: React.FC = () => {
                         <option value="">-- Choose registered medicine from catalog --</option>
                         {medicinesList.map(m => (
                           <option key={m.id} value={m.id}>
-                            {m.brand_name} {m.strength} ({m.dosage_form}) • Rack: {m.rack_location || 'N/A'} • Box Pack: {m.pack_size} units
+                            {m.brand_name} {m.strength} ({m.dosage_form}) • Rack: {m.rack_location || 'N/A'} • {getProductPackaging(m.dosage_form, m.stock_unit).outer}: {m.pack_size} {getProductPackaging(m.dosage_form, m.stock_unit).unitPlural.toLowerCase()}
                           </option>
                         ))}
                       </select>
@@ -1056,7 +1070,7 @@ export const InventoryView: React.FC = () => {
                 <div style={{ padding: '1.1rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem', textTransform: 'uppercase' }}>
                     <Calculator size={15} />
-                    <span>3. Packaging Setup & Customizable Multi-Tier Pricing (Tablet → Pack → Box)</span>
+                    <span>3. Packaging Setup & Pricing ({isMultiTier ? `${packaging.unit} → ${packaging.middle} → ${packaging.outer}` : `${packaging.unit} → ${packaging.outer}`})</span>
                   </div>
 
                   <div style={{ marginBottom: '1rem', padding: '0.85rem', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
@@ -1066,10 +1080,10 @@ export const InventoryView: React.FC = () => {
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      {isMultiTier && <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
                           <label style={{ fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                            Packs per Box *
+                            {packaging.middlePlural} per {packaging.outer} *
                           </label>
                         </div>
                         <input
@@ -1081,12 +1095,14 @@ export const InventoryView: React.FC = () => {
                           onChange={e => setPacksPerBox(e.target.value)}
                           required
                         />
-                      </div>
+                      </div>}
 
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
                           <label style={{ fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                            Tablets per Pack *
+                            {isMultiTier
+                              ? `${packaging.unitPlural} per ${packaging.middle} *`
+                              : `${packaging.unitPlural} per ${packaging.outer} *`}
                           </label>
                         </div>
                         <input
@@ -1103,7 +1119,7 @@ export const InventoryView: React.FC = () => {
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
                           <label style={{ fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                            Boxes Received *
+                            {packaging.outerPlural} Received *
                           </label>
                         </div>
                         <input
@@ -1120,7 +1136,7 @@ export const InventoryView: React.FC = () => {
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: '26px', marginBottom: '0.25rem' }}>
                           <label style={{ fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                            Bonus Tablets (Loose)
+                            Bonus {packaging.unitPlural} (Loose)
                           </label>
                         </div>
                         <input
@@ -1136,23 +1152,23 @@ export const InventoryView: React.FC = () => {
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.6rem', marginTop: '0.85rem' }}>
                       <div style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.5rem 0.75rem' }}>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Tablets / Box</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>{packaging.unitPlural} / {packaging.outer}</div>
                         <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--primary)', marginTop: '0.15rem' }}>
-                          {totalTabletsPerBox} <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Tablets</span>
+                          {totalTabletsPerBox} <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{packaging.unitPlural}</span>
                         </div>
                       </div>
 
-                      <div style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.5rem 0.75rem' }}>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Total Packs Received</div>
+                      {isMultiTier && <div style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.5rem 0.75rem' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Total {packaging.middlePlural} Received</div>
                         <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--primary)', marginTop: '0.15rem' }}>
-                          {totalPacksReceived} <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Packs</span>
+                          {totalPacksReceived} <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{packaging.middlePlural}</span>
                         </div>
-                      </div>
+                      </div>}
 
                       <div style={{ backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.5rem 0.75rem' }}>
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Total Loose Inventory</div>
                         <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--success)', marginTop: '0.15rem' }}>
-                          {totalSellableTablets} <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Tablets</span>
+                          {totalSellableTablets} <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{packaging.unitPlural}</span>
                         </div>
                       </div>
                     </div>
@@ -1168,17 +1184,17 @@ export const InventoryView: React.FC = () => {
                         onClick={handleAutoCalcCostRatios}
                         className="btn btn-secondary btn-sm"
                         style={{ fontSize: '0.68rem', padding: '0.15rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--primary)' }}
-                        title="Auto-calculate Pack and Tablet costs by dividing Box Cost"
+                        title={`Auto-calculate ${isMultiTier ? `${packaging.middle} and ` : ''}${packaging.unit} costs by dividing ${packaging.outer} cost`}
                       >
                         <Zap size={12} />
-                        <span>Auto-split from Box</span>
+                        <span>Auto-split from {packaging.outer}</span>
                       </button>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <label style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.25rem' }}>
-                          Box Purchase Cost (Rs.)
+                          {packaging.outer} Purchase Cost (Rs.)
                         </label>
                         <div style={{ position: 'relative' }}>
                           <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
@@ -1196,9 +1212,9 @@ export const InventoryView: React.FC = () => {
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      {isMultiTier && <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <label style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.25rem' }}>
-                          Pack Purchase Cost (Rs.)
+                          {packaging.middle} Purchase Cost (Rs.)
                         </label>
                         <div style={{ position: 'relative' }}>
                           <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
@@ -1214,11 +1230,11 @@ export const InventoryView: React.FC = () => {
                             required
                           />
                         </div>
-                      </div>
+                      </div>}
 
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <label style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.25rem' }}>
-                          Tablet Purchase Cost (Rs.)
+                          {packaging.unit} Purchase Cost (Rs.)
                         </label>
                         <div style={{ position: 'relative' }}>
                           <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
@@ -1241,17 +1257,17 @@ export const InventoryView: React.FC = () => {
                   <div style={{ padding: '0.85rem', backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
                       <div style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                        🏷️ Independent Selling MRP & Discount Fields (Tablet, Pack & Box)
+                        🏷️ Independent Selling MRP & Discount Fields ({isMultiTier ? `${packaging.unit}, ${packaging.middle} & ${packaging.outer}` : `${packaging.unit} & ${packaging.outer}`})
                       </div>
                       <button
                         type="button"
                         onClick={handleAutoCalcSaleRatios}
                         className="btn btn-secondary btn-sm"
                         style={{ fontSize: '0.68rem', padding: '0.15rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--primary)' }}
-                        title="Auto-calculate Pack and Tablet MRP from Box MRP"
+                        title={`Auto-calculate ${isMultiTier ? `${packaging.middle} and ` : ''}${packaging.unit} MRP from ${packaging.outer} MRP`}
                       >
                         <Zap size={12} />
-                        <span>Auto-split from Box</span>
+                        <span>Auto-split from {packaging.outer}</span>
                       </button>
                     </div>
 
@@ -1259,11 +1275,11 @@ export const InventoryView: React.FC = () => {
                       <div style={{ padding: '0.85rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                           <Package size={15} />
-                          <span>BOX (Carton Container)</span>
+                          <span>{packaging.outer.toUpperCase()} (Outer Container)</span>
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>Box Selling MRP *</label>
+                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>{packaging.outer} Selling MRP *</label>
                           <div style={{ position: 'relative' }}>
                             <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
                             <input
@@ -1281,7 +1297,7 @@ export const InventoryView: React.FC = () => {
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>Box Discount %</label>
+                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>{packaging.outer} Discount %</label>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                             <input
                               type="number"
@@ -1299,11 +1315,11 @@ export const InventoryView: React.FC = () => {
 
                         <div style={{ marginTop: 'auto', paddingTop: '0.4rem', borderTop: '1px dashed var(--border)', fontSize: '0.74rem' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
-                            <span>Net Box Price:</span>
+                            <span>Net {packaging.outer} Price:</span>
                             <strong style={{ color: 'var(--text-primary)' }}>Rs. {netBoxPrice.toFixed(2)}</strong>
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.2rem' }}>
-                            <span>Box Margin:</span>
+                            <span>{packaging.outer} Margin:</span>
                             <strong style={{ color: Number(boxMarginPercent) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
                               +{boxMarginPercent}% (Rs. {boxProfit.toFixed(2)})
                             </strong>
@@ -1311,14 +1327,14 @@ export const InventoryView: React.FC = () => {
                         </div>
                       </div>
 
-                      <div style={{ padding: '0.85rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {isMultiTier && <div style={{ padding: '0.85rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                           <Layers size={15} />
-                          <span>PACK (Strip / Blister)</span>
+                          <span>{packaging.middle.toUpperCase()} (Strip / Blister)</span>
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>Pack Selling MRP *</label>
+                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>{packaging.middle} Selling MRP *</label>
                           <div style={{ position: 'relative' }}>
                             <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
                             <input
@@ -1336,7 +1352,7 @@ export const InventoryView: React.FC = () => {
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>Pack Discount %</label>
+                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>{packaging.middle} Discount %</label>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                             <input
                               type="number"
@@ -1354,26 +1370,26 @@ export const InventoryView: React.FC = () => {
 
                         <div style={{ marginTop: 'auto', paddingTop: '0.4rem', borderTop: '1px dashed var(--border)', fontSize: '0.74rem' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
-                            <span>Net Pack Price:</span>
+                            <span>Net {packaging.middle} Price:</span>
                             <strong style={{ color: 'var(--text-primary)' }}>Rs. {netPackPrice.toFixed(2)}</strong>
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.2rem' }}>
-                            <span>Pack Margin:</span>
+                            <span>{packaging.middle} Margin:</span>
                             <strong style={{ color: Number(packMarginPercent) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
                               +{packMarginPercent}% (Rs. {packProfit.toFixed(2)})
                             </strong>
                           </div>
                         </div>
-                      </div>
+                      </div>}
 
                       <div style={{ padding: '0.85rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                           <Pill size={15} />
-                          <span>TABLET (Individual Loose Unit)</span>
+                          <span>{packaging.unit.toUpperCase()} (Individual Sellable Unit)</span>
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>Tablet Selling MRP *</label>
+                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>{packaging.unit} Selling MRP *</label>
                           <div style={{ position: 'relative' }}>
                             <span style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rs.</span>
                             <input
@@ -1391,7 +1407,7 @@ export const InventoryView: React.FC = () => {
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>Tablet Discount %</label>
+                          <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, marginBottom: '0.2rem' }}>{packaging.unit} Discount %</label>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                             <input
                               type="number"
@@ -1409,11 +1425,11 @@ export const InventoryView: React.FC = () => {
 
                         <div style={{ marginTop: 'auto', paddingTop: '0.4rem', borderTop: '1px dashed var(--border)', fontSize: '0.74rem' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
-                            <span>Net Tablet Price:</span>
+                            <span>Net {packaging.unit} Price:</span>
                             <strong style={{ color: 'var(--text-primary)' }}>Rs. {netTabletPrice.toFixed(2)}</strong>
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.2rem' }}>
-                            <span>Tablet Margin:</span>
+                            <span>{packaging.unit} Margin:</span>
                             <strong style={{ color: Number(tabletMarginPercent) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
                               +{tabletMarginPercent}% (Rs. {tabletProfit.toFixed(2)})
                             </strong>
