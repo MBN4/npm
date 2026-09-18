@@ -28,6 +28,7 @@ export interface CartItem {
   tabletsPerPack?: number;
   stockUnit?: string;
   packagingType?: 'MULTI_TIER' | 'SIMPLE';
+  categoryName?: string;
   batchId: number;
   batchNumber: string;
   expiryDate: string;
@@ -332,7 +333,7 @@ export const PosView: React.FC = () => {
     }
 
     const batch = product.fefo_batch;
-    const packaging = getProductPackaging(product.dosage_form, product.stock_unit);
+    const packaging = getProductPackaging(product.dosage_form, product.stock_unit, product.category_name);
     const packSize = Number(product.pack_size) > 0 ? Number(product.pack_size) : 100;
     const tabletsPerPack = Number(product.tablets_per_pack) > 0 ? Number(product.tablets_per_pack) : ((packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : (packSize > 1 ? 10 : 1));
 
@@ -369,6 +370,7 @@ export const PosView: React.FC = () => {
         tabletsPerPack,
         stockUnit: product.stock_unit || packaging.unit,
         packagingType: product.packaging_type || packaging.packagingType,
+        categoryName: product.category_name,
         batchId: batch.batch_id,
         batchNumber: batch.batch_number,
         expiryDate: batch.expiry_date,
@@ -397,7 +399,7 @@ export const PosView: React.FC = () => {
 
     const item = cart[index];
     if (newQty > item.availableStock) {
-      const packaging = getProductPackaging(item.dosageForm, item.stockUnit);
+      const packaging = getProductPackaging(item.dosageForm, item.stockUnit, item.categoryName);
       setErrorMessage(`Cannot exceed available stock (${item.availableStock} ${packaging.unitPlural.toLowerCase()}).`);
       return;
     }
@@ -653,8 +655,8 @@ export const PosView: React.FC = () => {
     }
   };
 
-  const formatPackagingBreakdown = (quantity: number, packSize: number = 100, tabletsPerPack: number = 10, dosageForm?: string, stockUnit?: string) => {
-    const packaging = getProductPackaging(dosageForm, stockUnit);
+  const formatPackagingBreakdown = (quantity: number, packSize: number = 100, tabletsPerPack: number = 10, dosageForm?: string, stockUnit?: string, categoryName?: string) => {
+    const packaging = getProductPackaging(dosageForm, stockUnit, categoryName);
     const pSize = packSize > 0 ? packSize : 100;
     const tPack = tabletsPerPack > 0 ? tabletsPerPack : 10;
     const boxes = Math.floor(quantity / pSize);
@@ -864,7 +866,7 @@ export const PosView: React.FC = () => {
                 {searchResults.map((p) => {
                   const packSize = Number(p.pack_size) > 0 ? Number(p.pack_size) : 100;
                   const tabletsPerPack = Number(p.tablets_per_pack) > 0 ? Number(p.tablets_per_pack) : ((packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : (packSize > 1 ? 10 : 1));
-                  const packaging = getProductPackaging(p.dosage_form, p.stock_unit);
+                  const packaging = getProductPackaging(p.dosage_form, p.stock_unit, p.category_name);
                   const isMultiTier = (p.packaging_type || packaging.packagingType) === 'MULTI_TIER';
                   const unitPrice = p.fefo_batch ? Number(p.fefo_batch.sale_price) : 0;
                   const packPrice = unitPrice * tabletsPerPack;
@@ -989,9 +991,9 @@ export const PosView: React.FC = () => {
                     {cart.map((item, index) => {
                       const pSize = Number(item.packSize) > 0 ? Number(item.packSize) : 100;
                       const tPack = Number(item.tabletsPerPack) > 0 ? Number(item.tabletsPerPack) : 10;
-                      const itemPackaging = getProductPackaging(item.dosageForm, item.stockUnit);
+                      const itemPackaging = getProductPackaging(item.dosageForm, item.stockUnit, item.categoryName);
                       const itemIsMultiTier = (item.packagingType || itemPackaging.packagingType) === 'MULTI_TIER';
-                      const packagingText = formatPackagingBreakdown(item.quantity, pSize, tPack, item.dosageForm, item.stockUnit);
+                      const packagingText = formatPackagingBreakdown(item.quantity, pSize, tPack, item.dosageForm, item.stockUnit, item.categoryName);
 
                       return (
                         <tr key={index} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -1495,7 +1497,7 @@ export const PosView: React.FC = () => {
                     {lastInvoice.items.map((it: any, i: number) => {
                       const packSize = Number(it.packSize) || 100;
                       const tabletsPerPack = Number(it.tabletsPerPack) || 10;
-                      const breakdown = formatPackagingBreakdown(it.quantity || 1, packSize, tabletsPerPack, it.dosageForm, it.stockUnit);
+                      const breakdown = formatPackagingBreakdown(it.quantity || 1, packSize, tabletsPerPack, it.dosageForm, it.stockUnit, it.categoryName);
 
                       return (
                         <tr key={i} style={{ borderBottom: i < lastInvoice.items.length - 1 ? '1px dotted #e0e0e0' : 'none' }}>

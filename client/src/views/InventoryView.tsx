@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext.js';
 import { TherapeuticCategorySelect } from '../components/TherapeuticCategorySelect.js';
 import { StrengthInput } from '../components/StrengthInput.js';
 import { getProductPackaging } from '../utils/productPackaging.js';
+import { PRODUCT_CATEGORIES, getSubcategories } from '../utils/productCatalog.js';
 import {
   Boxes,
   Ban,
@@ -36,6 +37,7 @@ export interface BatchItem {
   tablets_per_pack?: number;
   stock_unit?: string;
   packaging_type?: 'MULTI_TIER' | 'SIMPLE';
+  category_name?: string;
   barcode?: string;
   medicine_rack?: string;
   batch_number: string;
@@ -103,8 +105,9 @@ export const InventoryView: React.FC = () => {
   const [brandName, setBrandName] = useState('');
   const [genericName, setGenericName] = useState('');
   const [manufacturerName, setManufacturerName] = useState('');
-  const [categoryName, setCategoryName] = useState('');
-  const [dosageForm, setDosageForm] = useState('Tablet');
+  const [categoryName, setCategoryName] = useState('Tablets');
+  const [dosageForm, setDosageForm] = useState('Regular');
+  const [therapeuticClass, setTherapeuticClass] = useState('');
   const [strength, setStrength] = useState('');
   const [rackLocation, setRackLocation] = useState('Rack A-01');
   const [barcode, setBarcode] = useState('');
@@ -132,7 +135,7 @@ export const InventoryView: React.FC = () => {
   const [tabletDiscountPercent, setTabletDiscountPercent] = useState<string>('0');
   const [notes, setNotes] = useState('');
 
-  const packaging = getProductPackaging(dosageForm);
+  const packaging = getProductPackaging(dosageForm, null, categoryName);
   const isMultiTier = packaging.packagingType === 'MULTI_TIER';
 
   const fetchInventoryData = async () => {
@@ -232,6 +235,8 @@ export const InventoryView: React.FC = () => {
       setBrandName(med.brand_name);
       setStrength(med.strength || '');
       setDosageForm(med.dosage_form || 'Tablet');
+      setCategoryName(med.category_name || '');
+      setTherapeuticClass(med.therapeutic_class || med.generic_therapeutic_class || '');
       const pSize = Number(med.pack_size || 100);
       const tPack = Number(med.tablets_per_pack) > 0 ? Number(med.tablets_per_pack) : 10;
       const existingIsMultiTier = (med.packaging_type || (['Tablet', 'Capsule'].includes(med.dosage_form) ? 'MULTI_TIER' : 'SIMPLE')) === 'MULTI_TIER';
@@ -277,6 +282,7 @@ export const InventoryView: React.FC = () => {
         payload.manufacturerName = manufacturerName.trim();
         payload.categoryName = categoryName.trim();
         payload.dosageForm = dosageForm;
+        payload.therapeuticClass = therapeuticClass.trim();
         payload.strength = strength.trim();
         payload.barcode = barcode ? barcode.trim() : null;
       }
@@ -599,7 +605,7 @@ export const InventoryView: React.FC = () => {
                   filteredBatches.map(b => {
                     const isExpired = b.computed_expiry_status === 'EXPIRED';
                     const isNear = b.computed_expiry_status === 'NEAR_EXPIRY';
-                    const batchPackaging = getProductPackaging(b.dosage_form, b.stock_unit);
+                    const batchPackaging = getProductPackaging(b.dosage_form, b.stock_unit, b.category_name);
 
                     return (
                       <tr key={b.id} style={{ backgroundColor: isExpired ? 'rgba(239, 68, 68, 0.04)' : undefined }}>
@@ -824,13 +830,51 @@ export const InventoryView: React.FC = () => {
                         <option value="">-- Choose registered medicine from catalog --</option>
                         {medicinesList.map(m => (
                           <option key={m.id} value={m.id}>
-                            {m.brand_name} {m.strength} ({m.dosage_form}) • Rack: {m.rack_location || 'N/A'} • {getProductPackaging(m.dosage_form, m.stock_unit).outer}: {m.pack_size} {getProductPackaging(m.dosage_form, m.stock_unit).unitPlural.toLowerCase()}
+                            {m.brand_name} {m.strength} ({m.dosage_form}) • Rack: {m.rack_location || 'N/A'} • {getProductPackaging(m.dosage_form, m.stock_unit, m.category_name).outer}: {m.pack_size} {getProductPackaging(m.dosage_form, m.stock_unit, m.category_name).unitPlural.toLowerCase()}
                           </option>
                         ))}
                       </select>
                     </div>
                   ) : (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Main Category *</label>
+                        </div>
+                        <select
+                          className="select"
+                          value={categoryName}
+                          onChange={e => {
+                            const nextCategory = e.target.value;
+                            setCategoryName(nextCategory);
+                            setDosageForm(getSubcategories(nextCategory)[0] || '');
+                          }}
+                          required
+                        >
+                          {PRODUCT_CATEGORIES.map(category => <option key={category.name} value={category.name}>{category.name}</option>)}
+                        </select>
+                      </div>
+
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Subcategory / Product Type *</label>
+                        </div>
+                        <select className="select" value={dosageForm} onChange={e => setDosageForm(e.target.value)} required>
+                          {getSubcategories(categoryName).map(subcategory => <option key={subcategory} value={subcategory}>{subcategory}</option>)}
+                        </select>
+                      </div>
+
+                      <div style={{ gridColumn: 'span 2' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Therapeutic Class</label>
+                        </div>
+                        <TherapeuticCategorySelect
+                          value={therapeuticClass}
+                          onChange={setTherapeuticClass}
+                          placeholder="e.g. Analgesic/Antipyretic, Antibiotic, NSAID"
+                        />
+                      </div>
+
                       <div style={{ gridColumn: 'span 2' }}>
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
                           <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
@@ -878,28 +922,6 @@ export const InventoryView: React.FC = () => {
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
                           <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            Dosage Form
-                          </label>
-                        </div>
-                        <select
-                          className="select"
-                          value={dosageForm}
-                          onChange={e => setDosageForm(e.target.value)}
-                        >
-                          <option value="Tablet">Tablet</option>
-                          <option value="Capsule">Capsule</option>
-                          <option value="Syrup">Syrup / Suspension</option>
-                          <option value="Injection">Injection</option>
-                          <option value="Cream">Cream / Ointment</option>
-                          <option value="Drops">Eye / Ear Drops</option>
-                          <option value="Inhaler">Inhaler / Respules</option>
-                          <option value="Sachet">Sachet / Powder</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
-                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
                             Manufacturer / Pharma Company
                           </label>
                         </div>
@@ -909,19 +931,6 @@ export const InventoryView: React.FC = () => {
                           placeholder="e.g. Searle, GSK, Getz, Abbott"
                           value={manufacturerName}
                           onChange={e => setManufacturerName(e.target.value)}
-                        />
-                      </div>
-
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
-                          <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            Therapeutic Category
-                          </label>
-                        </div>
-                        <TherapeuticCategorySelect
-                          value={categoryName}
-                          onChange={val => setCategoryName(val)}
-                          placeholder="Select or search category..."
                         />
                       </div>
 

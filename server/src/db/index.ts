@@ -139,8 +139,12 @@ export function initDatabase() {
       'Wound Care / Dressing', 'Surgical & Disposable', 'Antiseptics & Disinfectants', 'Medical Devices', 'Diabetes Care',
       'Orthopedic / Support', 'First Aid', 'Sexual Wellness', 'Herbal / Unani', 'General / FMCG'
     ];
+    const ensureCategory = db.prepare('INSERT OR IGNORE INTO categories (name, description, sort_order) VALUES (?, ?, ?)');
     const updateOrder = db.prepare('UPDATE categories SET sort_order = ? WHERE name = ? AND sort_order = 0');
-    MAIN_CATEGORY_ORDER.forEach((name, idx) => updateOrder.run(idx + 1, name));
+    MAIN_CATEGORY_ORDER.forEach((name, idx) => {
+      ensureCategory.run(name, 'Master pharmacy product category', idx + 1);
+      updateOrder.run(idx + 1, name);
+    });
   } catch (e) {
     // ignore
   }

@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext.js';
+import { TherapeuticCategorySelect } from '../components/TherapeuticCategorySelect.js';
+import { PRODUCT_CATEGORIES, getSubcategories } from '../utils/productCatalog.js';
+import { getProductPackaging } from '../utils/productPackaging.js';
 import {
   Pill,
   Search,
@@ -37,7 +40,7 @@ export interface Medicine {
 export const MedicinesView: React.FC = () => {
   const { token, hasPermission } = useAuth();
   const [medicines, setMedicines] = useState<Medicine[]>([]);
-  const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
+  const [categories, setCategories] = useState<{ id: number; name: string; description?: string }[]>([]);
   const [generics, setGenerics] = useState<{ id: number; name: string }[]>([]);
   const [manufacturers, setManufacturers] = useState<{ id: number; name: string }[]>([]);
 
@@ -62,6 +65,7 @@ export const MedicinesView: React.FC = () => {
     manufacturerId: '',
     strength: '',
     dosageForm: 'Tablet',
+    therapeuticClass: '',
     packSize: '1',
     barcode: '',
     customBarcode: '',
@@ -132,6 +136,8 @@ export const MedicinesView: React.FC = () => {
     }
 
     try {
+      const selectedCategoryName = categories.find(category => String(category.id) === newMed.categoryId)?.name || '';
+      const packaging = getProductPackaging(newMed.dosageForm, null, selectedCategoryName);
       const res = await fetch('/api/medicines', {
         method: 'POST',
         headers: {
@@ -145,6 +151,9 @@ export const MedicinesView: React.FC = () => {
           manufacturerId: newMed.manufacturerId ? Number(newMed.manufacturerId) : null,
           strength: newMed.strength.trim(),
           dosageForm: newMed.dosageForm,
+          therapeuticClass: newMed.therapeuticClass.trim(),
+          stockUnit: packaging.unit,
+          packagingType: packaging.packagingType,
           packSize: Number(newMed.packSize) || 1,
           barcode: newMed.barcode.trim() || null,
           customBarcode: newMed.customBarcode.trim() || null,
@@ -171,6 +180,7 @@ export const MedicinesView: React.FC = () => {
         manufacturerId: '',
         strength: '',
         dosageForm: 'Tablet',
+        therapeuticClass: '',
         packSize: '1',
         barcode: '',
         customBarcode: '',
@@ -386,6 +396,52 @@ export const MedicinesView: React.FC = () => {
             )}
 
             <form onSubmit={handleCreateMedicine} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Main Category *</label>
+                  <select
+                    className="select"
+                    value={newMed.categoryId}
+                    onChange={e => {
+                      const categoryId = e.target.value;
+                      const categoryName = categories.find(category => String(category.id) === categoryId)?.name || '';
+                      setNewMed({ ...newMed, categoryId, dosageForm: getSubcategories(categoryName)[0] || '' });
+                    }}
+                    required
+                  >
+                    <option value="">Select Main Category</option>
+                    {PRODUCT_CATEGORIES.map(definition => {
+                      const category = categories.find(item => item.name === definition.name);
+                      return category ? <option key={category.id} value={category.id}>{definition.name}</option> : null;
+                    })}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Subcategory / Product Type *</label>
+                  <select
+                    className="select"
+                    value={newMed.dosageForm}
+                    onChange={e => setNewMed({ ...newMed, dosageForm: e.target.value })}
+                    disabled={!newMed.categoryId}
+                    required
+                  >
+                    <option value="">Select Product Type</option>
+                    {getSubcategories(categories.find(category => String(category.id) === newMed.categoryId)?.name || '').map(subcategory => (
+                      <option key={subcategory} value={subcategory}>{subcategory}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Therapeutic Class</label>
+                <TherapeuticCategorySelect
+                  value={newMed.therapeuticClass}
+                  onChange={therapeuticClass => setNewMed({ ...newMed, therapeuticClass })}
+                  placeholder="e.g. Analgesic/Antipyretic, Antibiotic, NSAID"
+                />
+              </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Brand Name *</label>
@@ -410,23 +466,6 @@ export const MedicinesView: React.FC = () => {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Dosage Form</label>
-                  <select
-                    className="select"
-                    value={newMed.dosageForm}
-                    onChange={e => setNewMed({ ...newMed, dosageForm: e.target.value })}
-                  >
-                    <option value="Tablet">Tablet</option>
-                    <option value="Capsule">Capsule</option>
-                    <option value="Syrup">Syrup</option>
-                    <option value="Suspension">Suspension</option>
-                    <option value="Injection">Injection</option>
-                    <option value="Cream/Ointment">Cream / Ointment</option>
-                    <option value="Inhaler">Inhaler</option>
-                    <option value="Eye/Ear Drops">Eye / Ear Drops</option>
-                  </select>
-                </div>
-                <div>
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Generic / Salt</label>
                   <select
                     className="select"
@@ -436,22 +475,6 @@ export const MedicinesView: React.FC = () => {
                     <option value="">Select Generic Salt</option>
                     {generics.map(g => (
                       <option key={g.id} value={g.id}>{g.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Category</label>
-                  <select
-                    className="select"
-                    value={newMed.categoryId}
-                    onChange={e => setNewMed({ ...newMed, categoryId: e.target.value })}
-                  >
-                    <option value="">Select Category</option>
-                    {categories.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
                 </div>

@@ -15,6 +15,7 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
       m.brand_name, m.strength, m.dosage_form, m.pack_size,
       COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
       m.stock_unit, m.packaging_type,
+      c.name as category_name,
       m.barcode, m.rack_location as medicine_rack,
       s.name as supplier_name,
       CASE 
@@ -27,6 +28,7 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
       ROUND(((b.sale_price - b.purchase_price) / b.purchase_price) * 100, 1) as margin_percent
     FROM batches b
     JOIN medicines m ON b.medicine_id = m.id
+    LEFT JOIN categories c ON m.category_id = c.id
     LEFT JOIN suppliers s ON b.supplier_id = s.id
     WHERE 1=1
   `;
@@ -362,7 +364,7 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
           if (existingGen) {
             finalGenId = existingGen.id;
           } else {
-            const newGen = db.prepare('INSERT INTO generics (name, therapeutic_class, description) VALUES (?, ?, ?)').run(genericName.trim(), 'General', 'Auto-created generic');
+            const newGen = db.prepare('INSERT INTO generics (name, therapeutic_class, description) VALUES (?, ?, ?)').run(genericName.trim(), therapeuticClass ? String(therapeuticClass).trim() : 'General', 'Auto-created generic');
             finalGenId = Number(newGen.lastInsertRowid);
           }
         }
