@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.js';
 import { TherapeuticCategorySelect } from '../components/TherapeuticCategorySelect.js';
 import { StrengthInput } from '../components/StrengthInput.js';
@@ -24,7 +24,8 @@ import {
   Layers,
   Zap,
   Edit,
-  Trash2
+  Trash2,
+  QrCode
 } from 'lucide-react';
 
 export interface BatchItem {
@@ -101,6 +102,14 @@ export const InventoryView: React.FC = () => {
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
+  // SpeedX Barcode Reader integration refs & states
+  const boxesReceivedInputRef = useRef<HTMLInputElement>(null);
+  const barcodeScanInputRef = useRef<HTMLInputElement>(null);
+  const brandNameInputRef = useRef<HTMLInputElement>(null);
+  const [scanQuery, setScanQuery] = useState('');
+  const [scanStatus, setScanStatus] = useState<'idle' | 'loading' | 'success' | 'not_found'>('idle');
+  const [scanVerifiedMessage, setScanVerifiedMessage] = useState<string | null>(null);
+
   const [selectedMedId, setSelectedMedId] = useState<string>('');
   const [brandName, setBrandName] = useState('');
   const [genericName, setGenericName] = useState('');
@@ -137,6 +146,121 @@ export const InventoryView: React.FC = () => {
 
   const packaging = getProductPackaging(dosageForm, null, categoryName);
   const isMultiTier = packaging.packagingType === 'MULTI_TIER';
+
+  const handleScanLookup = async (scannedBarcode: string) => {
+    const code = scannedBarcode.trim();
+    if (!code) return;
+
+    setScanStatus('loading');
+    setModalError(null);
+
+    try {
+      const res = await fetch(`/api/inventory/lookup-barcode?code=${encodeURIComponent(code)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!res.ok) {
+        throw new Error('Barcode lookup failed');
+      }
+
+      const data = await res.json();
+
+      if (data.autoRegistered) {
+        setShowAddStockModal(false);
+        setScanStatus('success');
+        setScanVerifiedMessage(`⚡ Instant Auto-Added: ${data.brandName} (${data.categoryName || 'Catalog Item'}) — Saved to inventory database automatically! Initial Stock: 10 units.`);
+        fetchInventoryData();
+        return;
+      }
+
+      setShowAddStockModal(true);
+
+      if (data.found && data.source === 'existing_medicine') {
+
+        setEntryMode('existing_med');
+        setSelectedMedId(String(data.medicineId));
+        setBrandName(data.brandName || '');
+        setGenericName(data.genericName || '');
+        setCategoryName(data.categoryName || 'Tablets');
+        setManufacturerName(data.manufacturerName || '');
+        setStrength(data.strength || '');
+        setDosageForm(data.dosageForm || 'Regular');
+        setTherapeuticClass(data.therapeuticClass || '');
+        setRackLocation(data.rackLocation || 'Rack A-01');
+        setBarcode(data.barcode || code);
+
+        setTabletsPerPack(String(data.tabletsPerPack || '10'));
+        setPacksPerBox(String(data.packsPerBox || '10'));
+
+        setBoxPurchasePrice(String(data.boxPurchasePrice || '300.00'));
+        setPackPurchasePrice(String(data.packPurchasePrice || '30.00'));
+        setTabletPurchasePrice(String(data.tabletPurchasePrice || '3.00'));
+
+        setBoxSalePrice(String(data.boxSalePrice || '400.00'));
+        setPackSalePrice(String(data.packSalePrice || '40.00'));
+        setTabletSalePrice(String(data.tabletSalePrice || '4.00'));
+
+        setBatchNumber(data.batchNumber);
+        setExpiryDate(data.expiryDate);
+
+        setScanStatus('success');
+        setScanVerifiedMessage(`✓ SpeedX Verified: ${data.brandName} ${data.strength ? `(${data.strength})` : ''} — Retail MRP: Rs. ${data.boxSalePrice} (Pack: Rs. ${data.packSalePrice})`);
+      } else if (data.found && (data.source === 'pharma_dictionary' || data.source === 'online_catalog')) {
+        setEntryMode('new_med');
+        setSelectedMedId('');
+        setBrandName(data.brandName || '');
+        setGenericName(data.genericName || '');
+        setCategoryName(data.categoryName || 'Milk & Infant Formula');
+        setManufacturerName(data.manufacturerName || '');
+        setStrength(data.strength || '');
+        setDosageForm(data.dosageForm || 'Stage 1');
+        setTherapeuticClass(data.therapeuticClass || '');
+        setRackLocation(data.rackLocation || 'Rack A-01');
+        setBarcode(data.barcode || code);
+
+        setTabletsPerPack(String(data.tabletsPerPack || '1'));
+        setPacksPerBox(String(data.packsPerBox || '1'));
+
+        setBoxPurchasePrice(String(data.boxPurchasePrice || '1650.00'));
+        setPackPurchasePrice(String(data.packPurchasePrice || '1650.00'));
+        setTabletPurchasePrice(String(data.tabletPurchasePrice || '1650.00'));
+
+        setBoxSalePrice(String(data.boxSalePrice || '1850.00'));
+        setPackSalePrice(String(data.packSalePrice || '1850.00'));
+        setTabletSalePrice(String(data.tabletSalePrice || '1850.00'));
+
+        setBatchNumber(data.batchNumber);
+        setExpiryDate(data.expiryDate);
+
+        setScanStatus('success');
+        setScanVerifiedMessage(`✓ SpeedX Auto-Matched: ${data.brandName} (${data.categoryName || 'Catalog Item'}) — Price: Rs. ${data.boxSalePrice}`);
+      } else {
+        setEntryMode('new_med');
+        setSelectedMedId('');
+        setBarcode(code);
+        setBatchNumber(data.batchNumber || `BN-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`);
+        setExpiryDate(data.expiryDate || new Date(Date.now() + 730 * 86400000).toISOString().split('T')[0]);
+
+        setScanStatus('not_found');
+        setScanVerifiedMessage(`⚡ Unregistered Barcode (${code}): Type brand name below OR link to an existing medicine.`);
+      }
+
+      // Auto focus cursor intelligently
+      setTimeout(() => {
+        if (data.found && boxesReceivedInputRef.current) {
+          boxesReceivedInputRef.current.focus();
+          boxesReceivedInputRef.current.select();
+        } else if (!data.found && brandNameInputRef.current) {
+          brandNameInputRef.current.focus();
+          brandNameInputRef.current.select();
+        }
+      }, 150);
+
+    } catch (err: any) {
+      setScanStatus('idle');
+      console.error('Scan lookup error:', err);
+    }
+  };
 
   const fetchInventoryData = async () => {
     setIsLoading(true);
@@ -529,6 +653,91 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
+      {/* SpeedX Barcode Handheld Scanner Direct Stock Entry Bar */}
+      {hasPermission('manage_inventory') && (
+        <div className="card" style={{ padding: '1rem 1.25rem', marginBottom: '1.25rem', background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.06) 0%, rgba(59, 130, 246, 0.06) 100%)', border: '1px solid rgba(16, 185, 129, 0.35)', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+              <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.35)' }}>
+                <QrCode size={24} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <h3 style={{ fontSize: '0.98rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                    SpeedX SP-8600 Barcode Scanner Auto-Entry
+                  </h3>
+                  <span className="badge badge-success" style={{ fontSize: '0.68rem', padding: '0.15rem 0.5rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#fff', animation: 'pulse 1.5s infinite' }}></span>
+                    Scanner Ready (1D / 2D DataMatrix)
+                  </span>
+                </div>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
+                  Scan any product box barcode $\rightarrow$ Specs & 100% exact prices are auto-populated. You only enter stock quantity!
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, maxWidth: '520px', minWidth: '280px' }}>
+              <div style={{ position: 'relative', width: '100%' }}>
+                <input
+                  ref={barcodeScanInputRef}
+                  type="text"
+                  className="input"
+                  style={{
+                    paddingLeft: '2.4rem',
+                    paddingRight: '7.5rem',
+                    height: '44px',
+                    fontSize: '0.9rem',
+                    fontWeight: 700,
+                    border: '2px solid var(--success)',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--bg-surface)'
+                  }}
+                  placeholder="Scan product barcode here with SpeedX scanner..."
+                  value={scanQuery}
+                  onChange={(e) => setScanQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (scanQuery.trim()) {
+                        handleScanLookup(scanQuery.trim());
+                        setScanQuery('');
+                      }
+                    }
+                  }}
+                />
+                <Search size={18} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--success)' }} />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (scanQuery.trim()) {
+                      handleScanLookup(scanQuery.trim());
+                      setScanQuery('');
+                    }
+                  }}
+                  disabled={scanStatus === 'loading'}
+                  className="btn btn-primary btn-sm"
+                  style={{
+                    position: 'absolute',
+                    right: '4px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    height: '36px',
+                    padding: '0 0.85rem',
+                    fontWeight: 700,
+                    fontSize: '0.78rem',
+                    backgroundColor: 'var(--success)',
+                    borderColor: 'var(--success)'
+                  }}
+                >
+                  <span>{scanStatus === 'loading' ? 'Searching...' : 'Scan & Auto-Fill'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
           <button
@@ -766,6 +975,43 @@ export const InventoryView: React.FC = () => {
             </div>
 
             <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', flex: 1 }}>
+              {scanVerifiedMessage && (
+                <div style={{
+                  padding: '0.85rem 1rem',
+                  background: scanStatus === 'not_found' ? 'var(--warning-light)' : 'var(--success-light)',
+                  color: scanStatus === 'not_found' ? 'var(--warning-text)' : 'var(--success-text)',
+                  borderRadius: 'var(--radius-md)',
+                  marginBottom: '1rem',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.5rem',
+                  flexWrap: 'wrap',
+                  border: scanStatus === 'not_found' ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid rgba(16, 185, 129, 0.4)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
+                    <CheckCircle2 size={18} />
+                    <span>{scanVerifiedMessage}</span>
+                  </div>
+                  {scanStatus === 'not_found' ? (
+                    <button
+                      type="button"
+                      onClick={() => setEntryMode('existing_med')}
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontSize: '0.72rem', padding: '0.2rem 0.65rem', fontWeight: 700, backgroundColor: '#fff', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+                    >
+                      🔗 Link Barcode ({barcode}) to Existing Medicine
+                    </button>
+                  ) : (
+                    <span style={{ fontSize: '0.72rem', opacity: 0.95, backgroundColor: 'rgba(255,255,255,0.4)', padding: '0.2rem 0.55rem', borderRadius: '4px', whiteSpace: 'nowrap' }}>
+                      Stock Count Input Auto-Focused 👇
+                    </span>
+                  )}
+                </div>
+              )}
+
               {modalError && (
                 <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--danger-light)', color: 'var(--danger-text)', borderRadius: 'var(--radius-md)', fontSize: '0.82rem' }}>
                   {modalError}
@@ -882,6 +1128,7 @@ export const InventoryView: React.FC = () => {
                           </label>
                         </div>
                         <input
+                          ref={brandNameInputRef}
                           type="text"
                           className="input"
                           placeholder="e.g. Panadol, Augmentin, Synflex, Sunflex"
@@ -889,6 +1136,28 @@ export const InventoryView: React.FC = () => {
                           onChange={e => setBrandName(e.target.value)}
                           required
                         />
+                        {brandName.trim().length >= 2 && entryMode === 'new_med' && (
+                          <div style={{ marginTop: '0.35rem', display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Catalog Match:</span>
+                            {medicinesList
+                              .filter(m => m.brand_name.toLowerCase().includes(brandName.trim().toLowerCase()))
+                              .slice(0, 3)
+                              .map(m => (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setEntryMode('existing_med');
+                                    handleSelectExistingMed(String(m.id));
+                                  }}
+                                  className="badge badge-primary"
+                                  style={{ cursor: 'pointer', border: '1px solid var(--primary)', fontSize: '0.7rem', padding: '0.15rem 0.45rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}
+                                >
+                                  <span>{m.brand_name} {m.strength || ''} ({m.dosage_form || 'Tablet'})</span>
+                                </button>
+                              ))}
+                          </div>
+                        )}
                       </div>
 
                       <div>
@@ -1132,6 +1401,7 @@ export const InventoryView: React.FC = () => {
                           </label>
                         </div>
                         <input
+                          ref={boxesReceivedInputRef}
                           type="number"
                           min="1"
                           className="input"

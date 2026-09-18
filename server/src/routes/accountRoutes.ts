@@ -501,8 +501,12 @@ accountRouter.get('/daily-register', authenticateToken, (req: Request, res: Resp
     const totalOut = todaySupplierPayments.total + todayExpenses.total + todayOtherOut.total;
     const closingBalance = openingBalance + totalIn - totalOut;
 
+    const existingClosing = db.prepare('SELECT * FROM daily_closings WHERE closing_date = ?').get(date) as any;
+
     res.json({
       date,
+      isClosed: !!existingClosing,
+      closingRecord: existingClosing || null,
       openingBalance: Number(openingBalance.toFixed(2)),
       breakdown: {
         cashSales: Number(todaySales.total.toFixed(2)),
@@ -514,9 +518,184 @@ accountRouter.get('/daily-register', authenticateToken, (req: Request, res: Resp
       },
       totalIn: Number(totalIn.toFixed(2)),
       totalOut: Number(totalOut.toFixed(2)),
-      closingBalance: Number(closingBalance.toFixed(2))
+      expectedCash: Number(closingBalance.toFixed(2))
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to generate daily register report', details: err.message });
   }
 });
+
+// Perform Day-End Closing Settlement
+accountRouter.post('/daily-closings', authenticateToken, requireRole(['Admin', 'Pharmacist']), (req: Request, res: Response) => {
+  try {
+    const { closingDate, actualCash, notes } = req.body;
+    const userId = (req as any).user.id;
+
+    const date = closingDate || new Date().toISOString().split('T')[0];
+    const actual = Number(actualCash);
+
+    if (isNaN(actual) || actual < 0) {
+      return res.status(400).json({ error: 'Valid non-negative actual cash count is required.' });
+    }
+
+    const result = runTransaction(() => {
+      // Calculate expected figures for the date
+      const opening = db.prepare(`
+        SELECT 
+          COALESCE(SUM(CASE WHEN entry_type = 'IN' THEN amount ELSE 0 END), 0) -
+          COALESCE(SUM(CASE WHEN entry_type = 'OUT' THEN amount ELSE 0 END), 0) as opening_balance
+        FROM cashbook_entries
+        WHERE DATE(created_at) < DATE(?)
+      `).get(date) as { opening_balance: number };
+
+      const todaySales = db.prepare(`
+        SELECT COALESCE(SUM(amount), 0) as total FROM cashbook_entries 
+        WHERE DATE(created_at) = DATE(?) AND category = 'SALE' AND entry_type = 'IN'
+      `).get(date) as { total: number };
+
+      const todayCustomerRecoveries = db.prepare(`
+        SELECT COALESCE(SUM(amount), 0) as total FROM cashbook_entries 
+        WHERE DATE(created_at) = DATE(?) AND category = 'CUSTOMER_RECOVERY' AND entry_type = 'IN'
+      `).get(date) as { total: number };
+
+      const todaySupplierPayments = db.prepare(`
+        SELECT COALESCE(SUM(amount), 0) as total FROM cashbook_entries 
+        WHERE DATE(created_at) = DATE(?) AND category = 'SUPPLIER_PAYMENT' AND entry_type = 'OUT'
+      `).get(date) as { total: number };
+
+      const todayExpenses = db.prepare(`
+        SELECT COALESCE(SUM(amount), 0) as total FROM cashbook_entries 
+        WHERE DATE(created_at) = DATE(?) AND category = 'EXPENSE' AND entry_type = 'OUT'
+      `).get(date) as { total: number };
+
+      const todayOtherIn = db.prepare(`
+        SELECT COALESCE(SUM(amount), 0) as total FROM cashbook_entries 
+        WHERE DATE(created_at) = DATE(?) AND entry_type = 'IN' AND category NOT IN ('SALE', 'CUSTOMER_RECOVERY')
+      `).get(date) as { total: number };
+
+      const todayOtherOut = db.prepare(`
+        SELECT COALESCE(SUM(amount), 0) as total FROM cashbook_entries 
+        WHERE DATE(created_at) = DATE(?) AND entry_type = 'OUT' AND category NOT IN ('SUPPLIER_PAYMENT', 'EXPENSE')
+      `).get(date) as { total: number };
+
+      const openBal = Number(opening.opening_balance || 0);
+      const cSales = Number(todaySales.total || 0);
+      const cRec = Number(todayCustomerRecoveries.total || 0);
+      const oIn = Number(todayOtherIn.total || 0);
+      const sPay = Number(todaySupplierPayments.total || 0);
+      const oExp = Number(todayExpenses.total || 0);
+      const oOut = Number(todayOtherOut.total || 0);
+
+      const expected = openBal + cSales + cRec + oIn - (sPay + oExp + oOut);
+      const variance = actual - expected;
+
+      const closingStmt = db.prepare(`
+        INSERT INTO daily_closings (
+          closing_date, opening_balance, cash_sales, customer_recoveries, other_inflows,
+          supplier_payments, operating_expenses, other_outflows, expected_cash, actual_cash,
+          variance, status, notes, closed_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?)
+        ON CONFLICT(closing_date) DO UPDATE SET
+          opening_balance = excluded.opening_balance,
+          cash_sales = excluded.cash_sales,
+          customer_recoveries = excluded.customer_recoveries,
+          other_inflows = excluded.other_inflows,
+          supplier_payments = excluded.supplier_payments,
+          operating_expenses = excluded.operating_expenses,
+          other_outflows = excluded.other_outflows,
+          expected_cash = excluded.expected_cash,
+          actual_cash = excluded.actual_cash,
+          variance = excluded.variance,
+          notes = excluded.notes,
+          closed_by = excluded.closed_by,
+          closed_at = CURRENT_TIMESTAMP
+      `);
+
+      const res = closingStmt.run(
+        date,
+        openBal,
+        cSales,
+        cRec,
+        oIn,
+        sPay,
+        oExp,
+        oOut,
+        expected,
+        actual,
+        variance,
+        notes || null,
+        userId
+      );
+
+      // If there's an overage or shortage variance, optionally record cashbook variance adjustment
+      if (variance !== 0) {
+        const vType = variance > 0 ? 'IN' : 'OUT';
+        const vCategory = variance > 0 ? 'CASH_OVERAGE' : 'CASH_SHORTAGE';
+        db.prepare(`
+          INSERT INTO cashbook_entries (
+            entry_type, category, amount, reference_type, reference_id, description, created_by
+          ) VALUES (?, ?, ?, 'DAY_CLOSING', ?, ?, ?)
+        `).run(
+          vType,
+          vCategory,
+          Math.abs(variance),
+          date,
+          `Day-End Settlement Variance: ${variance > 0 ? 'Overage (+)' : 'Shortage (-)'} of Rs. ${Math.abs(variance).toFixed(2)}`,
+          userId
+        );
+      }
+
+      return { closingId: res.lastInsertRowid, expected, actual, variance };
+    });
+
+    logAudit({
+      userId,
+      action: 'DAY_END_CLOSING_PERFORMED',
+      entity: 'daily_closings',
+      entityId: date,
+      details: { date, expectedCash: result.expected, actualCash: result.actual, variance: result.variance, notes },
+      req
+    });
+
+    res.status(201).json({
+      message: `Day-End Settlement for ${date} recorded successfully`,
+      summary: result
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to record Day-End settlement', details: err.message });
+  }
+});
+
+// List Historic Day-End Closings
+accountRouter.get('/daily-closings', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const { startDate, endDate, limit = 50, offset = 0 } = req.query;
+
+    let query = `
+      SELECT dc.*, u.username as closed_by_name, u.full_name as closed_by_full_name
+      FROM daily_closings dc
+      LEFT JOIN users u ON dc.closed_by = u.id
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+
+    if (startDate) {
+      query += ` AND DATE(dc.closing_date) >= DATE(?)`;
+      params.push(startDate);
+    }
+    if (endDate) {
+      query += ` AND DATE(dc.closing_date) <= DATE(?)`;
+      params.push(endDate);
+    }
+
+    query += ` ORDER BY dc.closing_date DESC LIMIT ? OFFSET ?`;
+    params.push(Number(limit), Number(offset));
+
+    const closings = db.prepare(query).all(...params);
+
+    res.json({ closings });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to retrieve daily closings history', details: err.message });
+  }
+});
+

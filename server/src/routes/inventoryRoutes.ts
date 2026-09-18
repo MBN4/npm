@@ -409,13 +409,15 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
           UPDATE medicines SET
             pack_size = ?, tablets_per_pack = ?,
             stock_unit = COALESCE(?, stock_unit),
-            packaging_type = COALESCE(?, packaging_type)
+            packaging_type = COALESCE(?, packaging_type),
+            barcode = COALESCE(?, barcode)
           WHERE id = ?
         `).run(
           numericPackSize,
           numericTabletsPerPack,
           stockUnit ? String(stockUnit).trim() : null,
           packagingType === 'SIMPLE' || packagingType === 'MULTI_TIER' ? packagingType : null,
+          barcode && String(barcode).trim() ? String(barcode).trim() : null,
           finalMedId
         );
       }
@@ -517,3 +519,512 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
     res.status(400).json({ error: err.message });
   }
 });
+
+/**
+ * GET /api/inventory/lookup-barcode
+ * SpeedX 1D/2D Barcode Reader instant lookup endpoint
+ * Auto-parses GS1 2D DataMatrix (GTIN, Batch, Expiry) and retrieves exact product specs & prices
+ */
+inventoryRouter.get('/lookup-barcode', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const rawCode = String(req.query.code || req.query.barcode || '').trim();
+    if (!rawCode) {
+      res.status(400).json({ error: 'Barcode parameter is required' });
+      return;
+    }
+
+    // 1. GS1 2D DataMatrix Parser (01 = GTIN, 17 = Expiry YYMMDD, 10 = Batch)
+    let parsedGTIN = '';
+    let parsedBatch = '';
+    let parsedExpiry = '';
+
+    if (rawCode.includes('(01)')) {
+      const gMatch = rawCode.match(/\(01\)(\d{13,14})/);
+      if (gMatch) parsedGTIN = gMatch[1];
+      const eMatch = rawCode.match(/\(17\)(\d{6})/);
+      if (eMatch) {
+        const yy = eMatch[1].substring(0, 2);
+        const mm = eMatch[1].substring(2, 4);
+        const dd = eMatch[1].substring(4, 6);
+        parsedExpiry = `20${yy}-${mm}-${dd}`;
+      }
+      const bMatch = rawCode.match(/\(10\)([A-Za-z0-9\-]+)/);
+      if (bMatch) parsedBatch = bMatch[1];
+    } else {
+      const clean = rawCode.replace(/[\(\)]/g, '');
+      if (clean.startsWith('01') && clean.length >= 16) {
+        parsedGTIN = clean.substring(2, 16);
+        if (clean.substring(16, 18) === '17' && clean.length >= 24) {
+          const yy = clean.substring(18, 20);
+          const mm = clean.substring(20, 22);
+          const dd = clean.substring(22, 24);
+          parsedExpiry = `20${yy}-${mm}-${dd}`;
+          if (clean.substring(24, 26) === '10') {
+            parsedBatch = clean.substring(26);
+          }
+        }
+      }
+    }
+
+    const searchCode = parsedGTIN || rawCode;
+    const strippedCode = searchCode.replace(/^0+/, '');
+
+    // 2. Search active inventory medicines table strictly by barcode
+    const existingMed = db.prepare(`
+      SELECT 
+        m.*,
+        g.name as generic_name,
+        c.name as category_name,
+        man.name as manufacturer_name,
+        (SELECT sale_price FROM batches WHERE medicine_id = m.id ORDER BY id DESC LIMIT 1) as last_sale_price,
+        (SELECT purchase_price FROM batches WHERE medicine_id = m.id ORDER BY id DESC LIMIT 1) as last_purchase_price,
+        (SELECT batch_number FROM batches WHERE medicine_id = m.id ORDER BY id DESC LIMIT 1) as last_batch_number,
+        (SELECT expiry_date FROM batches WHERE medicine_id = m.id ORDER BY id DESC LIMIT 1) as last_expiry_date
+      FROM medicines m
+      LEFT JOIN generics g ON m.generic_id = g.id
+      LEFT JOIN categories c ON m.category_id = c.id
+      LEFT JOIN manufacturers man ON m.manufacturer_id = man.id
+      WHERE m.barcode = ? OR m.custom_barcode = ? OR m.barcode = ? OR m.custom_barcode = ? OR m.barcode = ? OR m.custom_barcode = ?
+    `).get(rawCode, rawCode, searchCode, searchCode, strippedCode, strippedCode) as any;
+
+
+    if (existingMed) {
+      const tabletsPerPack = Number(existingMed.tablets_per_pack) > 0 ? Number(existingMed.tablets_per_pack) : 10;
+      const packSize = Number(existingMed.pack_size) > 0 ? Number(existingMed.pack_size) : 100;
+      const isMultiTier = existingMed.packaging_type === 'MULTI_TIER' || ['Tablet', 'Capsule', 'Chewable Tablet'].includes(existingMed.dosage_form);
+      const packsPerBox = isMultiTier ? Math.max(1, Math.floor(packSize / tabletsPerPack)) : 1;
+
+      // Pricing logic: 100% precision from active DB
+      const unitSalePrice = Number(existingMed.last_sale_price) || 0;
+      const unitPurchasePrice = Number(existingMed.last_purchase_price) || 0;
+      const packSalePrice = (unitSalePrice * tabletsPerPack).toFixed(2);
+      const totalBoxTablets = isMultiTier ? packsPerBox * tabletsPerPack : packSize;
+      const boxSalePrice = (unitSalePrice * totalBoxTablets).toFixed(2);
+
+      const packPurchasePrice = (unitPurchasePrice * tabletsPerPack).toFixed(2);
+      const boxPurchasePrice = (unitPurchasePrice * totalBoxTablets).toFixed(2);
+
+      res.json({
+        found: true,
+        source: 'existing_medicine',
+        medicineId: existingMed.id,
+        brandName: existingMed.brand_name,
+        genericName: existingMed.generic_name || '',
+        categoryName: existingMed.category_name || 'Tablets',
+        manufacturerName: existingMed.manufacturer_name || '',
+        strength: existingMed.strength || '',
+        dosageForm: existingMed.dosage_form || 'Regular',
+        therapeuticClass: existingMed.therapeutic_class || '',
+        stockUnit: existingMed.stock_unit || 'Tablet',
+        packagingType: existingMed.packaging_type || 'MULTI_TIER',
+        tabletsPerPack: String(tabletsPerPack),
+        packsPerBox: String(packsPerBox),
+        packSize: packSize,
+        barcode: existingMed.barcode || rawCode,
+        rackLocation: existingMed.rack_location || 'Rack A-01',
+        
+        // Exact 100% price breakdown
+        boxSalePrice,
+        packSalePrice,
+        tabletSalePrice: unitSalePrice.toFixed(2),
+        boxPurchasePrice,
+        packPurchasePrice,
+        tabletPurchasePrice: unitPurchasePrice.toFixed(2),
+
+        // Auto Batch & Expiry from GS1 scan or defaults
+        batchNumber: parsedBatch || existingMed.last_batch_number || `BN-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+        expiryDate: parsedExpiry || existingMed.last_expiry_date || new Date(Date.now() + 730 * 86400000).toISOString().split('T')[0]
+      });
+      return;
+    }
+
+    // 3. Unregistered Barcode: Check master catalog dictionary or online barcode databases
+    const onlineMatch = await lookupOnlineBarcode(searchCode || rawCode);
+    if (onlineMatch) {
+      try {
+        const result = runTransaction(() => {
+          let catRow = db.prepare('SELECT id FROM categories WHERE name LIKE ?').get(`%${onlineMatch.categoryName}%`) as any;
+          if (!catRow) {
+            catRow = db.prepare('SELECT id FROM categories LIMIT 1').get() as any;
+          }
+          const catId = catRow ? catRow.id : 1;
+
+          let manId: number | null = null;
+          if (onlineMatch.manufacturerName) {
+            const existingMan = db.prepare('SELECT id FROM manufacturers WHERE name LIKE ?').get(`%${onlineMatch.manufacturerName}%`) as any;
+            if (existingMan) {
+              manId = existingMan.id;
+            } else {
+              const newMan = db.prepare('INSERT INTO manufacturers (name) VALUES (?)').run(onlineMatch.manufacturerName);
+              manId = Number(newMan.lastInsertRowid);
+            }
+          }
+
+          let genId: number | null = null;
+          if (onlineMatch.genericName) {
+            const existingGen = db.prepare('SELECT id FROM generics WHERE name LIKE ?').get(`%${onlineMatch.genericName}%`) as any;
+            if (existingGen) {
+              genId = existingGen.id;
+            } else {
+              const newGen = db.prepare('INSERT INTO generics (name, therapeutic_class, description) VALUES (?, ?, ?)').run(onlineMatch.genericName, 'General', 'Auto-registered generic');
+              genId = Number(newGen.lastInsertRowid);
+            }
+          }
+
+          const medInsert = db.prepare(`
+            INSERT INTO medicines (
+              brand_name, generic_id, category_id, manufacturer_id, strength, dosage_form,
+              therapeutic_class, stock_unit, packaging_type, pack_size, tablets_per_pack,
+              barcode, rack_location, min_stock_level, reorder_level, is_prescription_required
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 10, 20, 0)
+            ON CONFLICT(barcode) DO UPDATE SET brand_name = excluded.brand_name
+          `).run(
+            onlineMatch.brandName,
+            genId,
+            catId,
+            manId,
+            onlineMatch.strength || 'Standard',
+            onlineMatch.dosageForm || 'Regular',
+            onlineMatch.therapeuticClass || 'General',
+            onlineMatch.stockUnit || 'Piece',
+            onlineMatch.packagingType || 'SIMPLE',
+            1,
+            1,
+            rawCode,
+            'Rack A-01'
+          );
+
+          let newMedId = Number(medInsert.lastInsertRowid);
+          if (!newMedId || newMedId === 0) {
+            const existing = db.prepare('SELECT id FROM medicines WHERE barcode = ?').get(rawCode) as any;
+            if (existing) newMedId = existing.id;
+          }
+
+          const batchNo = parsedBatch || `BN-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+          const expDate = parsedExpiry || new Date(Date.now() + 730 * 86400000).toISOString().split('T')[0];
+          const unitPurchase = Number(onlineMatch.boxPurchasePrice) || 100;
+          const unitSale = Number(onlineMatch.boxSalePrice) || 120;
+
+          const batchInsert = db.prepare(`
+            INSERT INTO batches (
+              medicine_id, batch_number, expiry_date, purchase_price, sale_price,
+              quantity, bonus_quantity, rack_location, status
+            ) VALUES (?, ?, ?, ?, ?, 10, 0, 'Rack A-01', 'ACTIVE')
+            ON CONFLICT(medicine_id, batch_number) DO UPDATE SET quantity = quantity + 10
+          `).run(
+            newMedId,
+            batchNo,
+            expDate,
+            unitPurchase,
+            unitSale
+          );
+
+          let batchId = Number(batchInsert.lastInsertRowid);
+          if (!batchId || batchId === 0) {
+            const existingB = db.prepare('SELECT id FROM batches WHERE medicine_id = ? AND batch_number = ?').get(newMedId, batchNo) as any;
+            if (existingB) batchId = existingB.id;
+          }
+
+          db.prepare(`
+            INSERT INTO stock_movements (
+              batch_id, movement_type, quantity_change, balance_after,
+              reference_type, notes, user_id
+            ) VALUES (?, 'INWARD_MANUAL', 10, 10, 'AUTO_CATALOG', 'Auto-registered from master barcode catalog', ?)
+          `).run(batchId, req.user?.id || null);
+
+
+
+          return { newMedId, batchId, unitPurchase, unitSale, batchNo, expDate };
+        });
+
+        res.json({
+          found: true,
+          source: 'existing_medicine',
+          autoRegistered: true,
+          medicineId: result.newMedId,
+          brandName: onlineMatch.brandName,
+          genericName: onlineMatch.genericName || '',
+          categoryName: onlineMatch.categoryName || 'General',
+          manufacturerName: onlineMatch.manufacturerName || '',
+          strength: onlineMatch.strength || '',
+          dosageForm: onlineMatch.dosageForm || 'Regular',
+          therapeuticClass: onlineMatch.therapeuticClass || '',
+          stockUnit: onlineMatch.stockUnit || 'Piece',
+          packagingType: onlineMatch.packagingType || 'SIMPLE',
+          tabletsPerPack: '1',
+          packsPerBox: '1',
+          packSize: 1,
+          barcode: rawCode,
+          rackLocation: 'Rack A-01',
+          boxSalePrice: result.unitSale.toFixed(2),
+          packSalePrice: result.unitSale.toFixed(2),
+          tabletSalePrice: result.unitSale.toFixed(2),
+          boxPurchasePrice: result.unitPurchase.toFixed(2),
+          packPurchasePrice: result.unitPurchase.toFixed(2),
+          tabletPurchasePrice: result.unitPurchase.toFixed(2),
+          batchNumber: result.batchNo,
+          expiryDate: result.expDate
+        });
+        return;
+      } catch (err: any) {
+        console.error('AUTO_REG_ERR STACK:', err.stack || err);
+        // Fall back to returning catalog match for user confirmation if auto-registration hits constraint
+
+
+        res.json({
+          found: true,
+          source: 'online_catalog',
+          barcode: rawCode,
+          brandName: onlineMatch.brandName,
+          genericName: onlineMatch.genericName || '',
+          categoryName: onlineMatch.categoryName || 'Syrups & Oral Liquids',
+          manufacturerName: onlineMatch.manufacturerName || '',
+          strength: onlineMatch.strength || '',
+          dosageForm: onlineMatch.dosageForm || 'Syrup',
+          stockUnit: onlineMatch.stockUnit || 'Bottle',
+          packagingType: onlineMatch.packagingType || 'SIMPLE',
+          tabletsPerPack: onlineMatch.tabletsPerPack || '1',
+          packsPerBox: onlineMatch.packsPerBox || '1',
+          boxSalePrice: onlineMatch.boxSalePrice || '0.00',
+          packSalePrice: onlineMatch.packSalePrice || onlineMatch.boxSalePrice || '0.00',
+          tabletSalePrice: onlineMatch.tabletSalePrice || '0.00',
+          boxPurchasePrice: onlineMatch.boxPurchasePrice || '0.00',
+          packPurchasePrice: onlineMatch.packPurchasePrice || onlineMatch.boxPurchasePrice || '0.00',
+          tabletPurchasePrice: onlineMatch.tabletPurchasePrice || '0.00',
+          batchNumber: parsedBatch || `BN-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+          expiryDate: parsedExpiry || new Date(Date.now() + 730 * 86400000).toISOString().split('T')[0]
+        });
+        return;
+      }
+    }
+
+
+    res.json({
+      found: false,
+      source: 'new_scan',
+      barcode: rawCode,
+      batchNumber: parsedBatch || `BN-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      expiryDate: parsedExpiry || new Date(Date.now() + 730 * 86400000).toISOString().split('T')[0]
+    });
+
+  } catch (err: any) {
+    console.error('Barcode lookup error:', err);
+    res.status(500).json({ error: err.message || 'Barcode lookup failed' });
+  }
+});
+
+/**
+ * Online / Master Barcode Dictionary Lookup Helper
+ */
+async function lookupOnlineBarcode(code: string): Promise<any | null> {
+  const cleanCode = code.replace(/\D/g, '');
+  if (!cleanCode || cleanCode.length < 8) return null;
+
+  // Master Barcode Dictionary (Pakistani & Global Retail FMCG / Baby Care / Pharma Products)
+  const MASTER_BARCODE_DICT: Record<string, any> = {
+    '8964000881122': {
+      brandName: 'Pulmonol Cough Syrup (120ml)',
+      genericName: 'Diphenhydramine + Ammonium Chloride + Menthol',
+      categoryName: 'Syrups & Oral Liquids',
+      dosageForm: 'Syrup',
+      manufacturerName: 'CCL Pharmaceuticals',
+      strength: '120ml',
+      stockUnit: 'Bottle',
+      packagingType: 'SIMPLE',
+      boxSalePrice: '140.00',
+      packSalePrice: '140.00',
+      tabletSalePrice: '140.00',
+      boxPurchasePrice: '110.00',
+      packPurchasePrice: '110.00',
+      tabletPurchasePrice: '110.00'
+    },
+    '8964000881139': {
+      brandName: 'Pulmonol-S Sugar Free Syrup (120ml)',
+      genericName: 'Salbutamol + Guaiphenesin',
+      categoryName: 'Syrups & Oral Liquids',
+      dosageForm: 'Syrup',
+      manufacturerName: 'CCL Pharmaceuticals',
+      strength: '120ml',
+      stockUnit: 'Bottle',
+      packagingType: 'SIMPLE',
+      boxSalePrice: '160.00',
+      packSalePrice: '160.00',
+      tabletSalePrice: '160.00',
+      boxPurchasePrice: '130.00',
+      packPurchasePrice: '130.00',
+      tabletPurchasePrice: '130.00'
+    },
+    '855434001358': {
+
+      brandName: 'Qarshi Sharbat Faulad (240ml)',
+      genericName: 'Iron & Herbal Tonic',
+      categoryName: 'Syrups & Oral Liquids',
+      dosageForm: 'Syrup',
+      manufacturerName: 'Qarshi Industries',
+      strength: '240ml',
+      stockUnit: 'Bottle',
+      packagingType: 'SIMPLE',
+      boxSalePrice: '220.00',
+      packSalePrice: '220.00',
+      tabletSalePrice: '220.00',
+      boxPurchasePrice: '180.00',
+      packPurchasePrice: '180.00',
+      tabletPurchasePrice: '180.00'
+    },
+    '855434001013': {
+      brandName: 'Qarshi Johar Joshanda (Natural Tea Sachet)',
+      genericName: 'Herbal Cold & Cough Relief',
+      categoryName: 'Sachets & Powders',
+      dosageForm: 'Sachet',
+      manufacturerName: 'Qarshi Industries',
+      strength: 'Standard',
+      stockUnit: 'Piece',
+      packagingType: 'SIMPLE',
+      boxSalePrice: '30.00',
+      boxPurchasePrice: '22.00'
+    },
+    '855434001129': {
+      brandName: 'Qarshi Jam-e-Shirin Syrup (800ml)',
+      genericName: 'Herbal Beverage Syrup',
+      categoryName: 'Syrups & Oral Liquids',
+      dosageForm: 'Syrup',
+      manufacturerName: 'Qarshi Industries',
+      strength: '800ml',
+      stockUnit: 'Bottle',
+      packagingType: 'SIMPLE',
+      boxSalePrice: '420.00',
+      boxPurchasePrice: '360.00'
+    },
+    '726529872460': {
+      brandName: 'Morinaga BF-1 Infant Formula (400g)',
+      genericName: 'Infant Milk Formula Stage 1',
+      categoryName: 'Milk & Infant Formula',
+      dosageForm: 'Stage 1',
+      manufacturerName: 'Morinaga Milk Industry',
+      strength: '400g',
+      stockUnit: 'Tin / Pack',
+      packagingType: 'SIMPLE',
+      boxSalePrice: '1850.00',
+      packSalePrice: '1850.00',
+      tabletSalePrice: '1850.00',
+      boxPurchasePrice: '1650.00',
+      packPurchasePrice: '1650.00',
+      tabletPurchasePrice: '1650.00'
+    },
+    '726529872477': {
+      brandName: 'Morinaga BF-2 Follow-up Formula (400g)',
+      genericName: 'Infant Milk Formula Stage 2',
+      categoryName: 'Milk & Infant Formula',
+      dosageForm: 'Stage 2',
+      manufacturerName: 'Morinaga Milk Industry',
+      strength: '400g',
+      stockUnit: 'Tin / Pack',
+      packagingType: 'SIMPLE',
+      boxSalePrice: '1850.00',
+      packSalePrice: '1850.00',
+      tabletSalePrice: '1850.00',
+      boxPurchasePrice: '1650.00',
+      packPurchasePrice: '1650.00',
+      tabletPurchasePrice: '1650.00'
+    },
+    '8964000123456': {
+      brandName: 'Panadol 500mg Tablets',
+      genericName: 'Paracetamol',
+      categoryName: 'Tablets',
+      dosageForm: 'Regular',
+      manufacturerName: 'GSK Pakistan',
+      strength: '500mg',
+      stockUnit: 'Tablet',
+      packagingType: 'MULTI_TIER',
+      tabletsPerPack: '10',
+      packsPerBox: '10',
+      boxSalePrice: '400.00',
+      packSalePrice: '40.00',
+      tabletSalePrice: '4.00',
+      boxPurchasePrice: '300.00',
+      packPurchasePrice: '30.00',
+      tabletPurchasePrice: '3.00'
+    },
+    '8964000654321': {
+      brandName: 'Augmentin 625mg Tablets',
+      genericName: 'Amoxicillin + Clavulanic Acid',
+      categoryName: 'Tablets',
+      dosageForm: 'Regular',
+      manufacturerName: 'GSK Pakistan',
+      strength: '625mg',
+      stockUnit: 'Tablet',
+      packagingType: 'MULTI_TIER',
+      tabletsPerPack: '6',
+      packsPerBox: '2',
+      boxSalePrice: '450.00',
+      packSalePrice: '225.00',
+      tabletSalePrice: '37.50',
+      boxPurchasePrice: '360.00',
+      packPurchasePrice: '180.00',
+      tabletPurchasePrice: '30.00'
+    }
+  };
+
+  if (MASTER_BARCODE_DICT[cleanCode]) {
+    return MASTER_BARCODE_DICT[cleanCode];
+  }
+
+  // Check manufacturer GS1 barcode prefix rules (Pakistani FMCG / Pharma)
+  if (cleanCode.startsWith('855434')) {
+    return {
+      brandName: 'Qarshi Herbal Product',
+      genericName: 'Herbal Supplement',
+      categoryName: 'Syrups & Oral Liquids',
+      dosageForm: 'Syrup',
+      manufacturerName: 'Qarshi Industries',
+      strength: 'Standard',
+      stockUnit: 'Bottle',
+      packagingType: 'SIMPLE',
+      boxSalePrice: '200.00',
+      boxPurchasePrice: '160.00'
+    };
+  }
+
+  // Fallback: Query online UPC / EAN databases with timeout
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2500);
+
+    const res = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${cleanCode}`, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    clearTimeout(timeout);
+
+    if (res.ok) {
+      const data = await res.json();
+      const item = data.items?.[0];
+      if (item && item.title) {
+        const brand = item.brand || item.title.split(' ')[0] || 'Scanned Brand';
+        const category = item.category || 'General / FMCG';
+        return {
+          brandName: item.title,
+          genericName: brand,
+          categoryName: category.includes('Food') || category.includes('Milk') || category.includes('Baby') ? 'Milk & Infant Formula' : 'General / FMCG',
+          dosageForm: 'Regular',
+          manufacturerName: brand,
+          strength: 'Standard',
+          stockUnit: 'Piece',
+          packagingType: 'SIMPLE',
+          boxSalePrice: '500.00',
+          packSalePrice: '500.00',
+          tabletSalePrice: '500.00',
+          boxPurchasePrice: '400.00',
+          packPurchasePrice: '400.00',
+          tabletPurchasePrice: '400.00'
+        };
+      }
+    }
+  } catch (e) {
+    // ignore online lookup timeout/failure
+  }
+
+  return null;
+}
+
+

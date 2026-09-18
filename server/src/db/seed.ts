@@ -398,6 +398,9 @@ export function seedDatabase() {
     insertMedicine.run(17, 'Sunflex 275mg', getGenId('Naproxen Sodium'), getCatId('Analgesics'), getMfgId('Searle'), '275mg', 'Tablet', 20, '896400444556', 'MED-017', 'Rack A-4', 20, 40, 0, 'Naproxen sodium analgesic');
     insertMedicine.run(18, 'Sunflex 100mg', getGenId('Aceclofenac'), getCatId('Analgesics'), getMfgId('Getz'), '100mg', 'Tablet', 20, '896400555667', 'MED-018', 'Rack A-5', 20, 40, 1, 'Aceclofenac arthritis and joint pain tablet');
 
+
+
+
     const insertBatch = db.prepare(`
       INSERT INTO batches (
         id, medicine_id, batch_number, mfg_date, expiry_date, purchase_price, sale_price,
@@ -430,6 +433,9 @@ export function seedDatabase() {
     insertBatch.run(17, 16, 'SYN-2026-01', '2025-02-01', '2028-01-31', 14.50, 21.00, 350, 0, 1, 'Rack A-4', 'ACTIVE');
     insertBatch.run(18, 17, 'SUN-2026-01', '2025-03-01', '2027-12-31', 8.00, 12.00, 400, 0, 1, 'Rack A-4', 'ACTIVE');
     insertBatch.run(19, 18, 'ACE-2026-01', '2025-01-15', '2027-11-30', 11.00, 16.50, 280, 0, 2, 'Rack A-5', 'ACTIVE');
+
+
+
 
     const insertCust = db.prepare(`
       INSERT INTO customers (id, name, mobile, age, gender, allergy_notes, credit_limit, current_balance)

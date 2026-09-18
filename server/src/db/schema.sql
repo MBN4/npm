@@ -494,6 +494,26 @@ CREATE TABLE IF NOT EXISTS user_pharma_notes (
   UNIQUE(user_id, generic_id)
 );
 
+CREATE TABLE IF NOT EXISTS daily_closings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  closing_date TEXT UNIQUE NOT NULL,
+  opening_balance REAL DEFAULT 0.0,
+  cash_sales REAL DEFAULT 0.0,
+  customer_recoveries REAL DEFAULT 0.0,
+  other_inflows REAL DEFAULT 0.0,
+  supplier_payments REAL DEFAULT 0.0,
+  operating_expenses REAL DEFAULT 0.0,
+  other_outflows REAL DEFAULT 0.0,
+  expected_cash REAL DEFAULT 0.0,
+  actual_cash REAL DEFAULT 0.0,
+  variance REAL DEFAULT 0.0,
+  status TEXT DEFAULT 'CLOSED',
+  notes TEXT,
+  closed_by INTEGER NOT NULL,
+  closed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (closed_by) REFERENCES users(id)
+);
+
 -- Indices for performance
 CREATE INDEX IF NOT EXISTS idx_medicines_brand ON medicines(brand_name);
 CREATE INDEX IF NOT EXISTS idx_medicines_barcode ON medicines(barcode);
@@ -504,4 +524,6 @@ CREATE INDEX IF NOT EXISTS idx_sales_created ON sales(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_drug_interactions ON drug_interactions(generic_a_id, generic_b_id);
 CREATE INDEX IF NOT EXISTS idx_user_pharma_fav ON user_pharma_favorites(user_id, generic_id);
+CREATE INDEX IF NOT EXISTS idx_daily_closings_date ON daily_closings(closing_date);
+
 

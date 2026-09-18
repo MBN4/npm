@@ -2,6 +2,18 @@
 
 All notable changes and architectural deliverables for **Naveed Medical Pharmacy (NMP)** are documented below.
 
+## [1.1.0] - 2026-09-19 — Store Balance & Day-End Closing Settlement Release
+
+### Store Cash Balance & Settlement System
+- **`daily_closings` Database Engine**: Created structured schema with `closing_date` constraint (`YYYY-MM-DD`), opening cash balance, cash sales breakdown, customer recoveries, supplier payouts, operating expenses, expected drawer cash, actual counted cash, overage (+)/shortage (-) variance tracking, notes, and closing audit timestamp.
+- **`+ Add Money (Cash In)` Modal**: Enables manual cash float additions and owner investments with detailed transaction notes saved in `cashbook_entries`.
+- **`- Subtract Money (Cash Out)` Modal**: Enables recording operating expenses, vendor payouts, and petty cash withdrawals with payee names and detailed description fields saved in DB.
+- **Day-End Shift Closing Settlement Wizard**: Calculates expected drawer cash based on liquid register flow, allows cashiers/admins to input physical drawer count, automatically calculates cash variance (+ overage / - shortage), records variance adjustment in cashbook, and seals shift closing.
+- **Thermal & PDF Printable Closing Receipts**: Formatted settlement receipt preview supporting 80mm ESC/POS thermal printers and A4 PDF export with itemized register breakdown and variance badge.
+- **Historical Settlement Log**: Tabbed historical closing log table with date filters and instant receipt re-printing.
+- **UI & Navigation Integration**: Added `Balance & Day-End 💰` tab in primary navigation sidebar and Accounts dashboard.
+- **Automated Test Coverage**: Updated vitest suite covering cash inflows (+), cash outflows (-), and Day-End settlements, maintaining 100% test pass rate across 70 tests in 12 test files.
+
 ---
 
 ## [1.0.0] - 2026-09-07 — Official Production Release

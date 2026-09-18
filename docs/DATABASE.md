@@ -47,6 +47,7 @@ SQLite 3.44+ with WAL (Write Ahead Logging) and Foreign Key Constraints enabled.
 ### 7. Accounts & Cashbook
 - `cashbook_entries`: (id, entry_type [IN, OUT], category, amount, reference_type, reference_id, description, created_by, created_at)
 - `expenses`: (id, expense_category, amount, payment_method, payee, description, created_by, created_at)
+- `daily_closings`: (id, closing_date [YYYY-MM-DD UNIQUE], opening_balance, cash_sales, customer_recoveries, other_inflows, supplier_payments, operating_expenses, other_outflows, expected_cash, actual_cash, variance, status, notes, closed_by, closed_at)
 
 ### 8. System & Settings
 - `settings`: (key, value, description, updated_at)

@@ -144,4 +144,50 @@ describe('Phase 2 - Medicine Master & Batch Inventory Test Suite', () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('Negative stock is strictly prohibited');
   });
+
+  it('GET /api/inventory/lookup-barcode handles SpeedX 1D and 2D GS1 barcode lookups accurately', async () => {
+    // 1. Registered product barcode lookup (Panadol 500mg)
+    const res = await request(app)
+      .get('/api/inventory/lookup-barcode?code=896400012345')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.found).toBe(true);
+    expect(res.body.brandName).toContain('Panadol');
+
+    // 2. 2D GS1 DataMatrix barcode lookup with parsed GTIN, Expiry, and Batch
+    const gs1Code = '(01)0896400012345(17)281231(10)BN-998877';
+    const gs1Res = await request(app)
+      .get(`/api/inventory/lookup-barcode?code=${encodeURIComponent(gs1Code)}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(gs1Res.status).toBe(200);
+    expect(gs1Res.body.found).toBe(true);
+    expect(gs1Res.body.batchNumber).toContain('BN-998877');
+    expect(gs1Res.body.expiryDate).toBe('2028-12-31');
+
+    // 3. Online Master Dictionary lookup (855434001358 -> Qarshi Sharbat Faulad 240ml)
+    const onlineRes = await request(app)
+      .get('/api/inventory/lookup-barcode?code=855434001358')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(onlineRes.status).toBe(200);
+    expect(onlineRes.body.found).toBe(true);
+    expect(onlineRes.body.brandName).toContain('Qarshi Sharbat Faulad');
+
+
+
+    // 4. Completely unregistered barcode lookup returns found: false cleanly
+    const unregRes = await request(app)
+      .get('/api/inventory/lookup-barcode?code=9998887776665')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(unregRes.status).toBe(200);
+    expect(unregRes.body.found).toBe(false);
+    expect(unregRes.body.barcode).toBe('9998887776665');
+  });
+
+
+
 });
+

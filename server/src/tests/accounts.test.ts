@@ -112,7 +112,7 @@ describe('Financial Accounts, Cashbook & P&L API', () => {
     expect(res.body).toHaveProperty('breakdown');
     expect(res.body).toHaveProperty('totalIn');
     expect(res.body).toHaveProperty('totalOut');
-    expect(res.body).toHaveProperty('closingBalance');
+    expect(res.body).toHaveProperty('expectedCash');
   });
 
   it('should delete expense and reverse cashbook entry', async () => {
@@ -150,5 +150,33 @@ describe('Financial Accounts, Cashbook & P&L API', () => {
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(cbRes.body.entries.some((e: any) => e.reference_type === 'EXPENSE' && e.reference_id === expId.toString())).toBe(false);
+  });
+
+  it('should perform Day-End shift closing settlement with notes and actual cash count', async () => {
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const res = await request(app)
+      .post('/api/accounts/daily-closings')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        closingDate: todayStr,
+        actualCash: 4500,
+        notes: 'Shift completed cleanly by admin with 0 shortage.'
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toHaveProperty('summary');
+    expect(res.body.summary.actual).toBe(4500);
+  });
+
+  it('should retrieve historic Day-End shift closings list', async () => {
+    const res = await request(app)
+      .get('/api/accounts/daily-closings')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('closings');
+    expect(Array.isArray(res.body.closings)).toBe(true);
+    expect(res.body.closings.length).toBeGreaterThan(0);
   });
 });

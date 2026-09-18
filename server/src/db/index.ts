@@ -149,6 +149,33 @@ export function initDatabase() {
     // ignore
   }
 
+  // Auto-migrate daily_closings table
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS daily_closings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        closing_date TEXT UNIQUE NOT NULL,
+        opening_balance REAL DEFAULT 0.0,
+        cash_sales REAL DEFAULT 0.0,
+        customer_recoveries REAL DEFAULT 0.0,
+        other_inflows REAL DEFAULT 0.0,
+        supplier_payments REAL DEFAULT 0.0,
+        operating_expenses REAL DEFAULT 0.0,
+        other_outflows REAL DEFAULT 0.0,
+        expected_cash REAL DEFAULT 0.0,
+        actual_cash REAL DEFAULT 0.0,
+        variance REAL DEFAULT 0.0,
+        status TEXT DEFAULT 'CLOSED',
+        notes TEXT,
+        closed_by INTEGER NOT NULL,
+        closed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (closed_by) REFERENCES users(id)
+      );
+    `);
+  } catch (e) {
+    // ignore
+  }
+
   // One-time cleanup: remove legacy therapeutic-style categories from the original 8-item seed,
   // now superseded by the 40-item Main Category master list - only if unused, never touches real data.
   try {
@@ -167,6 +194,7 @@ export function initDatabase() {
     // ignore
   }
 }
+
 
 // Transaction runner utility for ACID compliance
 export function runTransaction<T>(fn: () => T): T {

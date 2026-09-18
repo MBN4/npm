@@ -15,6 +15,7 @@ import {
   Users,
   AlertTriangle,
   ReceiptText,
+  Wallet,
   BarChart3,
   ShieldCheck,
   Settings
@@ -35,6 +36,7 @@ export type NavView =
   | 'patients'
   | 'expiry'
   | 'accounts'
+  | 'balance'
   | 'reports'
   | 'staff'
   | 'settings';
@@ -50,7 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => 
   const navItems: { id: NavView; label: string; icon: React.ReactNode; permission?: string; adminOnly?: boolean; badge?: string }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
     { id: 'pos', label: 'POS / Counter', icon: <ShoppingCart size={18} />, permission: 'create_sales' },
-    { id: 'medicines', label: 'Medicines Master', icon: <Pill size={18} />, permission: 'manage_medicines' },
+    { id: 'medicines', label: 'Medicines Master', icon: <Pill size={18} /> , permission: 'manage_medicines' },
     { id: 'inventory', label: 'Inventory & Stock', icon: <Boxes size={18} />, permission: 'manage_inventory' },
     { id: 'purchases', label: 'Purchases', icon: <Truck size={18} />, permission: 'view_purchases' },
     { id: 'suppliers', label: 'Suppliers', icon: <Building2 size={18} />, permission: 'manage_suppliers' },
@@ -62,6 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => 
     { id: 'patients', label: 'Patients & CRM', icon: <Users size={18} />, permission: 'manage_patients' },
     { id: 'expiry', label: 'Expiry Control', icon: <AlertTriangle size={18} /> },
     { id: 'accounts', label: 'Accounts & Cash', icon: <ReceiptText size={18} />, permission: 'view_accounts' },
+    { id: 'balance', label: 'Balance & Day-End 💰', icon: <Wallet size={18} />, permission: 'view_accounts' },
     { id: 'reports', label: 'Reports', icon: <BarChart3 size={18} />, permission: 'export_data' },
     { id: 'staff', label: 'Staff & Audit', icon: <ShieldCheck size={18} />, adminOnly: true },
     { id: 'settings', label: 'Settings', icon: <Settings size={18} />, adminOnly: true }

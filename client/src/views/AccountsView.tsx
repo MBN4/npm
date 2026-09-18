@@ -16,10 +16,11 @@ import {
   X,
   PieChart
 } from 'lucide-react';
+import { BalanceView } from './BalanceView.js';
 
 export const AccountsView: React.FC = () => {
   const { token, user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'cashbook' | 'expenses' | 'pl'>('cashbook');
+  const [activeTab, setActiveTab] = useState<'balance' | 'cashbook' | 'expenses' | 'pl'>('balance');
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -257,7 +258,7 @@ export const AccountsView: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '1600px', margin: '0 auto' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '1600px', margin: '0 auto', width: '100%' }}>
       {/* Header & Tabs */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
@@ -272,6 +273,23 @@ export const AccountsView: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--surface-hover)', padding: '0.25rem', borderRadius: 'var(--radius)' }}>
+          <button
+            onClick={() => setActiveTab('balance')}
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: 'var(--radius)',
+              border: 'none',
+              background: activeTab === 'balance' ? 'var(--primary)' : 'transparent',
+              color: activeTab === 'balance' ? '#fff' : 'var(--text-main)',
+              fontWeight: activeTab === 'balance' ? '600' : 'normal',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}
+          >
+            <Wallet size={16} /> Balance & Day-End 💰
+          </button>
           <button
             onClick={() => setActiveTab('cashbook')}
             style={{
@@ -342,6 +360,11 @@ export const AccountsView: React.FC = () => {
           <span>{statusMessage.text}</span>
         </div>
       )}
+
+      {/* ======================================================== */}
+      {/* TAB 0: BALANCE & DAY-END CLOSING                         */}
+      {/* ======================================================== */}
+      {activeTab === 'balance' && <BalanceView hideHeader={true} />}
 
       {/* ======================================================== */}
       {/* TAB 1: CASHBOOK & DAILY REGISTER                        */}

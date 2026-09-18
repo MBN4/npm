@@ -15,6 +15,7 @@ import { PatientsView } from './views/PatientsView.js';
 import { PrescriptionsView } from './views/PrescriptionsView.js';
 import { ExpiryView } from './views/ExpiryView.js';
 import { AccountsView } from './views/AccountsView.js';
+import { BalanceView } from './views/BalanceView.js';
 import { ReportsView } from './views/ReportsView.js';
 import { BarcodeView } from './views/BarcodeView.js';
 import { PharmaDictionaryView } from './views/PharmaDictionaryView.js';
@@ -70,6 +71,8 @@ export const AppContent: React.FC = () => {
         return <ExpiryView />;
       case 'accounts':
         return <AccountsView />;
+      case 'balance':
+        return <BalanceView />;
       case 'reports':
         return <ReportsView />;
       case 'staff':
@@ -86,7 +89,9 @@ export const AppContent: React.FC = () => {
       <Sidebar currentView={currentView} onNavigate={setCurrentView} />
       <div className="main-content">
         <Header currentView={currentView} onNavigate={setCurrentView} />
-        {renderView()}
+        <main className="page-container">
+          {renderView()}
+        </main>
       </div>
     </div>
   );
