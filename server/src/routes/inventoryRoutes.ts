@@ -16,7 +16,8 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
       COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
       m.stock_unit, m.packaging_type,
       c.name as category_name,
-      m.barcode, m.rack_location as medicine_rack,
+      m.barcode,
+      COALESCE(NULLIF(b.rack_location, ''), m.rack_location) as medicine_rack,
       s.name as supplier_name,
       CASE 
         WHEN b.expiry_date <= date('now') THEN 'EXPIRED'
@@ -30,7 +31,7 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
     JOIN medicines m ON b.medicine_id = m.id
     LEFT JOIN categories c ON m.category_id = c.id
     LEFT JOIN suppliers s ON b.supplier_id = s.id
-    WHERE 1=1
+    WHERE b.id != 0
   `;
   const params: any[] = [];
 
@@ -60,7 +61,20 @@ inventoryRouter.put('/batches/:id', authenticateToken, requirePermission('manage
     return;
   }
 
+  const trimmedBatchNumber = batchNumber ? String(batchNumber).trim() : null;
+
+  if (trimmedBatchNumber && trimmedBatchNumber !== existing.batch_number) {
+    const duplicate = db.prepare('SELECT id FROM batches WHERE medicine_id = ? AND batch_number = ? AND id != ?')
+      .get(existing.medicine_id, trimmedBatchNumber, batchId);
+    if (duplicate) {
+      res.status(400).json({ error: `A batch with number '${trimmedBatchNumber}' already exists for this medicine. Please specify a unique batch number.` });
+      return;
+    }
+  }
+
   try {
+    const trimmedRack = rackLocation !== undefined && rackLocation !== null ? String(rackLocation).trim() : null;
+
     db.prepare(`
       UPDATE batches SET
         batch_number = COALESCE(?, batch_number),
@@ -73,15 +87,23 @@ inventoryRouter.put('/batches/:id', authenticateToken, requirePermission('manage
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(
-      batchNumber ? batchNumber.trim() : null,
+      trimmedBatchNumber,
       expiryDate || null,
       mfgDate || null,
       purchasePrice !== undefined ? Number(purchasePrice) : null,
       salePrice !== undefined ? Number(salePrice) : null,
-      rackLocation ? rackLocation.trim() : null,
+      trimmedRack,
       status || null,
       batchId
     );
+
+    if (trimmedRack) {
+      db.prepare('UPDATE medicines SET rack_location = ? WHERE id = ?').run(trimmedRack, existing.medicine_id);
+    }
+
+    if (trimmedBatchNumber && trimmedBatchNumber !== existing.batch_number) {
+      db.prepare('UPDATE purchase_items SET batch_number = ? WHERE batch_id = ?').run(trimmedBatchNumber, batchId);
+    }
 
     logAudit({
       userId: req.user?.id,
@@ -89,7 +111,7 @@ inventoryRouter.put('/batches/:id', authenticateToken, requirePermission('manage
       entity: 'BATCHES',
       entityId: batchId,
       oldValues: existing,
-      newValues: { batchNumber, expiryDate, salePrice, purchasePrice, rackLocation },
+      newValues: { batchNumber: trimmedBatchNumber, expiryDate, salePrice, purchasePrice, rackLocation },
       ipAddress: req.ip
     });
 
@@ -108,14 +130,17 @@ inventoryRouter.delete('/batches/:id', authenticateToken, requirePermission('man
     return;
   }
 
-  const hasSales = db.prepare('SELECT COUNT(*) as cnt FROM sale_items WHERE batch_id = ?').get(batchId) as { cnt: number };
-  if (hasSales.cnt > 0) {
-    res.status(400).json({ error: `Cannot delete batch ${existing.batch_number}: It is linked to ${hasSales.cnt} historic sales invoices. You can adjust its stock to 0 instead.` });
-    return;
-  }
-
   try {
     runTransaction(() => {
+      db.prepare(`
+        INSERT OR IGNORE INTO batches (
+          id, medicine_id, batch_number, expiry_date, purchase_price, sale_price, quantity, status
+        ) VALUES (0, ?, 'SYSTEM-ARCHIVED', '2099-12-31', 0, 0, 0, 'DEPLETED')
+      `).run(existing.medicine_id);
+
+      db.prepare('UPDATE sale_items SET batch_id = 0 WHERE batch_id = ?').run(batchId);
+      db.prepare('UPDATE purchase_items SET batch_id = 0 WHERE batch_id = ?').run(batchId);
+      db.prepare('DELETE FROM expiry_claim_items WHERE batch_id = ?').run(batchId);
       db.prepare('DELETE FROM stock_movements WHERE batch_id = ?').run(batchId);
       db.prepare('DELETE FROM batches WHERE id = ?').run(batchId);
 
@@ -131,7 +156,8 @@ inventoryRouter.delete('/batches/:id', authenticateToken, requirePermission('man
 
     res.json({ message: `Batch ${existing.batch_number} deleted successfully` });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    console.error('Delete batch error:', err);
+    res.status(400).json({ error: err.message || 'Failed to delete batch' });
   }
 });
 

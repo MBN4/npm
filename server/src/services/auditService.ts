@@ -7,6 +7,7 @@ export interface AuditEntry {
   entityId?: string | number | null;
   oldValues?: any;
   newValues?: any;
+  details?: any;
   ipAddress?: string;
 }
 
@@ -17,13 +18,15 @@ export function logAudit(entry: AuditEntry): void {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
+    const newVals = entry.newValues ?? entry.details ?? null;
+
     stmt.run(
       entry.userId || null,
       entry.action,
       entry.entity,
       entry.entityId != null ? String(entry.entityId) : null,
       entry.oldValues ? JSON.stringify(entry.oldValues) : null,
-      entry.newValues ? JSON.stringify(entry.newValues) : null,
+      newVals ? JSON.stringify(newVals) : null,
       entry.ipAddress || null
     );
   } catch (err) {

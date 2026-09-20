@@ -344,15 +344,24 @@ body {
   font-size: 0.75rem;
 }
 
-/* Badges */
+/* Badges & Capsules System */
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.2rem 0.6rem;
-  font-size: 0.72rem;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.65rem;
+  font-size: 0.73rem;
   font-weight: 600;
+  line-height: 1.25;
   border-radius: var(--radius-full);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  transition: all 0.15s ease-in-out;
+  border: 1px solid transparent;
+}
+
+.badge-uppercase {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -360,21 +369,77 @@ body {
 .badge-primary {
   background-color: var(--primary-light);
   color: var(--primary);
+  border-color: var(--primary-border);
 }
 
 .badge-success {
   background-color: var(--success-light);
   color: var(--success-text);
+  border-color: rgba(16, 185, 129, 0.3);
 }
 
 .badge-warning {
   background-color: var(--warning-light);
   color: var(--warning-text);
+  border-color: rgba(245, 158, 11, 0.3);
 }
 
 .badge-danger {
   background-color: var(--danger-light);
   color: var(--danger-text);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.badge-purple {
+  background-color: rgba(139, 92, 246, 0.12);
+  color: #a78bfa;
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+/* Category & Product Feature Capsules */
+.category-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.73rem;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  background: var(--primary-light);
+  color: var(--primary);
+  border: 1px solid var(--primary-border);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.sku-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.1);
+  color: var(--primary);
+  border: 1px solid var(--primary-border);
+  width: fit-content;
+}
+
+.rack-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 6px;
+  background: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  width: fit-content;
 }
 
 /* Form Elements */

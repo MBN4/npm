@@ -151,6 +151,6 @@ export function printToWindowsPrinter(text: string, printerName: string = 'Speed
     Buffer.from([0x1B, 0x64, 0x06]), // ESC d 6 - Feed 6 lines so text fully clears the tear bar
     Buffer.from([0x1D, 0x56, 0x41, 0x00]) // GS V 65 0 - Partial cut
   ];
-  return printRawToPrinter(Buffer.concat(chunks), printerName);
+  return printRawToPrinter(Buffer.concat(chunks), printerName).then(res => res.success);
 }
 

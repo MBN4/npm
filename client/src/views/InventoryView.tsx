@@ -97,6 +97,9 @@ export const InventoryView: React.FC = () => {
   const [editError, setEditError] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState(false);
 
+  const [deletingBatch, setDeletingBatch] = useState<BatchItem | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   const [showAddStockModal, setShowAddStockModal] = useState(false);
   const [entryMode, setEntryMode] = useState<'new_med' | 'existing_med'>('new_med');
   const [modalLoading, setModalLoading] = useState(false);
@@ -532,27 +535,37 @@ export const InventoryView: React.FC = () => {
     }
   };
 
-  const handleDeleteBatch = async (batch: BatchItem) => {
-    if (!window.confirm(`Are you sure you want to permanently delete Batch ${batch.batch_number} of ${batch.brand_name}?`)) {
-      return;
-    }
+  const handleDeleteBatch = (batch: BatchItem) => {
+    setDeletingBatch(batch);
+  };
+
+  const confirmDeleteBatch = async () => {
+    if (!deletingBatch) return;
+    setDeleteLoading(true);
+    setAdjustError(null);
+    setAdjustSuccess(null);
 
     try {
-      const res = await fetch(`/api/inventory/batches/${batch.id}`, {
+      const res = await fetch(`/api/inventory/batches/${deletingBatch.id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
 
       const data = await res.json();
       if (!res.ok) {
-        alert(data.error || 'Failed to delete batch');
+        setAdjustError(data.error || 'Failed to delete batch');
+        setDeletingBatch(null);
         return;
       }
 
-      setAdjustSuccess(data.message || `Batch ${batch.batch_number} deleted.`);
+      setAdjustSuccess(data.message || `Batch ${deletingBatch.batch_number} deleted successfully.`);
+      setDeletingBatch(null);
       fetchInventoryData();
     } catch (err: any) {
-      alert(err.message || 'Delete error');
+      setAdjustError(err.message || 'Delete error');
+      setDeletingBatch(null);
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -603,9 +616,22 @@ export const InventoryView: React.FC = () => {
       </div>
 
       {adjustSuccess && (
-        <div style={{ padding: '0.75rem 1rem', background: 'var(--success-light)', color: 'var(--success-text)', borderRadius: 'var(--radius-md)', marginBottom: '1rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-          <CheckCircle2 size={16} />
-          <span>{adjustSuccess}</span>
+        <div style={{ padding: '0.75rem 1rem', background: 'var(--success-light)', color: 'var(--success-text)', borderRadius: 'var(--radius-md)', marginBottom: '1rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <CheckCircle2 size={16} />
+            <span>{adjustSuccess}</span>
+          </div>
+          <button onClick={() => setAdjustSuccess(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><X size={14} /></button>
+        </div>
+      )}
+
+      {adjustError && (
+        <div style={{ padding: '0.75rem 1rem', background: 'var(--danger-light)', color: 'var(--danger-text)', borderRadius: 'var(--radius-md)', marginBottom: '1rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Ban size={16} />
+            <span>{adjustError}</span>
+          </div>
+          <button onClick={() => setAdjustError(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><X size={14} /></button>
         </div>
       )}
 
@@ -672,7 +698,7 @@ export const InventoryView: React.FC = () => {
                   </span>
                 </div>
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
-                  Scan any product box barcode $\rightarrow$ Specs & 100% exact prices are auto-populated. You only enter stock quantity!
+                  Scan any product box barcode → Specs & 100% exact prices are auto-populated. You only enter stock quantity!
                 </p>
               </div>
             </div>
@@ -825,13 +851,13 @@ export const InventoryView: React.FC = () => {
                           </div>
                         </td>
                         <td>
-                          <code style={{ fontWeight: 700, backgroundColor: 'var(--bg-app)', padding: '0.15rem 0.4rem', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                          <code style={{ fontWeight: 700, backgroundColor: 'var(--bg-app)', padding: '0.2rem 0.45rem', borderRadius: '4px', border: '1px solid var(--border)', fontSize: '0.78rem' }}>
                             {b.batch_number}
                           </code>
                         </td>
                         <td>
                           <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>{b.expiry_date}</div>
-                          <span className={`badge ${isExpired ? 'badge-danger' : isNear ? 'badge-warning' : 'badge-success'}`} style={{ fontSize: '0.62rem', marginTop: '2px' }}>
+                          <span className={`badge ${isExpired ? 'badge-danger' : isNear ? 'badge-warning' : 'badge-success'}`} style={{ fontSize: '0.64rem', marginTop: '3px' }}>
                             {isExpired ? 'EXPIRED' : isNear ? 'NEAR EXPIRY' : 'ACTIVE FEFO'}
                           </span>
                         </td>
@@ -852,11 +878,11 @@ export const InventoryView: React.FC = () => {
                             {b.quantity}
                           </span>
                         </td>
-                        <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        <td>
                           {b.medicine_rack ? (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}>
-                              <MapPin size={11} />
-                              {b.medicine_rack}
+                            <span className="rack-pill">
+                              <MapPin size={11} style={{ color: 'var(--primary)' }} />
+                              <span>{b.medicine_rack}</span>
                             </span>
                           ) : '—'}
                         </td>
@@ -1785,7 +1811,11 @@ export const InventoryView: React.FC = () => {
 
             <form onSubmit={handleSaveBatchEdit} style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div style={{ background: 'var(--bg-app)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-                <div style={{ fontWeight: 800 }}>{editingBatch.brand_name} {editingBatch.strength}</div>
+                <div style={{ fontWeight: 800 }}>
+                  {editingBatch.strength && editingBatch.brand_name.toLowerCase().includes(editingBatch.strength.toLowerCase().trim())
+                    ? editingBatch.brand_name
+                    : `${editingBatch.brand_name} ${editingBatch.strength || ''}`.trim()}
+                </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
                   Current Stock: <strong>{editingBatch.quantity} Units</strong>
                 </div>
@@ -1930,6 +1960,71 @@ export const InventoryView: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {deletingBatch && (
+        <div className="modal-overlay" style={{ zIndex: 1100 }}>
+          <div className="modal-content" style={{ maxWidth: '460px' }}>
+            <div style={{ padding: '1.2rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '10px', backgroundColor: 'var(--danger-light)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Trash2 size={20} />
+                </div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>Delete Batch #{deletingBatch.batch_number}</h3>
+              </div>
+              <button onClick={() => setDeletingBatch(null)} className="btn btn-secondary btn-sm" style={{ padding: '0.25rem' }}>
+                <X size={15} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ background: 'var(--bg-app)', padding: '0.85rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                <div style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '0.95rem' }}>
+                  {deletingBatch.strength && deletingBatch.brand_name.toLowerCase().includes(deletingBatch.strength.toLowerCase().trim())
+                    ? deletingBatch.brand_name
+                    : `${deletingBatch.brand_name} ${deletingBatch.strength || ''}`.trim()}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                  Batch Number: <code style={{ fontWeight: 700 }}>{deletingBatch.batch_number}</code> • Expiry: <strong>{deletingBatch.expiry_date}</strong>
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                  Current Stock Balance: <strong style={{ color: 'var(--primary)' }}>{deletingBatch.quantity} Units</strong>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                Are you sure you want to permanently delete Batch <strong>#{deletingBatch.batch_number}</strong> from stock inventory? This action cannot be undone.
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
+                <button
+                  type="button"
+                  onClick={() => setDeletingBatch(null)}
+                  className="btn btn-secondary"
+                  disabled={deleteLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteBatch}
+                  className="btn btn-danger"
+                  disabled={deleteLoading}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700 }}
+                >
+                  {deleteLoading ? (
+                    <span>Deleting...</span>
+                  ) : (
+                    <>
+                      <Trash2 size={15} />
+                      <span>Delete Batch</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -308,22 +308,21 @@ export const MedicinesView: React.FC = () => {
                         <span style={{ fontWeight: 500 }}>{m.generic_name || '—'}</span>
                       </td>
                       <td>
-                        <span className="badge badge-primary">{m.category_name || 'General'}</span>
+                        <span className="category-capsule">{m.category_name || 'General'}</span>
                       </td>
                       <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                         {m.manufacturer_name || '—'}
                       </td>
                       <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                           {m.barcode && (
-                            <code style={{ fontSize: '0.74rem' }} title="Manufacturer EAN-13">
+                            <code style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }} title="Manufacturer EAN-13">
                               {m.barcode}
                             </code>
                           )}
                           {m.custom_barcode && (
                             <span
-                              className="badge badge-primary"
-                              style={{ fontSize: '0.68rem', fontFamily: 'monospace', width: 'fit-content' }}
+                              className="sku-capsule"
                               title="Internal Store Barcode"
                             >
                               🏷️ {m.custom_barcode}
@@ -335,15 +334,15 @@ export const MedicinesView: React.FC = () => {
                         </div>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem' }}>
-                          <MapPin size={13} style={{ color: 'var(--primary)' }} />
+                        <div className="rack-pill">
+                          <MapPin size={12} style={{ color: 'var(--primary)' }} />
                           <span>{m.rack_location || 'Unassigned'}</span>
                         </div>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                           <span className={`badge ${isLow ? 'badge-danger' : 'badge-success'}`}>
-                            {m.available_stock} Units {isLow && '• Low'}
+                            {m.available_stock} Units {isLow ? '• LOW' : ''}
                           </span>
                           {m.expired_stock > 0 && (
                             <span className="badge badge-warning" style={{ fontSize: '0.65rem' }}>
