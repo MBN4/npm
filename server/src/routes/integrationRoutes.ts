@@ -57,7 +57,7 @@ integrationRouter.put('/thermal-config', authenticateToken, requireRole(['Admin'
       entity: 'settings',
       entityId: 'thermal_config',
       details: { paperWidth, autoCut, cashDrawerKick },
-      req
+      ipAddress: req.ip
     });
 
     res.json({ message: 'Thermal printer configuration updated successfully' });

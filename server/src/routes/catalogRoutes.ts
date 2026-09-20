@@ -24,7 +24,7 @@ catalogRouter.post('/categories', authenticateToken, requirePermission('manage_m
       userId: req.user?.id,
       action: 'CREATE_CATEGORY',
       entity: 'CATEGORIES',
-      entityId: result.lastInsertRowid,
+      entityId: Number(result.lastInsertRowid),
       newValues: { name: name.trim(), description },
       ipAddress: req.ip
     });
@@ -61,7 +61,7 @@ catalogRouter.post('/manufacturers', authenticateToken, requirePermission('manag
       userId: req.user?.id,
       action: 'CREATE_MANUFACTURER',
       entity: 'MANUFACTURERS',
-      entityId: result.lastInsertRowid,
+      entityId: Number(result.lastInsertRowid),
       newValues: { name: name.trim() },
       ipAddress: req.ip
     });
@@ -98,7 +98,7 @@ catalogRouter.post('/generics', authenticateToken, requirePermission('manage_med
       userId: req.user?.id,
       action: 'CREATE_GENERIC',
       entity: 'GENERICS',
-      entityId: result.lastInsertRowid,
+      entityId: Number(result.lastInsertRowid),
       newValues: { name: name.trim(), therapeuticClass },
       ipAddress: req.ip
     });

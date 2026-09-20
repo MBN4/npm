@@ -15,7 +15,8 @@ import {
   CheckCircle2,
   Trash2,
   ShieldCheck,
-  HardDrive
+  HardDrive,
+  X
 } from 'lucide-react';
 import { printThermalElement } from '../utils/thermalPrinter.js';
 
@@ -70,6 +71,7 @@ export const SettingsView: React.FC = () => {
   const [backups, setBackups] = useState<BackupItem[]>([]);
   const [backupStats, setBackupStats] = useState<BackupStats | null>(null);
   const [verifyStatus, setVerifyStatus] = useState<Record<string, { verified: boolean; message: string }>>({});
+  const [deletingBackupFilename, setDeletingBackupFilename] = useState<string | null>(null);
 
   // Barcode Label state (Phase 11)
   const [medicines, setMedicines] = useState<MedicineOption[]>([]);
@@ -242,15 +244,20 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const handleDeleteBackup = async (filename: string) => {
-    if (!confirm(`Are you sure you want to permanently delete backup ${filename}?`)) return;
+  const handleDeleteBackup = (filename: string) => {
+    setDeletingBackupFilename(filename);
+  };
+
+  const handleConfirmDeleteBackup = async () => {
+    if (!deletingBackupFilename) return;
     try {
-      const res = await fetch(`/api/backup/${filename}`, {
+      const res = await fetch(`/api/backup/${deletingBackupFilename}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        setStatusMessage({ text: `Backup ${filename} deleted.`, type: 'success' });
+        setStatusMessage({ text: `Backup ${deletingBackupFilename} deleted.`, type: 'success' });
+        setDeletingBackupFilename(null);
         fetchBackups();
       }
     } catch (err) {
@@ -1177,6 +1184,35 @@ export const SettingsView: React.FC = () => {
                 </tbody>
               </table>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Delete Backup Confirmation Modal (No browser alert) */}
+      {deletingBackupFilename && (
+        <div className="modal-overlay" onClick={() => setDeletingBackupFilename(null)}>
+          <div className="modal-content" style={{ maxWidth: '400px', padding: '1.25rem' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <span style={{ fontWeight: 800, fontSize: '1rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Trash2 size={18} /> Delete Backup Snapshot
+              </span>
+              <button onClick={() => setDeletingBackupFilename(null)} className="btn btn-secondary btn-sm" style={{ padding: '0.2rem' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
+              Are you sure you want to permanently delete backup file <strong>{deletingBackupFilename}</strong>? This action cannot be undone.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button onClick={() => setDeletingBackupFilename(null)} className="btn btn-secondary">
+                Cancel
+              </button>
+              <button onClick={handleConfirmDeleteBackup} className="btn btn-primary" style={{ backgroundColor: '#dc2626', borderColor: '#b91c1c' }}>
+                Confirm Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

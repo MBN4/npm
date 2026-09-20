@@ -22,6 +22,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { AdminGuideModal } from './AdminGuideModal.js';
+import { CashOutModal } from './CashOutModal.js';
 import { NavView } from './Sidebar.js';
 import { getOfflineSalesQueue, syncOfflineSalesToServer } from '../services/offlineSync.js';
 
@@ -51,8 +52,9 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
   const [showSearchResults, setShowSearchResults] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Operations Guide State
+  // Operations Guide & Cash Out State
   const [showGuideModal, setShowGuideModal] = useState<boolean>(false);
+  const [showCashOutModal, setShowCashOutModal] = useState<boolean>(false);
 
   // Change Password Modal State
   const [showPasswordModal, setShowPasswordModal] = useState<boolean>(false);
@@ -438,6 +440,26 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
               {syncStatusMsg}
             </span>
           )}
+
+          {/* Cash Out Quick Action Button */}
+          <button
+            onClick={() => setShowCashOutModal(true)}
+            className="btn btn-secondary btn-sm"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              padding: '0.35rem 0.65rem',
+              fontSize: '0.78rem',
+              backgroundColor: '#fee2e2',
+              color: '#dc2626',
+              border: '1px solid #fca5a5',
+              fontWeight: 700
+            }}
+            title="Record Expense or Fund Transfer from Cash Drawer"
+          >
+            <span>💸 Cash Out</span>
+          </button>
 
           {/* Operations Guide Button */}
           <button
@@ -864,6 +886,12 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
         onClose={() => setShowGuideModal(false)}
         initialTab={currentView}
         onNavigateToTab={onNavigate}
+      />
+
+      {/* CASHOUT MODAL */}
+      <CashOutModal
+        isOpen={showCashOutModal}
+        onClose={() => setShowCashOutModal(false)}
       />
     </>
   );

@@ -200,7 +200,7 @@ expiryRouter.post('/claims', authenticateToken, requirePermission('manage_suppli
         userId: req.user?.id,
         action: 'CREATE_EXPIRY_CLAIM',
         entity: 'EXPIRY_CLAIMS',
-        entityId: claimId,
+        entityId: Number(claimId),
         newValues: { claimNumber, supplierId, totalValue: totalClaimValue },
         ipAddress: req.ip
       });

@@ -68,7 +68,7 @@ patientRouter.get('/:id', authenticateToken, (req: AuthenticatedRequest, res: Re
 });
 
 // Register patient / customer
-patientRouter.post('/', authenticateToken, requirePermission('manage_patients'), (req: AuthenticatedRequest, res: Response) => {
+patientRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const { name, mobile, age, gender, allergyNotes, creditLimit } = req.body;
 
   if (!name || !name.trim()) {
@@ -102,7 +102,7 @@ patientRouter.post('/', authenticateToken, requirePermission('manage_patients'),
       userId: req.user?.id,
       action: 'CREATE_PATIENT',
       entity: 'CUSTOMERS',
-      entityId: result.lastInsertRowid,
+      entityId: Number(result.lastInsertRowid),
       newValues: { name: name.trim(), mobile, allergyNotes },
       ipAddress: req.ip
     });

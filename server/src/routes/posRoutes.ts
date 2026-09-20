@@ -280,7 +280,7 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         userId: req.user?.id,
         action: 'CREATE_SALE',
         entity: 'SALES',
-        entityId: saleId,
+        entityId: Number(saleId),
         newValues: { invoiceNumber, total: billTotal, paid: billPaid, paymentMethod, itemsCount: processedItems.length },
         ipAddress: req.ip
       });
@@ -557,7 +557,7 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
           userId: req.user?.id,
           action: 'OFFLINE_SALE_SYNCED',
           entity: 'SALES',
-          entityId: saleId,
+          entityId: Number(saleId),
           newValues: { offlineId, invoiceNumber, total: billTotal },
           ipAddress: req.ip
         });

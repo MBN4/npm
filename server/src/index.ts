@@ -22,6 +22,7 @@ import { forecastRouter } from './routes/forecastRoutes.js';
 import { clinicalRouter } from './routes/clinicalRoutes.js';
 import { integrationRouter } from './routes/integrationRoutes.js';
 import { backupRouter } from './routes/backupRoutes.js';
+import { cashOutRouter } from './routes/cashOutRoutes.js';
 import { securityHeaders } from './middleware/security.js';
 
 dotenv.config();
@@ -87,6 +88,7 @@ app.use('/api/clinical', clinicalRouter);
 app.use('/api/integrations', integrationRouter);
 app.use('/api/integration', integrationRouter);
 app.use('/api/backup', backupRouter);
+app.use('/api/cashout', cashOutRouter);
 
 // Global 404 Handler
 app.use((req: Request, res: Response) => {

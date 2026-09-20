@@ -27,7 +27,7 @@ prescriptionRouter.post('/doctors', authenticateToken, (req: AuthenticatedReques
     userId: req.user?.id,
     action: 'CREATE_DOCTOR',
     entity: 'DOCTORS',
-    entityId: result.lastInsertRowid,
+    entityId: Number(result.lastInsertRowid),
     newValues: { name: name.trim(), specialization },
     ipAddress: req.ip
   });
@@ -148,7 +148,7 @@ prescriptionRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res:
         userId: req.user?.id,
         action: 'CREATE_PRESCRIPTION',
         entity: 'PRESCRIPTIONS',
-        entityId: prescriptionId,
+        entityId: Number(prescriptionId),
         newValues: { patientId, itemsCount: items.length },
         ipAddress: req.ip
       });

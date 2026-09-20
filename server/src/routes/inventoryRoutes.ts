@@ -1023,7 +1023,7 @@ async function lookupOnlineBarcode(code: string): Promise<any | null> {
     clearTimeout(timeout);
 
     if (res.ok) {
-      const data = await res.json();
+      const data = await res.json() as any;
       const item = data.items?.[0];
       if (item && item.title) {
         const brand = item.brand || item.title.split(' ')[0] || 'Scanned Brand';

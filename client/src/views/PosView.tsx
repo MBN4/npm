@@ -12,12 +12,15 @@ import {
   Camera,
   MessageCircle,
   CheckCircle,
-  QrCode
+  QrCode,
+  UserPlus,
+  DollarSign
 } from 'lucide-react';
 import { saveOfflineSale } from '../services/offlineSync.js';
 import { printThermalElement } from '../utils/thermalPrinter.js';
 import { CustomerSelect } from '../components/CustomerSelect.js';
 import { getProductPackaging } from '../utils/productPackaging.js';
+import { CashOutModal } from '../components/CashOutModal.js';
 
 export interface CartItem {
   medicineId: number;
@@ -81,6 +84,60 @@ export const PosView: React.FC = () => {
 
   const [heldBills, setHeldBills] = useState<any[]>([]);
   const [showHeldModal, setShowHeldModal] = useState(false);
+  const [showCashOutModal, setShowCashOutModal] = useState(false);
+
+  // Quick Customer Registration Modal State
+  const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustMobile, setNewCustMobile] = useState('');
+  const [newCustCreditLimit, setNewCustCreditLimit] = useState('');
+  const [addingCustomer, setAddingCustomer] = useState(false);
+
+  const handleCreateNewCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustName.trim()) return;
+
+    setAddingCustomer(true);
+    try {
+      const res = await fetch('/api/patients', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: newCustName.trim(),
+          mobile: newCustMobile.trim() || undefined,
+          creditLimit: newCustCreditLimit ? Number(newCustCreditLimit) : 0
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to register customer');
+      }
+
+      const createdId = String(data.patientId);
+      const newCustomerObj = {
+        id: Number(data.patientId),
+        name: newCustName.trim(),
+        mobile: newCustMobile.trim() || undefined,
+        current_balance: 0,
+        credit_limit: newCustCreditLimit ? Number(newCustCreditLimit) : 0
+      };
+
+      setCustomers(prev => [newCustomerObj, ...prev]);
+      setSelectedCustomerId(createdId);
+      setInfoMessage(`Customer "${newCustName.trim()}" registered and selected!`);
+      setShowAddCustomerModal(false);
+      setNewCustName('');
+      setNewCustMobile('');
+      setNewCustCreditLimit('');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Error registering customer');
+    } finally {
+      setAddingCustomer(false);
+    }
+  };
 
   const [lastInvoice, setLastInvoice] = useState<any>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
@@ -695,6 +752,43 @@ export const PosView: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <div
+            style={{
+              padding: '0.25rem 0.6rem',
+              borderRadius: '20px',
+              backgroundColor: 'var(--primary-light)',
+              color: 'var(--primary)',
+              fontWeight: 700,
+              fontSize: '0.74rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              border: '1px solid var(--primary-border)'
+            }}
+          >
+            <span>👤 Cashier:</span>
+            <strong>{user?.fullName || user?.username || 'Cashier'}</strong>
+          </div>
+
+          <button
+            onClick={() => setShowCashOutModal(true)}
+            className="btn btn-secondary btn-sm"
+            style={{
+              fontSize: '0.75rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.3rem',
+              backgroundColor: '#fee2e2',
+              color: '#dc2626',
+              border: '1px solid #fca5a5',
+              fontWeight: 700
+            }}
+            title="Record Expense or Fund Transfer from Cash Drawer"
+          >
+            <DollarSign size={14} />
+            <span>💸 Cash Out</span>
+          </button>
+
           {lastInvoice && (
             <button
               onClick={() => setShowReceiptModal(true)}
@@ -1149,6 +1243,7 @@ export const PosView: React.FC = () => {
                 customers={customers}
                 selectedCustomerId={selectedCustomerId}
                 onSelectCustomer={setSelectedCustomerId}
+                onAddNewCustomer={() => setShowAddCustomerModal(true)}
               />
             </div>
 
@@ -1657,6 +1752,95 @@ export const PosView: React.FC = () => {
             >
               Done / Received
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Cash Out Modal */}
+      <CashOutModal
+        isOpen={showCashOutModal}
+        onClose={() => setShowCashOutModal(false)}
+        onSuccess={() => {
+          setInfoMessage('Cash Out transaction recorded successfully!');
+        }}
+      />
+
+      {/* Quick Add New Customer Modal */}
+      {showAddCustomerModal && (
+        <div className="modal-overlay" onClick={() => setShowAddCustomerModal(false)}>
+          <div className="modal-content" style={{ maxWidth: '440px', padding: '1.25rem' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+              <span style={{ fontWeight: 800, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--primary)' }}>
+                <UserPlus size={18} />
+                Register New Customer / Patient
+              </span>
+              <button onClick={() => setShowAddCustomerModal(false)} className="btn btn-secondary btn-sm" style={{ padding: '0.2rem' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewCustomer} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '4px' }}>
+                  Customer / Patient Full Name <span style={{ color: 'var(--danger)' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="e.g. Muhammad Usman"
+                  value={newCustName}
+                  onChange={e => setNewCustName(e.target.value)}
+                  autoFocus
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '4px' }}>
+                  Mobile Phone Number (Optional)
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="e.g. 0312-9988776"
+                  value={newCustMobile}
+                  onChange={e => setNewCustMobile(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '4px' }}>
+                  Credit Limit (Rs.) (Optional)
+                </label>
+                <input
+                  type="number"
+                  className="input"
+                  placeholder="e.g. 5000"
+                  value={newCustCreditLimit}
+                  onChange={e => setNewCustCreditLimit(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAddCustomerModal(false)}
+                  className="btn btn-secondary"
+                  style={{ flex: 1 }}
+                  disabled={addingCustomer}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                  disabled={addingCustomer}
+                >
+                  {addingCustomer ? 'Registering...' : 'Save & Select'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

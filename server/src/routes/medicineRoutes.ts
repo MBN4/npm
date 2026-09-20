@@ -181,7 +181,7 @@ medicineRouter.post('/', authenticateToken, requirePermission('manage_medicines'
       userId: req.user?.id,
       action: 'CREATE_MEDICINE',
       entity: 'MEDICINES',
-      entityId: result.lastInsertRowid,
+      entityId: Number(result.lastInsertRowid),
       newValues: { brandName, strength, dosageForm, barcode },
       ipAddress: req.ip
     });

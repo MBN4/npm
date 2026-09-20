@@ -12,17 +12,44 @@ import {
   FileText,
   AlertCircle,
   CheckCircle2,
-  Trash2,
   X,
-  PieChart
+  PieChart,
+  Printer,
+  Search,
+  ArrowDownRight,
+  RotateCcw,
+  Trash2
 } from 'lucide-react';
 import { BalanceView } from './BalanceView.js';
+import { CashOutModal } from '../components/CashOutModal.js';
+import { CashOutVoucherModal, CashOutVoucherData } from '../components/CashOutVoucherModal.js';
 
 export const AccountsView: React.FC = () => {
   const { token, user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'balance' | 'cashbook' | 'expenses' | 'pl'>('balance');
+  const [activeTab, setActiveTab] = useState<'balance' | 'cashbook' | 'cashout' | 'expenses' | 'pl'>('cashout');
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // Cash Out State
+  const [cashOutRecords, setCashOutRecords] = useState<any[]>([]);
+  const [cashOutSummary, setCashOutSummary] = useState<any>(null);
+  const [cashOutFilter, setCashOutFilter] = useState({
+    nature: '',
+    recipientType: '',
+    category: '',
+    status: '',
+    search: '',
+    startDate: '',
+    endDate: ''
+  });
+  const [showCashOutModal, setShowCashOutModal] = useState(false);
+  const [selectedVoucher, setSelectedVoucher] = useState<CashOutVoucherData | null>(null);
+  const [reversingCashOut, setReversingCashOut] = useState<any | null>(null);
+  const [reversalReason, setReversalReason] = useState('');
+  const [reversing, setReversing] = useState(false);
+
+  // Expense Delete Confirmation Modal State
+  const [deletingExpenseId, setDeletingExpenseId] = useState<number | null>(null);
 
   // Cashbook state
   const [cashbookEntries, setCashbookEntries] = useState<any[]>([]);
@@ -136,7 +163,41 @@ export const AccountsView: React.FC = () => {
     }
   }, [token, expenseFilter]);
 
-  // 3. Fetch P&L
+  // 3. Fetch Cash Out History & Summary
+  const fetchCashOuts = useCallback(async () => {
+    if (!token) return;
+    setIsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (cashOutFilter.nature) params.append('nature', cashOutFilter.nature);
+      if (cashOutFilter.recipientType) params.append('recipientType', cashOutFilter.recipientType);
+      if (cashOutFilter.category) params.append('category', cashOutFilter.category);
+      if (cashOutFilter.status) params.append('status', cashOutFilter.status);
+      if (cashOutFilter.search) params.append('search', cashOutFilter.search);
+      if (cashOutFilter.startDate) params.append('startDate', cashOutFilter.startDate);
+      if (cashOutFilter.endDate) params.append('endDate', cashOutFilter.endDate);
+
+      const [recRes, sumRes] = await Promise.all([
+        fetch(`/api/cashout?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/api/cashout/summary?startDate=${cashOutFilter.startDate}&endDate=${cashOutFilter.endDate}`, { headers: { Authorization: `Bearer ${token}` } })
+      ]);
+
+      if (recRes.ok) {
+        const data = await recRes.json();
+        setCashOutRecords(data.records || []);
+      }
+      if (sumRes.ok) {
+        const data = await sumRes.json();
+        setCashOutSummary(data.summary || null);
+      }
+    } catch (err: any) {
+      console.error('Failed to load cash out history:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [token, cashOutFilter]);
+
+  // 4. Fetch P&L
   const fetchPl = useCallback(async () => {
     if (!token) return;
     setIsLoading(true);
@@ -157,9 +218,64 @@ export const AccountsView: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'cashbook') fetchCashbook();
+    if (activeTab === 'cashout') fetchCashOuts();
     if (activeTab === 'expenses') fetchExpenses();
     if (activeTab === 'pl') fetchPl();
-  }, [activeTab, fetchCashbook, fetchExpenses, fetchPl]);
+  }, [activeTab, fetchCashbook, fetchCashOuts, fetchExpenses, fetchPl]);
+
+  // Reversals & Delete Handlers
+  const handleConfirmReversal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reversingCashOut || !reversalReason.trim()) return;
+
+    setReversing(true);
+    try {
+      const res = await fetch(`/api/cashout/${reversingCashOut.id}/reverse`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ reason: reversalReason.trim() })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to reverse transaction');
+      }
+
+      showNotification(data.message || 'Transaction reversed successfully', 'success');
+      setReversingCashOut(null);
+      setReversalReason('');
+      fetchCashOuts();
+      if (activeTab === 'cashbook') fetchCashbook();
+    } catch (err: any) {
+      showNotification(err.message || 'Error reversing transaction', 'error');
+    } finally {
+      setReversing(false);
+    }
+  };
+
+  const handleConfirmDeleteExpense = async () => {
+    if (!deletingExpenseId) return;
+    try {
+      const res = await fetch(`/api/accounts/expenses/${deletingExpenseId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        showNotification('Expense deleted and cashbook reversed', 'success');
+        setDeletingExpenseId(null);
+        fetchExpenses();
+        if (activeTab === 'cashbook') fetchCashbook();
+      } else {
+        const err = await res.json();
+        showNotification(err.error || 'Failed to delete expense', 'error');
+      }
+    } catch (err) {
+      showNotification('Network error deleting expense', 'error');
+    }
+  };
 
   // Submit Expense
   const handleSaveExpense = async (e: React.FormEvent) => {
@@ -200,24 +316,9 @@ export const AccountsView: React.FC = () => {
     }
   };
 
-  // Delete Expense
-  const handleDeleteExpense = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this expense? Any associated cashbook outflow will be reversed.')) return;
-    try {
-      const res = await fetch(`/api/accounts/expenses/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        showNotification('Expense deleted and cashbook reversed', 'success');
-        fetchExpenses();
-      } else {
-        const err = await res.json();
-        showNotification(err.error || 'Failed to delete expense', 'error');
-      }
-    } catch (err) {
-      showNotification('Network error deleting expense', 'error');
-    }
+  // Trigger Delete Expense Modal
+  const handleDeleteExpense = (id: number) => {
+    setDeletingExpenseId(id);
   };
 
   // Submit Manual Cash
@@ -273,6 +374,23 @@ export const AccountsView: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--surface-hover)', padding: '0.25rem', borderRadius: 'var(--radius)' }}>
+          <button
+            onClick={() => setActiveTab('cashout')}
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: 'var(--radius)',
+              border: 'none',
+              background: activeTab === 'cashout' ? '#ef4444' : 'transparent',
+              color: activeTab === 'cashout' ? '#fff' : 'var(--text-main)',
+              fontWeight: activeTab === 'cashout' ? '700' : 'normal',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}
+          >
+            <ArrowDownRight size={16} /> 💸 Cash Out & Transfers
+          </button>
           <button
             onClick={() => setActiveTab('balance')}
             style={{
@@ -362,7 +480,309 @@ export const AccountsView: React.FC = () => {
       )}
 
       {/* ======================================================== */}
-      {/* TAB 0: BALANCE & DAY-END CLOSING                         */}
+      {/* TAB 0: CASHOUT & FUND TRANSFERS MODULE                  */}
+      {/* ======================================================== */}
+      {activeTab === 'cashout' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {/* Top Summary KPI Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+            <div style={{ background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(245, 158, 11, 0.05) 100%)', padding: '1.25rem', borderRadius: 'var(--radius)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>TOTAL CASHOUT (TODAY)</span>
+              <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#dc2626', marginTop: '4px' }}>
+                Rs. {Number(cashOutSummary?.total_cash_out || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })}
+              </div>
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>All drawer cash departures today</span>
+            </div>
+
+            <div style={{ background: 'var(--surface)', padding: '1.25rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>💼 BUSINESS EXPENSES</span>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0369a1', marginTop: '4px' }}>
+                Rs. {Number(cashOutSummary?.business_expenses || 0).toLocaleString('en-PK')}
+              </div>
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Operating expenses (P&L affect)</span>
+            </div>
+
+            <div style={{ background: 'var(--surface)', padding: '1.25rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>🏭 SUPPLIER PAYMENTS</span>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#059669', marginTop: '4px' }}>
+                Rs. {Number(cashOutSummary?.supplier_payments || 0).toLocaleString('en-PK')}
+              </div>
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Payable ledger settlements</span>
+            </div>
+
+            <div style={{ background: 'var(--surface)', padding: '1.25rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>🏦 BANK DEPOSITS</span>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#7c3aed', marginTop: '4px' }}>
+                Rs. {Number(cashOutSummary?.bank_deposits || 0).toLocaleString('en-PK')}
+              </div>
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Cash drawer → Bank transfer</span>
+            </div>
+
+            <div style={{ background: 'var(--surface)', padding: '1.25rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>📱 WALLET TRANSFERS</span>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#d97706', marginTop: '4px' }}>
+                Rs. {Number(cashOutSummary?.wallet_transfers || 0).toLocaleString('en-PK')}
+              </div>
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>JazzCash / EasyPaisa cash float</span>
+            </div>
+          </div>
+
+          {/* Action Bar & Search / Filters */}
+          <div style={{ background: 'var(--surface)', padding: '1rem 1.25rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <ArrowDownRight size={20} style={{ color: '#ef4444' }} />
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800 }}>Cash Out History & Audit Log</h3>
+              </div>
+
+              <button
+                onClick={() => setShowCashOutModal(true)}
+                className="btn btn-primary"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: '#ef4444', borderColor: '#dc2626', fontWeight: 700 }}
+              >
+                <PlusCircle size={18} /> Record New Cash Out
+              </button>
+            </div>
+
+            {/* Filter Bar */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', alignItems: 'center' }}>
+              <div style={{ position: 'relative' }}>
+                <Search size={15} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  placeholder="Search Trx ID, recipient, purpose..."
+                  value={cashOutFilter.search}
+                  onChange={(e) => setCashOutFilter({ ...cashOutFilter, search: e.target.value })}
+                  className="input-field"
+                  style={{ width: '100%', paddingLeft: '2rem', fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <select
+                value={cashOutFilter.nature}
+                onChange={(e) => setCashOutFilter({ ...cashOutFilter, nature: e.target.value })}
+                className="input-field"
+                style={{ width: '100%', fontSize: '0.85rem' }}
+              >
+                <option value="">All Classification Natures</option>
+                <option value="BUSINESS_EXPENSE">💼 Business Expense</option>
+                <option value="SUPPLIER_PAYMENT">🏭 Supplier Payment</option>
+                <option value="BANK_DEPOSIT">🏦 Bank Deposit</option>
+                <option value="WALLET_TRANSFER">📱 Wallet Transfer</option>
+                <option value="OWNER_WITHDRAWAL">👤 Owner Withdrawal</option>
+              </select>
+
+              <select
+                value={cashOutFilter.recipientType}
+                onChange={(e) => setCashOutFilter({ ...cashOutFilter, recipientType: e.target.value })}
+                className="input-field"
+                style={{ width: '100%', fontSize: '0.85rem' }}
+              >
+                <option value="">All Recipient Types</option>
+                <option value="SUPPLIER">Supplier</option>
+                <option value="EMPLOYEE">Employee / Staff</option>
+                <option value="BANK">Bank</option>
+                <option value="WALLET">Wallet</option>
+                <option value="OTHER">Other / Person</option>
+              </select>
+
+              <select
+                value={cashOutFilter.status}
+                onChange={(e) => setCashOutFilter({ ...cashOutFilter, status: e.target.value })}
+                className="input-field"
+                style={{ width: '100%', fontSize: '0.85rem' }}
+              >
+                <option value="">All Statuses (ACTIVE & REVERSED)</option>
+                <option value="ACTIVE">ACTIVE Only</option>
+                <option value="REVERSED">REVERSED Only</option>
+              </select>
+
+              <input
+                type="date"
+                value={cashOutFilter.startDate}
+                onChange={(e) => setCashOutFilter({ ...cashOutFilter, startDate: e.target.value })}
+                className="input-field"
+                style={{ width: '100%', fontSize: '0.85rem' }}
+              />
+
+              <input
+                type="date"
+                value={cashOutFilter.endDate}
+                onChange={(e) => setCashOutFilter({ ...cashOutFilter, endDate: e.target.value })}
+                className="input-field"
+                style={{ width: '100%', fontSize: '0.85rem' }}
+              />
+            </div>
+          </div>
+
+          {/* Cash Out Records Table */}
+          <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
+                <thead>
+                  <tr style={{ background: 'var(--surface-hover)', borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                    <th style={{ padding: '0.75rem 1rem' }}>Transaction ID</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>Date & Time</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>Nature / Nature</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>Category & Purpose</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>Paid To / Recipient</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>Method</th>
+                    <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Amount (PKR)</th>
+                    <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Status</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>Entered By</th>
+                    <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cashOutRecords.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                        <ArrowDownRight size={38} style={{ opacity: 0.3, margin: '0 auto 0.5rem' }} />
+                        <div>No Cash Out records found matching the current filters.</div>
+                      </td>
+                    </tr>
+                  ) : (
+                    cashOutRecords.map((rec) => {
+                      const isReversed = rec.status === 'REVERSED';
+                      return (
+                        <tr
+                          key={rec.id}
+                          style={{
+                            borderBottom: '1px solid var(--border)',
+                            opacity: isReversed ? 0.65 : 1,
+                            backgroundColor: isReversed ? 'rgba(239, 68, 68, 0.03)' : 'transparent'
+                          }}
+                        >
+                          <td style={{ padding: '0.75rem 1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                            {rec.transaction_id}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            {new Date(rec.created_at).toLocaleString('en-PK', { dateStyle: 'short', timeStyle: 'short' })}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem' }}>
+                            <span
+                              style={{
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                fontSize: '0.74rem',
+                                fontWeight: 700,
+                                backgroundColor:
+                                  rec.transaction_nature === 'BUSINESS_EXPENSE'
+                                    ? '#e0f2fe'
+                                    : rec.transaction_nature === 'SUPPLIER_PAYMENT'
+                                    ? '#dcfce7'
+                                    : rec.transaction_nature === 'BANK_DEPOSIT'
+                                    ? '#f3e8ff'
+                                    : '#fef3c7',
+                                color:
+                                  rec.transaction_nature === 'BUSINESS_EXPENSE'
+                                    ? '#0369a1'
+                                    : rec.transaction_nature === 'SUPPLIER_PAYMENT'
+                                    ? '#15803d'
+                                    : rec.transaction_nature === 'BANK_DEPOSIT'
+                                    ? '#6b21a8'
+                                    : '#b45309'
+                              }}
+                            >
+                              {rec.transaction_nature?.replace('_', ' ')}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem' }}>
+                            <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{rec.category}</div>
+                            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{rec.purpose}</div>
+                            {rec.reference_no && (
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Ref #: {rec.reference_no}</div>
+                            )}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem' }}>
+                            <div style={{ fontWeight: 700 }}>
+                              {rec.recipient_type === 'SUPPLIER'
+                                ? `Supplier: ${rec.supplier_name || 'N/A'}`
+                                : rec.recipient_name || rec.recipient_type}
+                            </div>
+                            {rec.bank_name && (
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                {rec.bank_name} {rec.account_ref ? `(${rec.account_ref})` : ''}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', fontWeight: 600 }}>
+                            {rec.payment_method}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 900, color: isReversed ? 'var(--text-muted)' : '#dc2626', fontSize: '0.95rem' }}>
+                            {isReversed && <span style={{ textDecoration: 'line-through', marginRight: '6px' }}>Rs. {rec.amount.toLocaleString()}</span>}
+                            {!isReversed && `Rs. ${rec.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                            <span
+                              className={`badge ${isReversed ? 'badge-danger' : 'badge-success'}`}
+                              style={{ fontSize: '0.72rem', fontWeight: 800 }}
+                            >
+                              {rec.status}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.8rem' }}>
+                            {rec.created_by_name || rec.created_by_username || 'System'}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem' }}>
+                              <button
+                                onClick={() =>
+                                  setSelectedVoucher({
+                                    transactionId: rec.transaction_id,
+                                    amount: rec.amount,
+                                    category: rec.category,
+                                    transactionNature: rec.transaction_nature,
+                                    paymentMethod: rec.payment_method,
+                                    recipientType: rec.recipient_type,
+                                    recipientName: rec.recipient_name,
+                                    supplierName: rec.supplier_name,
+                                    bankName: rec.bank_name,
+                                    accountName: rec.account_name,
+                                    accountRef: rec.account_ref,
+                                    trxRef: rec.trx_ref,
+                                    purpose: rec.purpose,
+                                    referenceNo: rec.reference_no,
+                                    notes: rec.notes,
+                                    createdAt: rec.created_at,
+                                    createdByName: rec.created_by_name
+                                  })
+                                }
+                                className="btn btn-secondary btn-sm"
+                                style={{ padding: '0.25rem 0.5rem', fontSize: '0.74rem' }}
+                                title="View & Print Payment Voucher Receipt"
+                              >
+                                <Printer size={14} />
+                              </button>
+
+                              {!isReversed && (
+                                <button
+                                  onClick={() => {
+                                    setReversingCashOut(rec);
+                                    setReversalReason('');
+                                  }}
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ padding: '0.25rem 0.5rem', fontSize: '0.74rem', color: '#dc2626' }}
+                                  title="Reverse transaction and restore cash drawer"
+                                >
+                                  <RotateCcw size={14} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* TAB 1: BALANCE & DAY-END CLOSING                         */}
       {/* ======================================================== */}
       {activeTab === 'balance' && <BalanceView hideHeader={true} />}
 
@@ -1189,6 +1609,124 @@ export const AccountsView: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Cash Out Entry Modal */}
+      <CashOutModal
+        isOpen={showCashOutModal}
+        onClose={() => setShowCashOutModal(false)}
+        onSuccess={() => {
+          showNotification('Cash Out recorded successfully', 'success');
+          fetchCashOuts();
+          if (activeTab === 'cashbook') fetchCashbook();
+        }}
+      />
+
+      {/* Cash Out Voucher View/Print Modal */}
+      {selectedVoucher && (
+        <CashOutVoucherModal
+          voucher={selectedVoucher}
+          onClose={() => setSelectedVoucher(null)}
+        />
+      )}
+
+      {/* Reversal Confirmation Modal (No browser alert) */}
+      {reversingCashOut && (
+        <div className="modal-overlay" onClick={() => setReversingCashOut(null)}>
+          <div className="modal-content" style={{ maxWidth: '440px', padding: '1.25rem' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+              <span style={{ fontWeight: 800, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#dc2626' }}>
+                <RotateCcw size={18} />
+                Reverse Cash Out Transaction
+              </span>
+              <button onClick={() => setReversingCashOut(null)} className="btn btn-secondary btn-sm" style={{ padding: '0.2rem' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmReversal} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ backgroundColor: 'var(--danger-light)', padding: '0.85rem', borderRadius: '8px', border: '1px solid var(--danger)', fontSize: '0.85rem' }}>
+                <div style={{ fontWeight: 700, color: '#dc2626' }}>
+                  Transaction: {reversingCashOut.transaction_id} (Rs. {reversingCashOut.amount?.toLocaleString()})
+                </div>
+                <div style={{ fontSize: '0.78rem', marginTop: '2px', color: 'var(--text-secondary)' }}>
+                  Reversing will create a balancing IN entry to restore cash drawer balance and reverse supplier ledger credit if applicable.
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, marginBottom: '4px' }}>
+                  Reason for Reversal <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <textarea
+                  value={reversalReason}
+                  onChange={(e) => setReversalReason(e.target.value)}
+                  placeholder="e.g. Entry error / Duplicate transaction / Receipt refunded..."
+                  rows={2}
+                  required
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.88rem'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setReversingCashOut(null)}
+                  className="btn btn-secondary"
+                  disabled={reversing}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ backgroundColor: '#dc2626', borderColor: '#b91c1c' }}
+                  disabled={reversing}
+                >
+                  {reversing ? 'Reversing...' : 'Confirm Reversal'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Expense Delete Confirmation Modal (No browser alert) */}
+      {deletingExpenseId && (
+        <div className="modal-overlay" onClick={() => setDeletingExpenseId(null)}>
+          <div className="modal-content" style={{ maxWidth: '400px', padding: '1.25rem' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <span style={{ fontWeight: 800, fontSize: '1rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <AlertCircle size={18} /> Delete Expense Record
+              </span>
+              <button onClick={() => setDeletingExpenseId(null)} className="btn btn-secondary btn-sm" style={{ padding: '0.2rem' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
+              Are you sure you want to delete expense <strong>#{deletingExpenseId}</strong>? Any associated cashbook outflow will be automatically reversed.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button onClick={() => setDeletingExpenseId(null)} className="btn btn-secondary">
+                Cancel
+              </button>
+              <button onClick={handleConfirmDeleteExpense} className="btn btn-primary" style={{ backgroundColor: '#dc2626', borderColor: '#b91c1c' }}>
+                Confirm Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

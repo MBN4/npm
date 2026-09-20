@@ -142,9 +142,9 @@ backupRouter.post('/create', authenticateToken, requireRole(['Admin']), async (r
  */
 backupRouter.get('/download/:filename', authenticateToken, requireRole(['Admin']), (req: Request, res: Response) => {
   try {
-    const rawFilename = req.params.filename;
+    const rawFilename = Array.isArray(req.params.filename) ? req.params.filename[0] : req.params.filename;
     // Prevent directory traversal
-    const safeFilename = path.basename(rawFilename);
+    const safeFilename = path.basename(String(rawFilename));
     const filePath = path.join(BACKUPS_DIR, safeFilename);
 
     if (!fs.existsSync(filePath) || !safeFilename.endsWith('.sqlite')) {
@@ -168,7 +168,8 @@ backupRouter.get('/download/:filename', authenticateToken, requireRole(['Admin']
  */
 backupRouter.post('/verify/:filename', authenticateToken, requireRole(['Admin']), (req: Request, res: Response) => {
   try {
-    const safeFilename = path.basename(req.params.filename);
+    const fn = Array.isArray(req.params.filename) ? req.params.filename[0] : req.params.filename;
+    const safeFilename = path.basename(String(fn));
     const filePath = path.join(BACKUPS_DIR, safeFilename);
 
     if (!fs.existsSync(filePath) || !safeFilename.endsWith('.sqlite')) {
@@ -206,7 +207,8 @@ backupRouter.post('/verify/:filename', authenticateToken, requireRole(['Admin'])
  */
 backupRouter.delete('/:filename', authenticateToken, requireRole(['Admin']), (req: Request, res: Response) => {
   try {
-    const safeFilename = path.basename(req.params.filename);
+    const fn = Array.isArray(req.params.filename) ? req.params.filename[0] : req.params.filename;
+    const safeFilename = path.basename(String(fn));
     const filePath = path.join(BACKUPS_DIR, safeFilename);
 
     if (!fs.existsSync(filePath) || !safeFilename.endsWith('.sqlite')) {

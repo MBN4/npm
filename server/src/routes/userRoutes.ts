@@ -52,7 +52,7 @@ userRouter.post('/', authenticateToken, requireRole(['Admin']), (req: Authentica
     userId: req.user?.id,
     action: 'CREATE_USER',
     entity: 'USERS',
-    entityId: result.lastInsertRowid,
+    entityId: Number(result.lastInsertRowid),
     newValues: { username, fullName, roleId },
     ipAddress: req.ip
   });

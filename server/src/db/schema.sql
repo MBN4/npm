@@ -526,4 +526,55 @@ CREATE INDEX IF NOT EXISTS idx_drug_interactions ON drug_interactions(generic_a_
 CREATE INDEX IF NOT EXISTS idx_user_pharma_fav ON user_pharma_favorites(user_id, generic_id);
 CREATE INDEX IF NOT EXISTS idx_daily_closings_date ON daily_closings(closing_date);
 
+-- 12. Cash Out / Expense & Fund Transfer Module
+CREATE TABLE IF NOT EXISTS cash_out_categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE NOT NULL,
+  default_nature TEXT NOT NULL DEFAULT 'BUSINESS_EXPENSE',
+  sort_order INTEGER DEFAULT 0,
+  is_active INTEGER DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cash_outs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  transaction_id TEXT UNIQUE NOT NULL,
+  date_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  amount REAL NOT NULL,
+  category TEXT NOT NULL,
+  transaction_nature TEXT NOT NULL DEFAULT 'BUSINESS_EXPENSE', -- BUSINESS_EXPENSE, SUPPLIER_PAYMENT, ASSET_PURCHASE, OWNER_WITHDRAWAL, INTERNAL_TRANSFER, BANK_DEPOSIT, WALLET_TRANSFER, REFUND, ADJUSTMENT
+  payment_method TEXT NOT NULL DEFAULT 'CASH', -- CASH, BANK_TRANSFER, JAZZCASH, EASYPAISA, CHEQUE, CARD, OTHER
+  recipient_type TEXT NOT NULL DEFAULT 'OTHER', -- SUPPLIER, COMPANY, PERSON, BANK, JAZZCASH_EASYPAISA, UTILITY, RENT, STAFF, OWNER, TAX, COURIER, MAINTENANCE, OTHER
+  supplier_id INTEGER,
+  recipient_name TEXT,
+  recipient_phone TEXT,
+  recipient_role TEXT,
+  bank_name TEXT,
+  account_name TEXT,
+  account_ref TEXT,
+  trx_ref TEXT,
+  purpose TEXT NOT NULL,
+  reference_no TEXT,
+  notes TEXT,
+  attachment_path TEXT,
+  created_by INTEGER NOT NULL,
+  branch_name TEXT DEFAULT 'Hospital Road Branch',
+  counter_name TEXT DEFAULT 'Counter 01',
+  status TEXT DEFAULT 'ACTIVE', -- ACTIVE, CANCELLED, REVERSED
+  reversed_by INTEGER,
+  reversed_at DATETIME,
+  reversal_reason TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,
+  FOREIGN KEY (created_by) REFERENCES users(id),
+  FOREIGN KEY (reversed_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cash_outs_trx ON cash_outs(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_cash_outs_created ON cash_outs(created_at);
+CREATE INDEX IF NOT EXISTS idx_cash_outs_nature ON cash_outs(transaction_nature);
+CREATE INDEX IF NOT EXISTS idx_cash_outs_status ON cash_outs(status);
+
+
 

@@ -96,7 +96,7 @@ supplierRouter.post('/', authenticateToken, requirePermission('manage_suppliers'
         userId: req.user?.id,
         action: 'CREATE_SUPPLIER',
         entity: 'SUPPLIERS',
-        entityId: supplierId,
+        entityId: Number(supplierId),
         newValues: { name: name.trim(), openingBalance: initialBalance },
         ipAddress: req.ip
       });

@@ -113,7 +113,7 @@ accountRouter.post('/cashbook/manual', authenticateToken, requireRole(['Admin', 
       entity: 'cashbook_entries',
       entityId: result.lastInsertRowid.toString(),
       details: { entry_type, category, amount: Number(amount), description },
-      req
+      ipAddress: req.ip
     });
 
     res.status(201).json({
@@ -242,7 +242,7 @@ accountRouter.post('/expenses', authenticateToken, requireRole(['Admin', 'Pharma
       entity: 'expenses',
       entityId: expenseId.toString(),
       details: { expense_category, amount: Number(amount), payment_method, payee },
-      req
+      ipAddress: req.ip
     });
 
     res.status(201).json({
@@ -280,9 +280,9 @@ accountRouter.delete('/expenses/:id', authenticateToken, requireRole(['Admin']),
       userId,
       action: 'EXPENSE_DELETED',
       entity: 'expenses',
-      entityId: expenseId,
+      entityId: String(expenseId),
       details: { deletedBy: userId },
-      req
+      ipAddress: req.ip
     });
 
     res.json({ message: 'Expense deleted successfully and cashbook reversed if applicable' });
@@ -654,7 +654,7 @@ accountRouter.post('/daily-closings', authenticateToken, requireRole(['Admin', '
       entity: 'daily_closings',
       entityId: date,
       details: { date, expectedCash: result.expected, actualCash: result.actual, variance: result.variance, notes },
-      req
+      ipAddress: req.ip
     });
 
     res.status(201).json({

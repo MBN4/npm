@@ -245,7 +245,7 @@ purchaseRouter.post('/', authenticateToken, requirePermission('create_purchases'
         userId: req.user?.id,
         action: 'CREATE_PURCHASE',
         entity: 'PURCHASES',
-        entityId: purchaseId,
+        entityId: Number(purchaseId),
         newValues: { invoiceNumber, supplierName: supplier.name, total, paid, remaining },
         ipAddress: req.ip
       });
