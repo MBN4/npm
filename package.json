@@ -10,6 +10,8 @@
     "client:dev": "npm --prefix client run dev",
     "client:build": "npm --prefix client run build",
     "seed": "npm --prefix server run seed",
+    "db:export": "npm --prefix server run db:export",
+    "db:import": "npm --prefix server run db:import",
     "test": "npm --prefix server run test",
     "build": "npm --prefix client run build"
   },

@@ -73,6 +73,10 @@ export const SettingsView: React.FC = () => {
   const [verifyStatus, setVerifyStatus] = useState<Record<string, { verified: boolean; message: string }>>({});
   const [deletingBackupFilename, setDeletingBackupFilename] = useState<string | null>(null);
 
+  // Git Data Sync state
+  const [syncStatus, setSyncStatus] = useState<any>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
   // Barcode Label state (Phase 11)
   const [medicines, setMedicines] = useState<MedicineOption[]>([]);
   const [selectedMedicineId, setSelectedMedicineId] = useState<number | ''>('');
@@ -145,17 +149,62 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const fetchMedicinesForLabels = async () => {
+  const fetchSyncStatus = async () => {
     try {
-      const res = await fetch('/api/medicines?limit=100', {
+      const res = await fetch('/api/sync/status', {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
         const data = await res.json();
-        setMedicines(data.medicines || []);
+        setSyncStatus(data);
       }
     } catch (err) {
-      console.error('Error fetching medicines for barcode labels:', err);
+      console.error('Error fetching sync status:', err);
+    }
+  };
+
+  const handleExportSync = async () => {
+    setIsSyncing(true);
+    setStatusMessage(null);
+    try {
+      const res = await fetch('/api/sync/export', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setStatusMessage({ text: '✅ Data exported to sync_data.json successfully! Now run git add, git commit, and git push.', type: 'success' });
+        fetchSyncStatus();
+      } else {
+        setStatusMessage({ text: data.error || 'Failed to export sync data', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Export error', type: 'error' });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleImportSync = async () => {
+    setIsSyncing(true);
+    setStatusMessage(null);
+    try {
+      const res = await fetch('/api/sync/import', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setStatusMessage({ text: '🎉 Git sync data imported into local database successfully!', type: 'success' });
+        fetchSyncStatus();
+        fetchBackups();
+      } else {
+        setStatusMessage({ text: data.error || 'Failed to import sync data', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Import error', type: 'error' });
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -163,6 +212,7 @@ export const SettingsView: React.FC = () => {
     fetchSettings();
     if (activeTab === 'backup' && user?.roleName === 'Admin') {
       fetchBackups();
+      fetchSyncStatus();
     }
     if (activeTab === 'barcodes' && medicines.length === 0) {
       fetchMedicinesForLabels();
@@ -1079,6 +1129,63 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* Git Multi-Device Data Sync Card */}
+          <div className="card" style={{ borderLeft: '4px solid var(--primary)', padding: '1.25rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                  <Share2 size={18} color="var(--primary)" />
+                  <span>Multi-Device Git Data Sync (Laptop ↔ PC)</span>
+                </h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.35rem', marginBottom: 0 }}>
+                  Sync medicine catalog, generics, clinical info, and stock between Laptop and PC via Git repository files.
+                </p>
+                {syncStatus && syncStatus.exists && (
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                    📄 <strong>Sync File Status:</strong> Exported on{' '}
+                    {new Date(syncStatus.exportedAt || syncStatus.mtime).toLocaleString()} |{' '}
+                    <strong>{syncStatus.counts?.medicines || 0}</strong> Medicines,{' '}
+                    <strong>{syncStatus.counts?.categories || 0}</strong> Categories,{' '}
+                    <strong>{syncStatus.counts?.batches || 0}</strong> Batches saved.
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={handleExportSync}
+                  disabled={isSyncing}
+                  className="btn btn-primary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.1rem', fontSize: '0.85rem' }}
+                >
+                  <Download size={15} />
+                  <span>{isSyncing ? 'Exporting...' : '1. Export Data for Git'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleImportSync}
+                  disabled={isSyncing}
+                  className="btn"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    padding: '0.65rem 1.1rem',
+                    fontSize: '0.85rem',
+                    background: 'var(--surface-hover)',
+                    border: '1px solid var(--border-color)',
+                    fontWeight: 600
+                  }}
+                >
+                  <Upload size={15} />
+                  <span>{isSyncing ? 'Importing...' : '2. Import Data from Git'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
 
           {/* Backup Action Bar */}
           <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

@@ -193,6 +193,49 @@ export function initDatabase() {
   } catch (e) {
     // ignore
   }
+
+  // Auto-import Git sync_data.json if present on disk
+  try {
+    const syncDataPath = path.resolve(__dirname, '../../data/sync_data.json');
+    if (fs.existsSync(syncDataPath)) {
+      const fileContent = fs.readFileSync(syncDataPath, 'utf8');
+      const payload = JSON.parse(fileContent);
+
+      const upsertRows = (tableName: string, rows: any[]) => {
+        if (!rows || !Array.isArray(rows) || rows.length === 0) return;
+        const tableInfo = db.pragma(`table_info(${tableName})`) as Array<{ name: string }>;
+        if (!tableInfo || tableInfo.length === 0) return;
+        const validCols = new Set(tableInfo.map(c => c.name));
+
+        for (const row of rows) {
+          const keys = Object.keys(row).filter(k => validCols.has(k));
+          if (keys.length === 0) continue;
+          const placeholders = keys.map(() => '?').join(', ');
+          const sql = `INSERT OR REPLACE INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders})`;
+          const stmt = db.prepare(sql);
+          const values = keys.map(k => (row[k] !== undefined ? row[k] : null));
+          stmt.run(...values);
+        }
+      };
+
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.transaction(() => {
+          upsertRows('categories', payload.categories || []);
+          upsertRows('manufacturers', payload.manufacturers || []);
+          upsertRows('generics', payload.generics || []);
+          upsertRows('suppliers', payload.suppliers || []);
+          upsertRows('medicines', payload.medicines || []);
+          upsertRows('drug_clinical_info', payload.drug_clinical_info || []);
+          upsertRows('batches', payload.batches || []);
+        })();
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
+    }
+  } catch (e) {
+    // Ignore auto-sync error during initial boot
+  }
 }
 
 

@@ -95,6 +95,28 @@ npm test
 
 ---
 
+## 🔄 Multi-Device Data Sync (Laptop ↔ PC)
+
+SQLite database binary files (`.sqlite`) are kept local to each computer and ignored by `.gitignore`. To sync medicines, categories, generics, clinical info, and batches between your Laptop and PC:
+
+### 1. On Laptop (where data was added):
+```bash
+npm run db:export
+git add .
+git commit -m "Add new medicine data"
+git push
+```
+*(Or click **"1. Export Data for Git"** in the Settings tab in the Web App)*
+
+### 2. On PC (to receive the data):
+```bash
+git pull
+npm run db:import
+```
+*(Or simply start the server with `npm run dev` — it will auto-sync on startup!)*
+
+---
+
 ## 🔄 Dual Git Push Configuration
 
 To push code updates to both GitHub repositories simultaneously:

@@ -23,6 +23,7 @@ import { clinicalRouter } from './routes/clinicalRoutes.js';
 import { integrationRouter } from './routes/integrationRoutes.js';
 import { backupRouter } from './routes/backupRoutes.js';
 import { cashOutRouter } from './routes/cashOutRoutes.js';
+import { syncRouter } from './routes/syncRoutes.js';
 import { securityHeaders } from './middleware/security.js';
 
 dotenv.config();
@@ -89,6 +90,7 @@ app.use('/api/integrations', integrationRouter);
 app.use('/api/integration', integrationRouter);
 app.use('/api/backup', backupRouter);
 app.use('/api/cashout', cashOutRouter);
+app.use('/api/sync', syncRouter);
 
 // Global 404 Handler
 app.use((req: Request, res: Response) => {

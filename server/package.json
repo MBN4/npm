@@ -9,6 +9,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "seed": "tsx src/db/seed.ts",
+    "db:export": "tsx src/scripts/syncExport.ts",
+    "db:import": "tsx src/scripts/syncImport.ts",
     "test": "vitest run --fileParallelism=false"
   },
   "keywords": [],
