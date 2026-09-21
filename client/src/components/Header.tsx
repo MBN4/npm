@@ -441,6 +441,29 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
             </span>
           )}
 
+          {/* Udhaar Quick Action Button */}
+          <button
+            onClick={() => onNavigate && onNavigate('udhaar')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              padding: '0.35rem 0.75rem',
+              fontSize: '0.78rem',
+              background: currentView === 'udhaar' ? 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%)' : '#3b82f6',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '6px',
+              fontWeight: 700,
+              boxShadow: '0 2px 4px rgba(37, 99, 235, 0.3)',
+              cursor: 'pointer'
+            }}
+            title="Open Customer Udhaar & Credit Management"
+          >
+            <Users size={14} />
+            <span>Udhaar</span>
+          </button>
+
           {/* Cash Out Quick Action Button */}
           <button
             onClick={() => setShowCashOutModal(true)}

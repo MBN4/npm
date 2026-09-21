@@ -16,6 +16,7 @@ import {
   Trash2,
   ShieldCheck,
   HardDrive,
+  Share2,
   X
 } from 'lucide-react';
 import { printThermalElement } from '../utils/thermalPrinter.js';
@@ -205,6 +206,20 @@ export const SettingsView: React.FC = () => {
       setStatusMessage({ text: err.message || 'Import error', type: 'error' });
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const fetchMedicinesForLabels = async () => {
+    try {
+      const res = await fetch('/api/medicines', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMedicines(data.medicines || data || []);
+      }
+    } catch {
+      // ignore
     }
   };
 

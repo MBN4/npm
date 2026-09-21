@@ -13,6 +13,7 @@ const phaseDetails: Record<NavView, { phase: string; title: string; desc: string
   dictionary: { phase: 'Live', title: 'Pharma Dictionary 📚', desc: 'Drug monographs, brand lookups, adult/pediatric dose guidelines, pregnancy risk categories, and food timings.' },
   'pharma-ai': { phase: 'Live', title: 'Pharma.AI 🤖', desc: 'Clinical drug interaction checker, dosage calculator, and AI consult assistant with verified DB data.' },
   medprac: { phase: 'Live', title: 'MedPrac 🧪 Practice Sandbox', desc: '100% isolated learning sandbox for simulated dispensing, dose calculation quizzes, and practice cases.' },
+  udhaar: { phase: 'Live', title: 'Udhaar / Customer Credit 👥', desc: 'Customer credit ledger, auto CNIC serial tracking, WhatsApp contact link, and instant payment recording.' },
   prescriptions: { phase: 'Live', title: 'Prescriptions (Rx)', desc: 'Doctor prescriptions, dosages (OD, BD, TDS), refill history, and dispensing to POS.' },
   patients: { phase: 'Live', title: 'Patients & Customer CRM', desc: 'Patient profiles, allergy history, credit receivables ledger, and refill reminders.' },
   expiry: { phase: 'Live', title: 'Expiry Control', desc: 'Configurable expiry windows (180/90/60/30/7 days), supplier return claims, and disposal register.' },

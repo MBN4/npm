@@ -35,6 +35,7 @@ export type NavView =
   | 'prescriptions'
   | 'patients'
   | 'expiry'
+  | 'udhaar'
   | 'accounts'
   | 'balance'
   | 'reports'
@@ -62,6 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => 
     { id: 'medprac', label: 'MedPrac 🧪', icon: <FlaskConical size={18} />, badge: 'SANDBOX' },
     { id: 'prescriptions', label: 'Rx Prescriptions', icon: <FileText size={18} /> },
     { id: 'patients', label: 'Patients & CRM', icon: <Users size={18} />, permission: 'manage_patients' },
+    { id: 'udhaar', label: 'Udhaar (Credit) 👥', icon: <Users size={18} /> },
     { id: 'expiry', label: 'Expiry Control', icon: <AlertTriangle size={18} /> },
     { id: 'accounts', label: 'Accounts & Cash', icon: <ReceiptText size={18} />, permission: 'view_accounts' },
     { id: 'balance', label: 'Balance & Day-End 💰', icon: <Wallet size={18} />, permission: 'view_accounts' },

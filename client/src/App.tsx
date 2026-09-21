@@ -21,6 +21,7 @@ import { BarcodeView } from './views/BarcodeView.js';
 import { PharmaDictionaryView } from './views/PharmaDictionaryView.js';
 import { PharmaAiView } from './views/PharmaAiView.js';
 import { MedPracView } from './views/MedPracView.js';
+import { UdhaarView } from './views/UdhaarView.js';
 import { UpcomingPhaseView } from './views/UpcomingPhaseView.js';
 
 export const AppContent: React.FC = () => {
@@ -63,6 +64,8 @@ export const AppContent: React.FC = () => {
         return <PharmaAiView />;
       case 'medprac':
         return <MedPracView />;
+      case 'udhaar':
+        return <UdhaarView />;
       case 'prescriptions':
         return <PrescriptionsView />;
       case 'patients':

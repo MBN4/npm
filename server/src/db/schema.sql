@@ -576,5 +576,179 @@ CREATE INDEX IF NOT EXISTS idx_cash_outs_created ON cash_outs(created_at);
 CREATE INDEX IF NOT EXISTS idx_cash_outs_nature ON cash_outs(transaction_nature);
 CREATE INDEX IF NOT EXISTS idx_cash_outs_status ON cash_outs(status);
 
+-- 13. Medprac (Pharmacy Practice Record Module)
+CREATE TABLE IF NOT EXISTS medprac_patients (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uuid TEXT UNIQUE NOT NULL,
+  serial_number TEXT UNIQUE NOT NULL, -- e.g. MP-000001
+  name TEXT NOT NULL,
+  age INTEGER NOT NULL,
+  age_unit TEXT DEFAULT 'Years', -- Years | Months | Days
+  sex TEXT NOT NULL, -- Male | Female
+  phone TEXT,
+  address TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS medprac_categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE NOT NULL,
+  description TEXT,
+  icon TEXT,
+  sort_order INTEGER DEFAULT 0,
+  is_active INTEGER DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS medprac_services (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT UNIQUE NOT NULL, -- injection, iv, drip, dressing, nebulization, bp_check, glucose_check
+  name TEXT NOT NULL,
+  default_cost REAL DEFAULT 0.0,
+  sort_order INTEGER DEFAULT 0,
+  is_active INTEGER DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS medprac_visits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uuid TEXT UNIQUE NOT NULL,
+  visit_id TEXT UNIQUE NOT NULL, -- e.g. MV-20260921-0001
+  patient_id INTEGER NOT NULL,
+  patient_serial TEXT NOT NULL,
+  visit_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  therapeutic_category_id INTEGER,
+  therapeutic_category_name TEXT NOT NULL,
+  dose_given TEXT NOT NULL, -- 1, 2, 3, 4, Custom
+  dose_notation TEXT, -- e.g. 1-0-1, 1-1-1
+  practice_dose_charge REAL DEFAULT 0.0,
+  total_service_charge REAL DEFAULT 0.0,
+  total_medicine_charge REAL DEFAULT 0.0,
+  total_amount REAL DEFAULT 0.0,
+  notes TEXT,
+  medprac_by_user_id INTEGER NOT NULL,
+  medprac_by_user_name TEXT NOT NULL,
+  status TEXT DEFAULT 'COMPLETED', -- COMPLETED, VOIDED
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (patient_id) REFERENCES medprac_patients(id),
+  FOREIGN KEY (therapeutic_category_id) REFERENCES medprac_categories(id),
+  FOREIGN KEY (medprac_by_user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS medprac_visit_services (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  visit_id INTEGER NOT NULL,
+  service_id INTEGER,
+  service_code TEXT NOT NULL,
+  service_name TEXT NOT NULL,
+  cost REAL DEFAULT 0.0,
+  FOREIGN KEY (visit_id) REFERENCES medprac_visits(id) ON DELETE CASCADE,
+  FOREIGN KEY (service_id) REFERENCES medprac_services(id)
+);
+
+CREATE TABLE IF NOT EXISTS medprac_visit_medicines (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  visit_id INTEGER NOT NULL,
+  medicine_id INTEGER,
+  brand_name TEXT NOT NULL,
+  generic_name TEXT,
+  strength TEXT,
+  dosage_form TEXT,
+  quantity_used REAL NOT NULL DEFAULT 1,
+  batch_number TEXT,
+  expiry_date TEXT,
+  unit_cost REAL DEFAULT 0.0,
+  selling_price REAL DEFAULT 0.0,
+  total_price REAL DEFAULT 0.0,
+  inventory_deducted INTEGER DEFAULT 0,
+  FOREIGN KEY (visit_id) REFERENCES medprac_visits(id) ON DELETE CASCADE,
+  FOREIGN KEY (medicine_id) REFERENCES medicines(id)
+);
+
+CREATE TABLE IF NOT EXISTS medprac_reversals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  visit_id INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  reversed_by_user_id INTEGER NOT NULL,
+  reversed_by_user_name TEXT NOT NULL,
+  original_amount REAL NOT NULL,
+  reversed_amount REAL NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (visit_id) REFERENCES medprac_visits(id),
+  FOREIGN KEY (reversed_by_user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS medprac_audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  user_name TEXT,
+  action TEXT NOT NULL,
+  entity TEXT NOT NULL,
+  entity_id TEXT,
+  old_value TEXT,
+  new_value TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_medprac_patients_serial ON medprac_patients(serial_number);
+CREATE INDEX IF NOT EXISTS idx_medprac_patients_name ON medprac_patients(name);
+CREATE INDEX IF NOT EXISTS idx_medprac_patients_phone ON medprac_patients(phone);
+CREATE INDEX IF NOT EXISTS idx_medprac_visits_visit_id ON medprac_visits(visit_id);
+CREATE INDEX IF NOT EXISTS idx_medprac_visits_patient ON medprac_visits(patient_id);
+CREATE INDEX IF NOT EXISTS idx_medprac_visits_date ON medprac_visits(visit_date);
+CREATE INDEX IF NOT EXISTS idx_medprac_visits_status ON medprac_visits(status);
+
+-- 14. Udhaar (Customer Credit Management Module)
+CREATE TABLE IF NOT EXISTS udhaar_customers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  mobile TEXT NOT NULL,
+  reference TEXT,
+  cnic TEXT,
+  serial_no TEXT NOT NULL, -- Auto last 4 digits of CNIC or sequence
+  category TEXT NOT NULL DEFAULT 'Medicine', -- Medicine, Cosmetics, General Products, Surgical
+  address TEXT DEFAULT 'Lahore, Pakistan',
+  credit_limit REAL DEFAULT 50000.0,
+  total_udhaar REAL DEFAULT 0.0,
+  paid_amount REAL DEFAULT 0.0,
+  balance REAL DEFAULT 0.0,
+  status TEXT DEFAULT 'CLEARED', -- CLEARED, DUE, OVERDUE
+  last_transaction_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS udhaar_transactions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  transaction_id TEXT UNIQUE NOT NULL,
+  customer_id INTEGER NOT NULL,
+  date_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  type TEXT NOT NULL, -- 'DEBIT' (Udhaar taken) or 'CREDIT' (Payment received)
+  category TEXT DEFAULT 'Medicine', -- Medicine, Cosmetics, General Products, Surgical
+  reference_no TEXT,
+  description TEXT,
+  amount REAL NOT NULL,
+  payment_method TEXT DEFAULT 'CASH', -- Cash, Bank, JazzCash, EasyPaisa
+  balance_after REAL NOT NULL,
+  created_by_user_id INTEGER NOT NULL,
+  created_by_user_name TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (customer_id) REFERENCES udhaar_customers(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_udhaar_cust_name ON udhaar_customers(name);
+CREATE INDEX IF NOT EXISTS idx_udhaar_cust_mobile ON udhaar_customers(mobile);
+CREATE INDEX IF NOT EXISTS idx_udhaar_cust_serial ON udhaar_customers(serial_no);
+CREATE INDEX IF NOT EXISTS idx_udhaar_cust_cnic ON udhaar_customers(cnic);
+CREATE INDEX IF NOT EXISTS idx_udhaar_cust_status ON udhaar_customers(status);
+CREATE INDEX IF NOT EXISTS idx_udhaar_trx_cust ON udhaar_transactions(customer_id);
+CREATE INDEX IF NOT EXISTS idx_udhaar_trx_date ON udhaar_transactions(date_time);
+
+
+
 
 
