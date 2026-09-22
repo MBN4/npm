@@ -13,10 +13,11 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
     SELECT 
       b.*,
       m.brand_name, m.strength, m.dosage_form, m.pack_size,
+      g.name as generic_name, mf.name as manufacturer_name,
       COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
       m.stock_unit, m.packaging_type, m.therapeutic_class,
       c.name as category_name,
-      m.barcode,
+      m.barcode, m.min_stock_level, m.reorder_level, m.notes,
       COALESCE(NULLIF(b.rack_location, ''), m.rack_location) as medicine_rack,
       s.name as supplier_name,
       CASE 
@@ -30,6 +31,8 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
     FROM batches b
     JOIN medicines m ON b.medicine_id = m.id
     LEFT JOIN categories c ON m.category_id = c.id
+    LEFT JOIN generics g ON m.generic_id = g.id
+    LEFT JOIN manufacturers mf ON m.manufacturer_id = mf.id
     LEFT JOIN suppliers s ON b.supplier_id = s.id
     WHERE b.id != 0
   `;
@@ -53,7 +56,8 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
 
 inventoryRouter.put('/batches/:id', authenticateToken, requirePermission('manage_inventory'), (req: AuthenticatedRequest, res: Response) => {
   const batchId = Number(req.params.id);
-  const { batchNumber, expiryDate, mfgDate, purchasePrice, salePrice, rackLocation, status, categoryName, dosageForm, therapeuticClass } = req.body;
+  const { batchNumber, expiryDate, mfgDate, purchasePrice, salePrice, rackLocation, status, categoryName, dosageForm, therapeuticClass,
+    brandName, genericName, manufacturerName, strength, barcode, stockUnit, packagingType, packSize, tabletsPerPack, minStockLevel, reorderLevel, notes, customCategory } = req.body;
 
   const existing = db.prepare('SELECT * FROM batches WHERE id = ?').get(batchId) as any;
   if (!existing) {
@@ -62,6 +66,18 @@ inventoryRouter.put('/batches/:id', authenticateToken, requirePermission('manage
   }
 
   const trimmedBatchNumber = batchNumber ? String(batchNumber).trim() : null;
+  if (brandName !== undefined && !String(brandName).trim()) return res.status(400).json({ error: 'Medicine name is required' });
+  if (batchNumber !== undefined && !trimmedBatchNumber) return res.status(400).json({ error: 'Batch number is required' });
+  if (purchasePrice !== undefined && (!Number.isFinite(Number(purchasePrice)) || Number(purchasePrice) < 0)) return res.status(400).json({ error: 'Invalid purchase cost' });
+  if (salePrice !== undefined && (!Number.isFinite(Number(salePrice)) || Number(salePrice) <= 0)) return res.status(400).json({ error: 'Invalid sale price' });
+  for (const [label, value, min] of [['Pack size', packSize, 1], ['Units per pack', tabletsPerPack, 1], ['Minimum stock', minStockLevel, 0], ['Reorder level', reorderLevel, 0]] as const) {
+    if (value !== undefined && (!Number.isInteger(Number(value)) || Number(value) < min)) return res.status(400).json({ error: `Invalid ${label.toLowerCase()}` });
+  }
+  if (packagingType !== undefined && !['SIMPLE', 'MULTI_TIER'].includes(packagingType)) return res.status(400).json({ error: 'Invalid packaging type' });
+  const trimmedBarcode = barcode === undefined ? undefined : String(barcode).trim() || null;
+  if (trimmedBarcode && db.prepare('SELECT id FROM medicines WHERE barcode = ? AND id != ?').get(trimmedBarcode, existing.medicine_id)) {
+    return res.status(400).json({ error: 'Barcode already in use by another product' });
+  }
 
   if (trimmedBatchNumber && trimmedBatchNumber !== existing.batch_number) {
     const duplicate = db.prepare('SELECT id FROM batches WHERE medicine_id = ? AND batch_number = ? AND id != ?')
@@ -77,45 +93,82 @@ inventoryRouter.put('/batches/:id', authenticateToken, requirePermission('manage
     const trimmedCategory = categoryName !== undefined ? String(categoryName).trim() : null;
     let categoryId: number | null = null;
     if (trimmedCategory !== null) {
+      if (!trimmedCategory) return res.status(400).json({ error: 'Main category is required' });
       const category = db.prepare('SELECT id FROM categories WHERE name = ? COLLATE NOCASE').get(trimmedCategory) as { id: number } | undefined;
-      if (!category) return res.status(400).json({ error: 'Please select a valid main category' });
-      categoryId = category.id;
+      if (!category && !customCategory) return res.status(400).json({ error: 'Please select a valid main category' });
+      categoryId = category?.id ?? null;
     }
 
+    const previousMedicine = db.prepare('SELECT * FROM medicines WHERE id = ?').get(existing.medicine_id);
     runTransaction(() => {
+      if (trimmedCategory && categoryId === null && customCategory) {
+        categoryId = Number(db.prepare('INSERT INTO categories (name) VALUES (?)').run(trimmedCategory).lastInsertRowid);
+      }
+      const resolveNamedId = (table: 'generics' | 'manufacturers', value: unknown): number | null => {
+        const name = String(value ?? '').trim();
+        if (!name) return null;
+        const found = db.prepare(`SELECT id FROM ${table} WHERE name = ? COLLATE NOCASE`).get(name) as { id: number } | undefined;
+        if (found) return found.id;
+        return Number(db.prepare(`INSERT INTO ${table} (name) VALUES (?)`).run(name).lastInsertRowid);
+      };
       db.prepare(`
       UPDATE batches SET
         batch_number = COALESCE(?, batch_number),
         expiry_date = COALESCE(?, expiry_date),
-        mfg_date = COALESCE(?, mfg_date),
+        mfg_date = CASE WHEN ? THEN ? ELSE mfg_date END,
         purchase_price = COALESCE(?, purchase_price),
         sale_price = COALESCE(?, sale_price),
-        rack_location = COALESCE(?, rack_location),
+        rack_location = CASE WHEN ? THEN ? ELSE rack_location END,
         status = COALESCE(?, status),
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
       `).run(
       trimmedBatchNumber,
       expiryDate || null,
+      mfgDate !== undefined ? 1 : 0,
       mfgDate || null,
       purchasePrice !== undefined ? Number(purchasePrice) : null,
       salePrice !== undefined ? Number(salePrice) : null,
+      rackLocation !== undefined ? 1 : 0,
       trimmedRack,
       status || null,
       batchId
       );
 
-      if (categoryId !== null || dosageForm !== undefined || therapeuticClass !== undefined || trimmedRack) {
+      if (categoryId !== null || dosageForm !== undefined || therapeuticClass !== undefined || rackLocation !== undefined || brandName !== undefined || genericName !== undefined || manufacturerName !== undefined || strength !== undefined || barcode !== undefined || stockUnit !== undefined || packagingType !== undefined || packSize !== undefined || tabletsPerPack !== undefined || minStockLevel !== undefined || reorderLevel !== undefined || notes !== undefined) {
         db.prepare(`UPDATE medicines SET
           category_id = COALESCE(?, category_id),
+          brand_name = COALESCE(?, brand_name),
+          generic_id = CASE WHEN ? THEN ? ELSE generic_id END,
+          manufacturer_id = CASE WHEN ? THEN ? ELSE manufacturer_id END,
+          strength = CASE WHEN ? THEN ? ELSE strength END,
           dosage_form = COALESCE(?, dosage_form),
           therapeutic_class = CASE WHEN ? THEN ? ELSE therapeutic_class END,
-          rack_location = COALESCE(?, rack_location),
+          barcode = CASE WHEN ? THEN ? ELSE barcode END,
+          stock_unit = CASE WHEN ? THEN ? ELSE stock_unit END,
+          packaging_type = COALESCE(?, packaging_type),
+          pack_size = COALESCE(?, pack_size),
+          tablets_per_pack = COALESCE(?, tablets_per_pack),
+          min_stock_level = COALESCE(?, min_stock_level),
+          reorder_level = COALESCE(?, reorder_level),
+          notes = CASE WHEN ? THEN ? ELSE notes END,
+          rack_location = CASE WHEN ? THEN ? ELSE rack_location END,
           updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-          .run(categoryId, dosageForm !== undefined ? String(dosageForm).trim() || null : null,
+          .run(categoryId, brandName !== undefined ? String(brandName).trim() : null,
+            genericName !== undefined ? 1 : 0, genericName !== undefined ? resolveNamedId('generics', genericName) : null,
+            manufacturerName !== undefined ? 1 : 0, manufacturerName !== undefined ? resolveNamedId('manufacturers', manufacturerName) : null,
+            strength !== undefined ? 1 : 0, strength !== undefined ? String(strength).trim() || null : null,
+            dosageForm !== undefined ? String(dosageForm).trim() || null : null,
             therapeuticClass !== undefined ? 1 : 0,
             therapeuticClass !== undefined ? String(therapeuticClass).trim() || null : null,
-            trimmedRack || null, existing.medicine_id);
+            barcode !== undefined ? 1 : 0, trimmedBarcode,
+            stockUnit !== undefined ? 1 : 0, stockUnit !== undefined ? String(stockUnit).trim() || null : null,
+            packagingType ?? null, packSize !== undefined ? Number(packSize) : null,
+            tabletsPerPack !== undefined ? Number(tabletsPerPack) : null,
+            minStockLevel !== undefined ? Number(minStockLevel) : null,
+            reorderLevel !== undefined ? Number(reorderLevel) : null,
+            notes !== undefined ? 1 : 0, notes !== undefined ? String(notes).trim() || null : null,
+            rackLocation !== undefined ? 1 : 0, trimmedRack, existing.medicine_id);
       }
 
       if (trimmedBatchNumber && trimmedBatchNumber !== existing.batch_number) {
@@ -128,8 +181,8 @@ inventoryRouter.put('/batches/:id', authenticateToken, requirePermission('manage
       action: 'UPDATE_BATCH',
       entity: 'BATCHES',
       entityId: batchId,
-      oldValues: existing,
-      newValues: { batchNumber: trimmedBatchNumber, expiryDate, salePrice, purchasePrice, rackLocation, categoryName: trimmedCategory, dosageForm, therapeuticClass },
+      oldValues: { batch: existing, medicine: previousMedicine },
+      newValues: { batchNumber: trimmedBatchNumber, expiryDate, mfgDate, salePrice, purchasePrice, rackLocation, categoryName: trimmedCategory, dosageForm, therapeuticClass, brandName, genericName, manufacturerName, strength, barcode, stockUnit, packagingType, packSize, tabletsPerPack, minStockLevel, reorderLevel, notes },
       ipAddress: req.ip
     });
 
@@ -1070,4 +1123,3 @@ async function lookupOnlineBarcode(code: string): Promise<any | null> {
 
   return null;
 }
-

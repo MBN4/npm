@@ -1,6 +1,8 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { X, Printer } from 'lucide-react';
 import { MedPracVisit } from '../types/medprac.js';
+import { useAuth } from '../context/AuthContext.js';
+import { printThermalElement } from '../utils/thermalPrinter.js';
 
 interface MedPracReceiptModalProps {
   visit: MedPracVisit;
@@ -9,76 +11,32 @@ interface MedPracReceiptModalProps {
 
 export const MedPracReceiptModal: React.FC<MedPracReceiptModalProps> = ({ visit, onClose }) => {
   const thermalRef = useRef<HTMLDivElement>(null);
+  const { token } = useAuth();
+  const [printing, setPrinting] = useState(false);
+  const [printMessage, setPrintMessage] = useState('');
 
-  const handlePrint = (mode: 'thermal' | 'a4') => {
-    const content = thermalRef.current ? thermalRef.current.innerHTML : '';
-    const printWindow = window.open('', '_blank', 'width=800,height=600');
-    if (!printWindow) return;
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Medprac Receipt - ${visit.visit_id}</title>
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              margin: 0;
-              padding: ${mode === 'thermal' ? '10px' : '20px'};
-              width: ${mode === 'thermal' ? '280px' : 'auto'};
-              color: #000;
-              background-color: #fff;
-            }
-            .receipt-header {
-              text-align: center;
-              border-bottom: 1px dashed #000;
-              padding-bottom: 8px;
-              margin-bottom: 8px;
-            }
-            .receipt-title {
-              font-size: 16px;
-              font-weight: bold;
-              margin: 0;
-            }
-            .receipt-subtitle {
-              font-size: 11px;
-              color: #333;
-            }
-            .row {
-              display: flex;
-              justify-content: space-between;
-              font-size: 12px;
-              margin-bottom: 4px;
-            }
-            .bold { font-weight: bold; }
-            .divider {
-              border-top: 1px dashed #000;
-              margin: 8px 0;
-            }
-            .total-row {
-              font-size: 14px;
-              font-weight: bold;
-              display: flex;
-              justify-content: space-between;
-              padding: 4px 0;
-              border-top: 1px solid #000;
-              border-bottom: 1px solid #000;
-              margin-top: 6px;
-            }
-            .footer {
-              text-align: center;
-              font-size: 10px;
-              margin-top: 12px;
-              color: #555;
-            }
-          </style>
-        </head>
-        <body onload="window.print(); window.close();">
-          ${content}
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
+  const handlePrint = async () => {
+    setPrinting(true);
+    setPrintMessage('');
+    try {
+      const response = await fetch('/api/integrations/print-medprac-direct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ visitId: visit.visit_id })
+      });
+      const result = await response.json();
+      if (response.ok && result.success) {
+        setPrintMessage(result.message || 'MedPrac slip sent to the POS printer.');
+      } else {
+        setPrintMessage(result.message || 'Choose the POS printer in the print dialog.');
+        if (thermalRef.current) printThermalElement(thermalRef.current);
+      }
+    } catch {
+      setPrintMessage('Choose the POS printer in the print dialog.');
+      if (thermalRef.current) printThermalElement(thermalRef.current);
+    } finally {
+      setPrinting(false);
+    }
   };
 
   const formattedDate = new Date(visit.visit_date).toLocaleString('en-US', {
@@ -284,6 +242,7 @@ export const MedPracReceiptModal: React.FC<MedPracReceiptModalProps> = ({ visit,
         </div>
 
         {/* Modal Actions */}
+        {printMessage && <div style={{ padding: '0.5rem 1.25rem', fontSize: '0.8rem' }}>{printMessage}</div>}
         <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', background: 'var(--bg-surface)', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
           <button
             onClick={onClose}
@@ -293,11 +252,12 @@ export const MedPracReceiptModal: React.FC<MedPracReceiptModalProps> = ({ visit,
             Close
           </button>
           <button
-            onClick={() => handlePrint('thermal')}
+            onClick={handlePrint}
+            disabled={printing}
             className="btn btn-primary"
             style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
           >
-            <Printer size={16} /> Thermal Print
+            <Printer size={16} /> {printing ? 'Printing...' : 'Print on POS Printer'}
           </button>
         </div>
       </div>

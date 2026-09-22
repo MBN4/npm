@@ -17,7 +17,7 @@ export interface PrintResult {
 export function printRawToPrinter(buffer: Buffer, printerName: string = 'Speed-X 400UL'): Promise<PrintResult> {
   return new Promise((resolve) => {
     if (process.platform !== 'win32') {
-      return resolve({ success: true, printerName: 'Non-Windows Dummy' });
+      return resolve({ success: false, fallbackToDialog: true, reason: 'Direct printer access is available on the Windows POS computer. Use the print dialog on this device.' });
     }
 
     try {
@@ -153,4 +153,3 @@ export function printToWindowsPrinter(text: string, printerName: string = 'Speed
   ];
   return printRawToPrinter(Buffer.concat(chunks), printerName).then(res => res.success);
 }
-

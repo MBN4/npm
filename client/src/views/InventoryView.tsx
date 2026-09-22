@@ -39,6 +39,11 @@ export interface BatchItem {
   stock_unit?: string;
   packaging_type?: 'MULTI_TIER' | 'SIMPLE';
   category_name?: string;
+  generic_name?: string;
+  manufacturer_name?: string;
+  min_stock_level?: number;
+  reorder_level?: number;
+  notes?: string;
   therapeutic_class?: string | null;
   barcode?: string;
   medicine_rack?: string;
@@ -91,12 +96,27 @@ export const InventoryView: React.FC = () => {
 
   const [editingBatch, setEditingBatch] = useState<BatchItem | null>(null);
   const [editBatchNumber, setEditBatchNumber] = useState('');
+  const [editBrandName, setEditBrandName] = useState('');
+  const [editGenericName, setEditGenericName] = useState('');
+  const [editManufacturerName, setEditManufacturerName] = useState('');
+  const [editStrength, setEditStrength] = useState('');
+  const [editBarcode, setEditBarcode] = useState('');
+  const [editStockUnit, setEditStockUnit] = useState('');
+  const [editPackagingType, setEditPackagingType] = useState<'SIMPLE' | 'MULTI_TIER'>('MULTI_TIER');
+  const [editPackSize, setEditPackSize] = useState('1');
+  const [editTabletsPerPack, setEditTabletsPerPack] = useState('10');
+  const [editMinStock, setEditMinStock] = useState('10');
+  const [editReorderLevel, setEditReorderLevel] = useState('20');
+  const [editNotes, setEditNotes] = useState('');
+  const [editMfgDate, setEditMfgDate] = useState('');
   const [editExpiryDate, setEditExpiryDate] = useState('');
   const [editPurchasePrice, setEditPurchasePrice] = useState('');
   const [editSalePrice, setEditSalePrice] = useState('');
   const [editRackLocation, setEditRackLocation] = useState('');
   const [editCategoryName, setEditCategoryName] = useState('');
+  const [editCustomCategory, setEditCustomCategory] = useState(false);
   const [editDosageForm, setEditDosageForm] = useState('');
+  const [editCustomDosage, setEditCustomDosage] = useState(false);
   const [editTherapeuticClass, setEditTherapeuticClass] = useState('');
   const [editCustomTherapeutic, setEditCustomTherapeutic] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -496,12 +516,27 @@ export const InventoryView: React.FC = () => {
   const handleOpenEdit = (batch: BatchItem) => {
     setEditingBatch(batch);
     setEditBatchNumber(batch.batch_number);
+    setEditBrandName(batch.brand_name);
+    setEditGenericName(batch.generic_name || '');
+    setEditManufacturerName(batch.manufacturer_name || '');
+    setEditStrength(batch.strength || '');
+    setEditBarcode(batch.barcode || '');
+    setEditStockUnit(batch.stock_unit || '');
+    setEditPackagingType(batch.packaging_type || 'MULTI_TIER');
+    setEditPackSize(String(batch.pack_size ?? 1));
+    setEditTabletsPerPack(String(batch.tablets_per_pack ?? 10));
+    setEditMinStock(String(batch.min_stock_level ?? 10));
+    setEditReorderLevel(String(batch.reorder_level ?? 20));
+    setEditNotes(batch.notes || '');
+    setEditMfgDate(batch.mfg_date || '');
     setEditExpiryDate(batch.expiry_date);
     setEditPurchasePrice(String(batch.purchase_price));
     setEditSalePrice(String(batch.sale_price));
     setEditRackLocation(batch.medicine_rack || '');
     setEditCategoryName(batch.category_name || '');
+    setEditCustomCategory(Boolean(batch.category_name && !PRODUCT_CATEGORIES.some(category => category.name === batch.category_name)));
     setEditDosageForm(batch.dosage_form || '');
+    setEditCustomDosage(Boolean(batch.dosage_form && !getSubcategories(batch.category_name || '').includes(batch.dosage_form)));
     setEditTherapeuticClass(batch.therapeutic_class || '');
     setEditCustomTherapeutic(Boolean(batch.therapeutic_class && !MASTER_THERAPEUTIC_CATEGORIES.some(group =>
       group.name === batch.therapeutic_class || group.subcategories.includes(batch.therapeutic_class!))));
@@ -523,11 +558,25 @@ export const InventoryView: React.FC = () => {
         },
         body: JSON.stringify({
           batchNumber: editBatchNumber,
+          brandName: editBrandName,
+          genericName: editGenericName,
+          manufacturerName: editManufacturerName,
+          strength: editStrength,
+          barcode: editBarcode,
+          stockUnit: editStockUnit,
+          packagingType: editPackagingType,
+          packSize: Number(editPackSize),
+          tabletsPerPack: Number(editTabletsPerPack),
+          minStockLevel: Number(editMinStock),
+          reorderLevel: Number(editReorderLevel),
+          notes: editNotes,
+          mfgDate: editMfgDate || null,
           expiryDate: editExpiryDate,
           purchasePrice: Number(editPurchasePrice) || 0,
           salePrice: Number(editSalePrice) || 0,
           rackLocation: editRackLocation,
           categoryName: editCategoryName,
+          customCategory: editCustomCategory,
           dosageForm: editDosageForm,
           therapeuticClass: editTherapeuticClass
         })
@@ -538,7 +587,7 @@ export const InventoryView: React.FC = () => {
         throw new Error(data.error || 'Failed to update batch');
       }
 
-      setAdjustSuccess(`Batch ${editBatchNumber} and medicine classification updated successfully.`);
+      setAdjustSuccess(`Medicine ${editBrandName} and batch ${editBatchNumber} updated successfully.`);
       setEditingBatch(null);
       fetchInventoryData();
     } catch (err: any) {
@@ -1825,7 +1874,7 @@ export const InventoryView: React.FC = () => {
               </div>
             )}
 
-            <form onSubmit={handleSaveBatchEdit} style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <form onSubmit={handleSaveBatchEdit} style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '70vh', overflowY: 'auto' }}>
               <div style={{ background: 'var(--bg-app)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
                 <div style={{ fontWeight: 800 }}>
                   {editingBatch.strength && editingBatch.brand_name.toLowerCase().includes(editingBatch.strength.toLowerCase().trim())
@@ -1838,24 +1887,45 @@ export const InventoryView: React.FC = () => {
               </div>
 
               <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Medicine classification applies to every batch of this product.</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Medicine details apply to every batch of this product. Use Adjust in the stock table to change quantity with an audit record.</div>
+                <div>
+                  <label className="form-label">Medicine / Brand Name *</label>
+                  <input className="input" value={editBrandName} onChange={e => setEditBrandName(e.target.value)} required maxLength={200} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div><label className="form-label">Generic Name</label><input className="input" value={editGenericName} onChange={e => setEditGenericName(e.target.value)} maxLength={200} /></div>
+                  <div><label className="form-label">Manufacturer</label><input className="input" value={editManufacturerName} onChange={e => setEditManufacturerName(e.target.value)} maxLength={200} /></div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div><label className="form-label">Strength</label><input className="input" value={editStrength} onChange={e => setEditStrength(e.target.value)} placeholder="e.g. 250mg" /></div>
+                  <div><label className="form-label">Barcode</label><input className="input" value={editBarcode} onChange={e => setEditBarcode(e.target.value)} /></div>
+                </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>Main Category *</label>
-                  <select className="select" value={editCategoryName} onChange={e => {
+                  <select className="select" value={editCustomCategory ? '__custom__' : editCategoryName} onChange={e => {
                     const nextCategory = e.target.value;
+                    if (nextCategory === '__custom__') { setEditCustomCategory(true); setEditCategoryName(''); setEditCustomDosage(true); setEditDosageForm(''); return; }
+                    setEditCustomCategory(false);
                     setEditCategoryName(nextCategory);
                     setEditDosageForm(getSubcategories(nextCategory)[0] || '');
+                    setEditCustomDosage(false);
                   }} required>
-                    {editCategoryName && !PRODUCT_CATEGORIES.some(category => category.name === editCategoryName) && <option value={editCategoryName}>{editCategoryName}</option>}
                     {PRODUCT_CATEGORIES.map(category => <option key={category.name} value={category.name}>{category.name}</option>)}
+                    <option value="__custom__">Custom category…</option>
                   </select>
+                  {editCustomCategory && <input className="input" style={{ marginTop: '0.5rem' }} value={editCategoryName} onChange={e => setEditCategoryName(e.target.value)} placeholder="Enter main category" required />}
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>Subcategory / Product Type</label>
-                  <select className="select" value={editDosageForm} onChange={e => setEditDosageForm(e.target.value)}>
-                    {editDosageForm && !getSubcategories(editCategoryName).includes(editDosageForm) && <option value={editDosageForm}>{editDosageForm}</option>}
+                  <select className="select" value={editCustomDosage ? '__custom__' : editDosageForm} onChange={e => {
+                    if (e.target.value === '__custom__') { setEditCustomDosage(true); setEditDosageForm(''); }
+                    else { setEditCustomDosage(false); setEditDosageForm(e.target.value); }
+                  }}>
+                    <option value="">Select product type</option>
                     {getSubcategories(editCategoryName).map(subcategory => <option key={subcategory} value={subcategory}>{subcategory}</option>)}
+                    <option value="__custom__">Custom product type…</option>
                   </select>
+                  {editCustomDosage && <input className="input" style={{ marginTop: '0.5rem' }} value={editDosageForm} onChange={e => setEditDosageForm(e.target.value)} placeholder="Enter product type" />}
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>Therapeutic Class</label>
@@ -1872,6 +1942,15 @@ export const InventoryView: React.FC = () => {
                   </select>
                   {editCustomTherapeutic && <input className="input" style={{ marginTop: '0.5rem' }} value={editTherapeuticClass} onChange={e => setEditTherapeuticClass(e.target.value)} placeholder="Enter therapeutic class" />}
                 </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div><label className="form-label">Packaging</label><select className="select" value={editPackagingType} onChange={e => setEditPackagingType(e.target.value as 'SIMPLE' | 'MULTI_TIER')}><option value="MULTI_TIER">Unit / Pack / Box</option><option value="SIMPLE">Unit / Box</option></select></div>
+                  <div><label className="form-label">Stock Unit</label><input className="input" value={editStockUnit} onChange={e => setEditStockUnit(e.target.value)} placeholder="Tablet, bottle, vial..." /></div>
+                  <div><label className="form-label">Packs per Box</label><input type="number" min="1" step="1" className="input" value={editPackSize} onChange={e => setEditPackSize(e.target.value)} required /></div>
+                  <div><label className="form-label">Units per Pack</label><input type="number" min="1" step="1" className="input" value={editTabletsPerPack} onChange={e => setEditTabletsPerPack(e.target.value)} required /></div>
+                  <div><label className="form-label">Minimum Stock</label><input type="number" min="0" step="1" className="input" value={editMinStock} onChange={e => setEditMinStock(e.target.value)} required /></div>
+                  <div><label className="form-label">Reorder Level</label><input type="number" min="0" step="1" className="input" value={editReorderLevel} onChange={e => setEditReorderLevel(e.target.value)} required /></div>
+                </div>
+                <div><label className="form-label">Product Notes</label><textarea className="input" value={editNotes} onChange={e => setEditNotes(e.target.value)} rows={2} /></div>
               </div>
 
               <div>
@@ -1895,6 +1974,7 @@ export const InventoryView: React.FC = () => {
                   required
                 />
               </div>
+              <div><label className="form-label">Manufacturing Date</label><input type="date" className="input" value={editMfgDate} onChange={e => setEditMfgDate(e.target.value)} /></div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div>

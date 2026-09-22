@@ -148,6 +148,59 @@ function padBetween(left: string, right: string, width: number = 42): string {
 }
 
 // Direct Hardware Thermal Printing (Windows WinSpool RAW / ESC/POS)
+integrationRouter.post('/print-medprac-direct', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const visitId = String(req.body?.visitId || '').trim();
+    if (!visitId) return res.status(400).json({ error: 'Visit ID is required' });
+    const visit = db.prepare(`
+      SELECT v.*, p.name AS patient_name, p.age AS patient_age, p.age_unit AS patient_age_unit, p.sex AS patient_sex
+      FROM medprac_visits v JOIN medprac_patients p ON p.id = v.patient_id
+      WHERE v.visit_id = ?
+    `).get(visitId) as any;
+    if (!visit) return res.status(404).json({ error: 'MedPrac visit not found' });
+    const services = db.prepare('SELECT service_name, cost FROM medprac_visit_services WHERE visit_id = ?').all(visit.id) as any[];
+    const medicines = db.prepare('SELECT brand_name, quantity_used, total_price FROM medprac_visit_medicines WHERE visit_id = ?').all(visit.id) as any[];
+    const settings = db.prepare("SELECT key, value FROM settings WHERE key IN ('pharmacy_name', 'pharmacy_phone', 'receipt_footer')").all() as { key: string; value: string }[];
+    const setting = Object.fromEntries(settings.map(row => [row.key, row.value]));
+    const lines = [
+      setting.pharmacy_name || 'NAVEED MEDICAL PHARMACY (NMP)',
+      setting.pharmacy_phone ? `Phone: ${setting.pharmacy_phone}` : '',
+      'MEDPRAC PRACTICE RECEIPT',
+      '------------------------------------------',
+      `Visit: ${visit.visit_id}`,
+      `Date: ${new Date(visit.visit_date).toLocaleString('en-PK')}`,
+      `Patient: ${visit.patient_name}`,
+      `Serial: ${visit.patient_serial}`,
+      `Age / Sex: ${visit.patient_age} ${visit.patient_age_unit} / ${visit.patient_sex}`,
+      '------------------------------------------',
+      `Category: ${visit.therapeutic_category_name}`,
+      `Dose: ${visit.dose_given}${visit.dose_notation ? ` (${visit.dose_notation})` : ''}`,
+      ...services.map(item => padBetween(String(item.service_name), `Rs. ${Number(item.cost).toFixed(2)}`, 42)),
+      ...medicines.map(item => padBetween(`${item.brand_name} x ${item.quantity_used}`, `Rs. ${Number(item.total_price).toFixed(2)}`, 42)),
+      '------------------------------------------',
+      padBetween('Practice / Dose', `Rs. ${Number(visit.practice_dose_charge).toFixed(2)}`, 42),
+      padBetween('Service Charges', `Rs. ${Number(visit.total_service_charge).toFixed(2)}`, 42),
+      padBetween('Medicine Charges', `Rs. ${Number(visit.total_medicine_charge).toFixed(2)}`, 42),
+      padBetween('TOTAL', `Rs. ${Number(visit.total_amount).toFixed(2)}`, 42),
+      `Recorded by: ${visit.medprac_by_user_name}`,
+      visit.status === 'VOIDED' ? '*** VOIDED ***' : '',
+      setting.receipt_footer || 'Thank you for visiting Naveed Medical!',
+    ].filter(Boolean);
+    const buffer = Buffer.concat([
+      Buffer.from([0x1b, 0x40]),
+      Buffer.from(lines.join('\n') + '\n\n', 'utf8'),
+      Buffer.from([0x1b, 0x64, 0x06]),
+      Buffer.from([0x1d, 0x56, 0x41, 0x00])
+    ]);
+    const result = await printRawToPrinter(buffer, 'Speed-X 400UL');
+    res.json(result.success
+      ? { success: true, message: `MedPrac slip sent to ${result.printerName || 'Speed-X 400UL'}` }
+      : { success: false, fallbackToDialog: true, message: result.reason || 'Printer unavailable' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, fallbackToDialog: true, message: err.message || 'Printing failed' });
+  }
+});
+
 integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { invoiceNumber, printerName } = req.body;
@@ -641,4 +694,3 @@ integrationRouter.get('/qr-recent', authenticateToken, (req: Request, res: Respo
     payments: getRecentQrPayments()
   });
 });
-
