@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext.js';
 import { TherapeuticCategorySelect } from '../components/TherapeuticCategorySelect.js';
+import { DownwardSelect } from '../components/DownwardSelect.js';
 import { PRODUCT_CATEGORIES, getSubcategories } from '../utils/productCatalog.js';
 import { getProductPackaging } from '../utils/productPackaging.js';
 import {
@@ -132,6 +133,10 @@ export const MedicinesView: React.FC = () => {
 
     if (!newMed.brandName.trim()) {
       setFormError('Brand name is required');
+      return;
+    }
+    if (!newMed.categoryId || !newMed.dosageForm) {
+      setFormError('Main category and product type are required');
       return;
     }
 
@@ -398,22 +403,18 @@ export const MedicinesView: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Main Category *</label>
-                  <select
-                    className="select"
+                  <DownwardSelect
                     value={newMed.categoryId}
-                    onChange={e => {
-                      const categoryId = e.target.value;
+                    onChange={categoryId => {
                       const categoryName = categories.find(category => String(category.id) === categoryId)?.name || '';
                       setNewMed({ ...newMed, categoryId, dosageForm: getSubcategories(categoryName)[0] || '' });
                     }}
-                    required
-                  >
-                    <option value="">Select Main Category</option>
-                    {PRODUCT_CATEGORIES.map(definition => {
+                    placeholder="Select Main Category"
+                    options={PRODUCT_CATEGORIES.flatMap(definition => {
                       const category = categories.find(item => item.name === definition.name);
-                      return category ? <option key={category.id} value={category.id}>{definition.name}</option> : null;
+                      return category ? [{ value: String(category.id), label: definition.name }] : [];
                     })}
-                  </select>
+                  />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Subcategory / Product Type *</label>

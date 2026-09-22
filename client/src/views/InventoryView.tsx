@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.js';
 import { TherapeuticCategorySelect, MASTER_THERAPEUTIC_CATEGORIES } from '../components/TherapeuticCategorySelect.js';
+import { DownwardSelect } from '../components/DownwardSelect.js';
 import { StrengthInput } from '../components/StrengthInput.js';
 import { getProductPackaging } from '../utils/productPackaging.js';
 import { PRODUCT_CATEGORIES, getSubcategories } from '../utils/productCatalog.js';
@@ -1178,18 +1179,14 @@ export const InventoryView: React.FC = () => {
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: '24px', marginBottom: '0.25rem' }}>
                           <label style={{ fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Main Category *</label>
                         </div>
-                        <select
-                          className="select"
+                        <DownwardSelect
                           value={categoryName}
-                          onChange={e => {
-                            const nextCategory = e.target.value;
+                          onChange={nextCategory => {
                             setCategoryName(nextCategory);
                             setDosageForm(getSubcategories(nextCategory)[0] || '');
                           }}
-                          required
-                        >
-                          {PRODUCT_CATEGORIES.map(category => <option key={category.name} value={category.name}>{category.name}</option>)}
-                        </select>
+                          options={PRODUCT_CATEGORIES.map(category => ({ value: category.name, label: category.name }))}
+                        />
                       </div>
 
                       <div>
@@ -1902,17 +1899,13 @@ export const InventoryView: React.FC = () => {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>Main Category *</label>
-                  <select className="select" value={editCustomCategory ? '__custom__' : editCategoryName} onChange={e => {
-                    const nextCategory = e.target.value;
+                  <DownwardSelect value={editCustomCategory ? '__custom__' : editCategoryName} onChange={nextCategory => {
                     if (nextCategory === '__custom__') { setEditCustomCategory(true); setEditCategoryName(''); setEditCustomDosage(true); setEditDosageForm(''); return; }
                     setEditCustomCategory(false);
                     setEditCategoryName(nextCategory);
                     setEditDosageForm(getSubcategories(nextCategory)[0] || '');
                     setEditCustomDosage(false);
-                  }} required>
-                    {PRODUCT_CATEGORIES.map(category => <option key={category.name} value={category.name}>{category.name}</option>)}
-                    <option value="__custom__">Custom category…</option>
-                  </select>
+                  }} options={[...PRODUCT_CATEGORIES.map(category => ({ value: category.name, label: category.name })), { value: '__custom__', label: 'Custom category…' }]} />
                   {editCustomCategory && <input className="input" style={{ marginTop: '0.5rem' }} value={editCategoryName} onChange={e => setEditCategoryName(e.target.value)} placeholder="Enter main category" required />}
                 </div>
                 <div>
@@ -1929,17 +1922,17 @@ export const InventoryView: React.FC = () => {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>Therapeutic Class</label>
-                  <select className="select" value={editCustomTherapeutic ? '__custom__' : editTherapeuticClass} onChange={e => {
-                    if (e.target.value === '__custom__') setEditCustomTherapeutic(true);
-                    else { setEditCustomTherapeutic(false); setEditTherapeuticClass(e.target.value); }
-                  }}>
-                    <option value="">No therapeutic class</option>
-                    {MASTER_THERAPEUTIC_CATEGORIES.map(group => <optgroup key={group.id} label={group.name}>
-                      <option value={group.name}>{group.name}</option>
-                      {group.subcategories.map(subcategory => <option key={subcategory} value={subcategory}>{subcategory}</option>)}
-                    </optgroup>)}
-                    <option value="__custom__">Custom class…</option>
-                  </select>
+                  <DownwardSelect value={editCustomTherapeutic ? '__custom__' : editTherapeuticClass} onChange={nextClass => {
+                    if (nextClass === '__custom__') setEditCustomTherapeutic(true);
+                    else { setEditCustomTherapeutic(false); setEditTherapeuticClass(nextClass); }
+                  }} options={[
+                    { value: '', label: 'No therapeutic class' },
+                    ...MASTER_THERAPEUTIC_CATEGORIES.flatMap(group => [
+                      { value: group.name, label: group.name },
+                      ...group.subcategories.map(subcategory => ({ value: subcategory, label: `  ${subcategory}` }))
+                    ]),
+                    { value: '__custom__', label: 'Custom class…' }
+                  ]} />
                   {editCustomTherapeutic && <input className="input" style={{ marginTop: '0.5rem' }} value={editTherapeuticClass} onChange={e => setEditTherapeuticClass(e.target.value)} placeholder="Enter therapeutic class" />}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>

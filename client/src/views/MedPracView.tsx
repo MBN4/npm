@@ -22,7 +22,9 @@ import {
   Sparkles,
   Sun,
   Stethoscope,
-  Heart
+  Heart,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import {
   MedPracPatient,
@@ -1027,7 +1029,7 @@ export const MedPracView: React.FC = () => {
                       justifyContent: 'center'
                     }}
                   >
-                    Custom ▼
+                    Custom <ChevronDown size={14} aria-hidden="true" style={{ marginLeft: '0.2rem' }} />
                   </button>
                 </div>
 
@@ -1189,7 +1191,9 @@ export const MedPracView: React.FC = () => {
                 }}
               >
                 <span>Medicines Used (Optional) {medicinesList.length > 0 && `(${medicinesList.length} items)`}</span>
-                <span style={{ fontSize: '0.8rem', color: 'var(--primary)' }}>{showMedicineSection ? '▲ Hide' : '▼ + Add Medicine'}</span>
+                <span style={{ fontSize: '0.8rem', color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                  {showMedicineSection ? <><ChevronUp size={15} /> Hide</> : <><ChevronDown size={15} /> Add Medicine</>}
+                </span>
               </div>
 
               {showMedicineSection && (

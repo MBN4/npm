@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, ChevronDown, ChevronRight, Check, Folder, FolderOpen, Tag } from 'lucide-react';
 
 export interface SubCategoryGroup {
@@ -672,17 +673,43 @@ export const TherapeuticCategorySelect: React.FC<TherapeuticCategorySelectProps>
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<Record<number, boolean>>({});
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (!isOpen) return;
+    const updatePosition = () => setTriggerRect(dropdownRef.current?.getBoundingClientRect() || null);
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node) && !panelRef.current?.contains(event.target as Node)) {
         setIsOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+        dropdownRef.current?.querySelector('button')?.focus();
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen && searchInputRef.current) {
@@ -721,8 +748,17 @@ export const TherapeuticCategorySelect: React.FC<TherapeuticCategorySelectProps>
   return (
     <div ref={dropdownRef} style={{ position: 'relative', width: '100%' }}>
       {/* Trigger Button */}
-      <div
-        onClick={() => setIsOpen(!isOpen)}
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        onClick={() => {
+          if (!isOpen && dropdownRef.current && window.innerHeight - dropdownRef.current.getBoundingClientRect().bottom < 160) {
+            dropdownRef.current.scrollIntoView({ block: 'start' });
+          }
+          setTriggerRect(dropdownRef.current?.getBoundingClientRect() || null);
+          setIsOpen(!isOpen);
+        }}
         className="input"
         style={{
           display: 'flex',
@@ -752,21 +788,21 @@ export const TherapeuticCategorySelect: React.FC<TherapeuticCategorySelectProps>
           </span>
         </div>
         <ChevronDown size={14} style={{ color: 'var(--text-muted)', marginLeft: '0.5rem', flexShrink: 0, transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-      </div>
+      </button>
 
       {/* Dropdown Panel */}
-      {isOpen && (
-        <div style={{
-          position: 'absolute',
-          top: 'calc(100% + 4px)',
-          left: 0,
-          right: 0,
-          zIndex: 9999,
+      {isOpen && triggerRect && createPortal(
+        <div ref={panelRef} style={{
+          position: 'fixed',
+          top: triggerRect.bottom + 4,
+          left: triggerRect.left,
+          width: triggerRect.width,
+          zIndex: 10000,
           backgroundColor: 'var(--bg-surface)',
           border: '1px solid var(--border)',
           borderRadius: 'var(--radius-md)',
           boxShadow: '0 10px 30px -5px rgba(0,0,0,0.5), 0 8px 12px -6px rgba(0,0,0,0.3)',
-          maxHeight: '380px',
+          maxHeight: Math.max(100, Math.min(380, window.innerHeight - triggerRect.bottom - 12)),
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden'
@@ -932,7 +968,7 @@ export const TherapeuticCategorySelect: React.FC<TherapeuticCategorySelectProps>
               </div>
             )}
           </div>
-        </div>
+        </div>, document.body
       )}
     </div>
   );

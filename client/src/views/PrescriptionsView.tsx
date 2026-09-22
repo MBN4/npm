@@ -92,6 +92,10 @@ export const PrescriptionsView: React.FC = () => {
 
   // Form State
   const [patientId, setPatientId] = useState('');
+  const [showNewPatient, setShowNewPatient] = useState(false);
+  const [savingPatient, setSavingPatient] = useState(false);
+  const [patientError, setPatientError] = useState('');
+  const [newPatient, setNewPatient] = useState({ name: '', mobile: '', age: '', gender: 'MALE', allergyNotes: '' });
   const [doctorId, setDoctorId] = useState('');
   const [diagnosis, setDiagnosis] = useState('');
   const [notes, setNotes] = useState('');
@@ -148,6 +152,41 @@ export const PrescriptionsView: React.FC = () => {
     const updated = [...items];
     updated[index] = { ...updated[index], [field]: value };
     setItems(updated);
+  };
+
+  const handleCreatePatient = async () => {
+    if (!newPatient.name.trim()) { setPatientError('Patient name is required.'); return; }
+    if (newPatient.age && (!Number.isInteger(Number(newPatient.age)) || Number(newPatient.age) < 0 || Number(newPatient.age) > 130)) {
+      setPatientError('Enter an age between 0 and 130.'); return;
+    }
+    setSavingPatient(true);
+    setPatientError('');
+    try {
+      const response = await fetch('/api/patients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: newPatient.name.trim(), mobile: newPatient.mobile.trim() || null,
+          age: newPatient.age ? Number(newPatient.age) : null,
+          gender: newPatient.gender, allergyNotes: newPatient.allergyNotes.trim() || null
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not register patient.');
+      const id = String(data.patientId);
+      setPatients(current => [...current, {
+        id: data.patientId, name: newPatient.name.trim(), mobile: newPatient.mobile.trim(),
+        age: newPatient.age ? Number(newPatient.age) : null, gender: newPatient.gender,
+        allergy_notes: newPatient.allergyNotes.trim()
+      }]);
+      setPatientId(id);
+      setNewPatient({ name: '', mobile: '', age: '', gender: 'MALE', allergyNotes: '' });
+      setShowNewPatient(false);
+    } catch (error: any) {
+      setPatientError(error.message || 'Could not register patient.');
+    } finally {
+      setSavingPatient(false);
+    }
   };
 
   const addItemRow = () => {
@@ -230,6 +269,9 @@ export const PrescriptionsView: React.FC = () => {
 
       setStatusMessage({ text: 'Prescription recorded successfully.', type: 'success' });
       setShowAddModal(false);
+      setPatientId('');
+      setDoctorId('');
+      setShowNewPatient(false);
       setDiagnosis('');
       setNotes('');
       setItems([
@@ -372,7 +414,12 @@ export const PrescriptionsView: React.FC = () => {
             <form onSubmit={handleSubmitPrescription} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.35rem', color: 'var(--text-main)' }}>Patient *</label>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)' }}>Patient *</label>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setShowNewPatient(open => !open); setPatientError(''); }}>
+                      <Plus size={13} /> {showNewPatient ? 'Cancel' : 'New Patient'}
+                    </button>
+                  </div>
                   <select
                     className="select"
                     value={patientId}
@@ -404,6 +451,23 @@ export const PrescriptionsView: React.FC = () => {
                   </select>
                 </div>
               </div>
+
+              {showNewPatient && (
+                <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--bg-card)' }}>
+                  <strong style={{ fontSize: '0.9rem' }}>Register patient for this prescription</strong>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', marginTop: '0.75rem' }}>
+                    <div><label className="form-label">Name *</label><input className="input" value={newPatient.name} onChange={e => setNewPatient({ ...newPatient, name: e.target.value })} maxLength={150} /></div>
+                    <div><label className="form-label">Mobile</label><input className="input" value={newPatient.mobile} onChange={e => setNewPatient({ ...newPatient, mobile: e.target.value })} inputMode="tel" /></div>
+                    <div><label className="form-label">Age</label><input className="input" type="number" min="0" max="130" value={newPatient.age} onChange={e => setNewPatient({ ...newPatient, age: e.target.value })} /></div>
+                    <div><label className="form-label">Gender</label><select className="select" value={newPatient.gender} onChange={e => setNewPatient({ ...newPatient, gender: e.target.value })}><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select></div>
+                    <div style={{ gridColumn: '1 / -1' }}><label className="form-label">Allergy Notes</label><input className="input" value={newPatient.allergyNotes} onChange={e => setNewPatient({ ...newPatient, allergyNotes: e.target.value })} placeholder="Optional" /></div>
+                  </div>
+                  {patientError && <p role="alert" style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '0.5rem' }}>{patientError}</p>}
+                  <button type="button" className="btn btn-primary" onClick={handleCreatePatient} disabled={savingPatient} style={{ marginTop: '0.75rem' }}>
+                    {savingPatient ? 'Saving...' : 'Save & Select Patient'}
+                  </button>
+                </div>
+              )}
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.35rem', color: 'var(--text-main)' }}>Clinical Diagnosis</label>
