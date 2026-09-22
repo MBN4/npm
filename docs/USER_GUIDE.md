@@ -47,23 +47,33 @@ The POS module is the central billing counter designed for rapid barcode scannin
 
 ## 3. Customer CRM & Patient Ledger
 
-- Navigate to the **Patients** menu.
-- **Register New Patient**: Click *Add Patient*, enter full name, mobile number, emergency contact, CNIC, and known drug allergies (e.g., Penicillin, NSAIDs, Sulfa).
-- **Patient History**: Click on any patient record to inspect their complete transaction history, dispensed medications, and debt balance.
-- **Receiving Debt (Udhar) Payments**: Click *Receive Payment*, enter the received cash amount and optional receipt notes. The customer's outstanding balance updates immediately.
+- Open **Patients & CRM**. Use **Register Patient** to enter a name, optional mobile and age, gender, allergy notes, and credit limit.
+- To correct an existing record, find the patient by name or mobile and click **Edit**. Save changes to the name, mobile, age, gender, allergy notes, or credit limit. Clearing mobile, age, or allergy notes removes those values. The patient's purchases, prescriptions, and balance remain attached to the same profile. Editing requires `manage_patients` permission.
+- Click **History** for the patient's purchases and receivable ledger. Click **Recover** to record a cash or bank payment against a balance.
+- In **Udhaar (Credit)**, record another credit purchase, a payment, or a noncash reduction for a return, discount, correction, or write-off. Enter a reason for reductions. A physical return also needs a separate inventory update.
 
 ---
 
 ## 4. Prescription (Rx) Management
 
-- Navigate to the **Prescriptions** menu.
-- Click **Record Prescription**.
-- Enter Doctor Name, Clinic/Hospital, Patient Name, Diagnosis, and prescribed medication lines with frequency (e.g., 1 tablet twice daily after meals).
-- Save the prescription. Prescriptions can be directly fulfilled into the POS cart with one click.
+- Open **Prescriptions** and click **New Prescription**. Select an existing patient and optionally an attending doctor or pharmacist.
+- If the patient is not listed, click **New Patient** beside the Patient field. Enter their details, then click **Save & Select Patient**. The new profile is selected in the current prescription.
+- To correct the selected existing patient while writing the Rx, click **Edit Patient**, change the details, and save. This action requires `manage_patients` permission.
+- Enter a diagnosis, medicine lines, dosage, frequency, duration, timing, and instructions; then click **Save & Record Rx**.
+
+## 5. Medicine Catalog & Inventory Editing
+
+- Medicines from `New_Rack_Medicines_List.pdf` were imported as catalog entries only. Add a stock batch when actual quantity, prices, and expiry are known.
+- In **Inventory & Stock**, click **Edit** on a batch to correct the medicine name, generic, manufacturer, strength, barcode, category, product type, therapeutic class, packaging, stock thresholds, notes, batch number, expiry, prices, and rack. Product fields affect every batch of that medicine; batch fields affect the selected batch.
+- Use **Adjust** to change stock quantity so the movement is recorded in the audit trail. Main Category and Therapeutic Class menus open below their fields and scroll when needed.
+
+## 6. MedPrac Slips
+
+- Open a MedPrac receipt and click **Print on POS Printer**. On the Windows POS computer, it is sent to the same Speed-X printer path as POS receipts. If direct printing is unavailable, choose the POS printer in the thermal print dialog.
 
 ---
 
-## 5. Drug Safety & AI Clinical Assistant
+## 7. Drug Safety & AI Clinical Assistant
 
 - Navigate to the **Drug AI Safety** menu.
 - **Multi-Drug Interaction Checker**: Select two or more medicines (e.g. Ciprofloxacin + Antacids, or Warfarin + Aspirin). Click *Analyze Interactions* to review severity (Major, Moderate, Minor) and clinical management advice.
@@ -72,7 +82,7 @@ The POS module is the central billing counter designed for rapid barcode scannin
 
 ---
 
-## 6. Daily Register Closeout
+## 8. Daily Register Closeout
 
 At the end of each shift:
 1. Navigate to **Accounts > Cashbook**.

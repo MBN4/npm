@@ -6,6 +6,7 @@ import {
   RefreshCw,
   Stethoscope,
   Printer,
+  Pencil,
   X,
   Trash2
 } from 'lucide-react';
@@ -78,7 +79,7 @@ const TIMING_PRESETS = [
 ];
 
 export const PrescriptionsView: React.FC = () => {
-  const { token } = useAuth();
+  const { token, hasPermission } = useAuth();
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
   const [patients, setPatients] = useState<any[]>([]);
   const [doctors, setDoctors] = useState<any[]>([]);
@@ -93,6 +94,7 @@ export const PrescriptionsView: React.FC = () => {
   // Form State
   const [patientId, setPatientId] = useState('');
   const [showNewPatient, setShowNewPatient] = useState(false);
+  const [editingRxPatientId, setEditingRxPatientId] = useState<string | null>(null);
   const [savingPatient, setSavingPatient] = useState(false);
   const [patientError, setPatientError] = useState('');
   const [newPatient, setNewPatient] = useState({ name: '', mobile: '', age: '', gender: 'MALE', allergyNotes: '' });
@@ -154,7 +156,7 @@ export const PrescriptionsView: React.FC = () => {
     setItems(updated);
   };
 
-  const handleCreatePatient = async () => {
+  const handleSavePatient = async () => {
     if (!newPatient.name.trim()) { setPatientError('Patient name is required.'); return; }
     if (newPatient.age && (!Number.isInteger(Number(newPatient.age)) || Number(newPatient.age) < 0 || Number(newPatient.age) > 130)) {
       setPatientError('Enter an age between 0 and 130.'); return;
@@ -162,28 +164,32 @@ export const PrescriptionsView: React.FC = () => {
     setSavingPatient(true);
     setPatientError('');
     try {
-      const response = await fetch('/api/patients', {
-        method: 'POST',
+      const response = await fetch(editingRxPatientId ? `/api/patients/${editingRxPatientId}` : '/api/patients', {
+        method: editingRxPatientId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           name: newPatient.name.trim(), mobile: newPatient.mobile.trim() || null,
-          age: newPatient.age ? Number(newPatient.age) : null,
+          age: newPatient.age === '' ? null : Number(newPatient.age),
           gender: newPatient.gender, allergyNotes: newPatient.allergyNotes.trim() || null
         })
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Could not register patient.');
-      const id = String(data.patientId);
-      setPatients(current => [...current, {
-        id: data.patientId, name: newPatient.name.trim(), mobile: newPatient.mobile.trim(),
-        age: newPatient.age ? Number(newPatient.age) : null, gender: newPatient.gender,
+      if (!response.ok) throw new Error(data.error || 'Could not save patient.');
+      const id = editingRxPatientId || String(data.patientId);
+      const savedPatient = {
+        id: Number(id), name: newPatient.name.trim(), mobile: newPatient.mobile.trim(),
+        age: newPatient.age === '' ? null : Number(newPatient.age), gender: newPatient.gender,
         allergy_notes: newPatient.allergyNotes.trim()
-      }]);
+      };
+      setPatients(current => editingRxPatientId
+        ? current.map(patient => String(patient.id) === id ? { ...patient, ...savedPatient, id: Number(id) } : patient)
+        : [...current, savedPatient]);
       setPatientId(id);
       setNewPatient({ name: '', mobile: '', age: '', gender: 'MALE', allergyNotes: '' });
+      setEditingRxPatientId(null);
       setShowNewPatient(false);
     } catch (error: any) {
-      setPatientError(error.message || 'Could not register patient.');
+      setPatientError(error.message || 'Could not save patient.');
     } finally {
       setSavingPatient(false);
     }
@@ -272,6 +278,7 @@ export const PrescriptionsView: React.FC = () => {
       setPatientId('');
       setDoctorId('');
       setShowNewPatient(false);
+      setEditingRxPatientId(null);
       setDiagnosis('');
       setNotes('');
       setItems([
@@ -416,14 +423,22 @@ export const PrescriptionsView: React.FC = () => {
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
                     <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)' }}>Patient *</label>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setShowNewPatient(open => !open); setPatientError(''); }}>
+                    {patientId && hasPermission('manage_patients') && <button type="button" className="btn btn-secondary btn-sm" onClick={() => {
+                      const patient = patients.find(item => String(item.id) === patientId);
+                      if (!patient) return;
+                      setEditingRxPatientId(patientId);
+                      setNewPatient({ name: patient.name || '', mobile: patient.mobile || '', age: patient.age == null ? '' : String(patient.age), gender: patient.gender?.toUpperCase() || 'MALE', allergyNotes: patient.allergy_notes || '' });
+                      setPatientError('');
+                      setShowNewPatient(true);
+                    }}><Pencil size={13} /> Edit Patient</button>}
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setShowNewPatient(open => !open); setEditingRxPatientId(null); setNewPatient({ name: '', mobile: '', age: '', gender: 'MALE', allergyNotes: '' }); setPatientError(''); }}>
                       <Plus size={13} /> {showNewPatient ? 'Cancel' : 'New Patient'}
                     </button>
                   </div>
                   <select
                     className="select"
                     value={patientId}
-                    onChange={e => setPatientId(e.target.value)}
+                    onChange={e => { setPatientId(e.target.value); setShowNewPatient(false); setEditingRxPatientId(null); }}
                     required
                     style={{ minHeight: '40px', fontSize: '0.85rem' }}
                   >
@@ -454,7 +469,7 @@ export const PrescriptionsView: React.FC = () => {
 
               {showNewPatient && (
                 <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--bg-card)' }}>
-                  <strong style={{ fontSize: '0.9rem' }}>Register patient for this prescription</strong>
+                  <strong style={{ fontSize: '0.9rem' }}>{editingRxPatientId ? 'Edit selected patient' : 'Register patient for this prescription'}</strong>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', marginTop: '0.75rem' }}>
                     <div><label className="form-label">Name *</label><input className="input" value={newPatient.name} onChange={e => setNewPatient({ ...newPatient, name: e.target.value })} maxLength={150} /></div>
                     <div><label className="form-label">Mobile</label><input className="input" value={newPatient.mobile} onChange={e => setNewPatient({ ...newPatient, mobile: e.target.value })} inputMode="tel" /></div>
@@ -463,8 +478,8 @@ export const PrescriptionsView: React.FC = () => {
                     <div style={{ gridColumn: '1 / -1' }}><label className="form-label">Allergy Notes</label><input className="input" value={newPatient.allergyNotes} onChange={e => setNewPatient({ ...newPatient, allergyNotes: e.target.value })} placeholder="Optional" /></div>
                   </div>
                   {patientError && <p role="alert" style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '0.5rem' }}>{patientError}</p>}
-                  <button type="button" className="btn btn-primary" onClick={handleCreatePatient} disabled={savingPatient} style={{ marginTop: '0.75rem' }}>
-                    {savingPatient ? 'Saving...' : 'Save & Select Patient'}
+                  <button type="button" className="btn btn-primary" onClick={handleSavePatient} disabled={savingPatient} style={{ marginTop: '0.75rem' }}>
+                    {savingPatient ? 'Saving...' : editingRxPatientId ? 'Save Patient Changes' : 'Save & Select Patient'}
                   </button>
                 </div>
               )}

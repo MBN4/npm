@@ -2,6 +2,17 @@
 
 All notable changes and architectural deliverables for **Naveed Medical Pharmacy (NMP)** are documented below.
 
+## Unreleased local changes — 2026-09-22
+
+- **Patients & prescriptions:** Existing patient profiles can be edited from Patients & CRM or beside the selected patient in an Rx (with patient management permission) without changing their ID or financial history. Name, mobile, age, gender, allergy notes, and credit limit can be corrected in CRM; optional fields can be cleared. A new patient can also be registered and selected while writing a prescription.
+- **Medicine catalog & inventory:** Imported the 30 medicines from `New_Rack_Medicines_List.pdf` into Medicines Master as catalog entries only. No stock quantity, price, or expiry was invented. Inventory batch editing now corrects medicine names and product details (including custom categories, therapeutic class, generic, manufacturer, strength, barcode, packaging, reorder levels, and notes) as well as batch fields. Product edits apply to every batch of the medicine; stock quantity changes use the audited Adjust action.
+- **Udhaar:** Added ways to record additional credit and reduce the outstanding balance through payments or adjustments; amounts use `Rs.`.
+- **Printing:** MedPrac slips use the POS Speed-X direct printer path on the Windows POS computer and fall back to the thermal browser print dialog when direct access is unavailable.
+- **Dropdowns:** Main Category and Therapeutic Class menus in medicine forms render below their fields inside scrolling dialogs. Native select arrows have a consistent appearance across tabs.
+- **Delivery status:** These changes are committed locally. GitHub push is pending because this computer has no credentials for the HTTPS remote; other devices will not receive the new code through Git until push and pull succeed. SQLite data also requires an explicit export/import or a shared server.
+
+---
+
 ## [1.1.0] - 2026-09-19 — Store Balance & Day-End Closing Settlement Release
 
 ### Store Cash Balance & Settlement System

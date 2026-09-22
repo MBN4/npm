@@ -124,6 +124,21 @@ patientRouter.put('/:id', authenticateToken, requirePermission('manage_patients'
     return;
   }
 
+  const nextName = name !== undefined ? String(name ?? '').trim() : existing.name;
+  const nextMobile = mobile !== undefined ? String(mobile ?? '').trim() || null : existing.mobile;
+  const nextAge = age !== undefined ? (age === null || age === '' ? null : Number(age)) : existing.age;
+  const nextGender = gender !== undefined ? String(gender).toUpperCase() : (existing.gender || 'MALE');
+  const nextAllergyNotes = allergyNotes !== undefined ? String(allergyNotes ?? '').trim() || null : existing.allergy_notes;
+  const nextCreditLimit = creditLimit !== undefined ? Number(creditLimit) : Number(existing.credit_limit ?? 0);
+
+  if (!nextName) return res.status(400).json({ error: 'Patient name is required' });
+  if (nextAge !== null && (!Number.isInteger(nextAge) || nextAge < 0 || nextAge > 130)) return res.status(400).json({ error: 'Age must be between 0 and 130' });
+  if (!['MALE', 'FEMALE', 'OTHER'].includes(nextGender)) return res.status(400).json({ error: 'Invalid gender' });
+  if (!Number.isFinite(nextCreditLimit) || nextCreditLimit < 0) return res.status(400).json({ error: 'Credit limit cannot be negative' });
+  if (nextMobile && db.prepare('SELECT id FROM customers WHERE mobile = ? AND id != ?').get(nextMobile, id)) {
+    return res.status(400).json({ error: 'A patient with this mobile number is already registered' });
+  }
+
   try {
     db.prepare(`
       UPDATE customers SET
@@ -131,12 +146,12 @@ patientRouter.put('/:id', authenticateToken, requirePermission('manage_patients'
         allergy_notes = ?, credit_limit = ?, is_active = ?
       WHERE id = ?
     `).run(
-      name ?? existing.name,
-      mobile ?? existing.mobile,
-      age ?? existing.age,
-      gender ?? existing.gender,
-      allergyNotes ?? existing.allergy_notes,
-      creditLimit ?? existing.credit_limit,
+      nextName,
+      nextMobile,
+      nextAge,
+      nextGender,
+      nextAllergyNotes,
+      nextCreditLimit,
       isActive !== undefined ? (isActive ? 1 : 0) : existing.is_active,
       id
     );
@@ -146,7 +161,8 @@ patientRouter.put('/:id', authenticateToken, requirePermission('manage_patients'
       action: 'UPDATE_PATIENT',
       entity: 'CUSTOMERS',
       entityId: id,
-      newValues: { name, allergyNotes },
+      oldValues: { name: existing.name, mobile: existing.mobile, age: existing.age, gender: existing.gender, allergyNotes: existing.allergy_notes, creditLimit: existing.credit_limit },
+      newValues: { name: nextName, mobile: nextMobile, age: nextAge, gender: nextGender, allergyNotes: nextAllergyNotes, creditLimit: nextCreditLimit },
       ipAddress: req.ip
     });
 

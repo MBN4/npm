@@ -1,13 +1,19 @@
 # NMP Project Status
 
 **System**: Naveed Medical Pharmacy (NMP)  
-**Version**: 1.0.0 Production Ready  
-**Last Updated**: 2026-09-07  
-**Overall Completion**: 100% (All 14 Phases Delivered & Verified)
+**Version**: Current local `main` branch
+
+**Last Updated**: 2026-09-22
+
+**Delivery**: Recent changes committed locally; GitHub push awaits HTTPS credentials
+
+Recent work added the PDF medicine catalog (without invented stock), editable inventory products and patient profiles, new patient registration within Rx, updated Udhaar entries, MedPrac POS printer routing, and downward category menus with consistent select arrows.
 
 ---
 
 ## Phase Execution Summary
+
+The test counts in this original phase table are historical release notes. Use the recent verification section below for current results.
 
 | Phase | Module Name | Scope & Capabilities | Status | Test Coverage |
 |---|---|---|---|---|
@@ -32,8 +38,9 @@
 ## Key System Metrics & Technical Invariants
 
 - **Official Repository**: [https://github.com/naveedmedicalpharmacy-ship-it/nmp](https://github.com/naveedmedicalpharmacy-ship-it/nmp)
-- **Backend Test Suite**: 12 test files, **67 automated integration tests (100% pass rate)**.
-- **Frontend Build**: Clean Vite production bundle (`npm run build` succeeds with 0 errors).
+- **Verification**: Client and server production builds pass. Focused patient, inventory, and classification tests pass on temporary databases. The historical whole-suite pass counts in earlier release notes are not a current verification claim; some legacy fixtures need updating for the imported catalog.
+- **Printer**: Direct raw printing is available on a Windows POS host. The Linux development computer has no configured physical printer, so a hardware slip has not been verified here.
+- **Multi-device availability**: Recent code has not reached the GitHub remote because the configured HTTPS remote lacks credentials on this computer. Each device's SQLite database is local unless all clients use one shared server or data is explicitly exported/imported.
 - **Database Engine**: SQLite 3.44+ in WAL mode (`PRAGMA journal_mode = WAL`, `PRAGMA foreign_keys = ON`, `PRAGMA busy_timeout = 5000`).
 - **Data Integrity Guarantee**:
   - `runTransaction` wrapper for multi-table atomicity.

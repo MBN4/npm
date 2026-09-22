@@ -17,3 +17,12 @@ Testing is non-negotiable for pharmacy software. Every transaction, calculation,
    - Sales return: restock, refund, audit logging.
 3. **End-to-End Tests**:
    - Authentication, role switching, POS billing, receipt print simulation.
+
+## Recent verification (2026-09-22)
+
+- The client and server TypeScript builds pass.
+- `server/src/tests/inventory-classification.test.ts` covers editing classification and product details across batches, plus duplicate barcode rejection.
+- `server/src/tests/patient-edit.test.ts` covers correcting an old patient, clearing optional fields, preserving balance, and rejecting a duplicate mobile.
+- Patient registration API verification passes. Tests touching the database should use a temporary `DB_PATH` so operational records remain untouched.
+- Hardware printing must be checked on the Windows POS machine; the development machine has no printer destination.
+- Legacy tests relying on the old medicine seed need fixture updates before the whole suite can be reported as passing.

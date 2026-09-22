@@ -7,6 +7,7 @@ import {
   FileText,
   Phone,
   DollarSign,
+  Pencil,
   X
 } from 'lucide-react';
 
@@ -33,6 +34,9 @@ export const PatientsView: React.FC = () => {
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
+  const [patientFormError, setPatientFormError] = useState('');
+  const [savingPatient, setSavingPatient] = useState(false);
   const [selectedPatientForPay, setSelectedPatientForPay] = useState<Patient | null>(null);
   const [selectedPatientForLedger, setSelectedPatientForLedger] = useState<Patient | null>(null);
   const [patientLedger, setPatientLedger] = useState<any[]>([]);
@@ -81,15 +85,49 @@ export const PatientsView: React.FC = () => {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const handleCreatePatient = async (e: React.FormEvent) => {
+  const openNewPatient = () => {
+    setEditingPatient(null);
+    setNewPatient({ name: '', mobile: '', age: '', gender: 'MALE', allergyNotes: '', creditLimit: '5000' });
+    setPatientFormError('');
+    setShowAddModal(true);
+  };
+
+  const openEditPatient = (patient: Patient) => {
+    setEditingPatient(patient);
+    setNewPatient({
+      name: patient.name,
+      mobile: patient.mobile || '',
+      age: patient.age === null || patient.age === undefined ? '' : String(patient.age),
+      gender: patient.gender?.toUpperCase() || 'MALE',
+      allergyNotes: patient.allergy_notes || '',
+      creditLimit: String(patient.credit_limit ?? 0)
+    });
+    setPatientFormError('');
+    setShowAddModal(true);
+  };
+
+  const closePatientModal = () => {
+    setShowAddModal(false);
+    setEditingPatient(null);
+    setPatientFormError('');
+  };
+
+  const handleSavePatient = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStatusMessage(null);
+    setPatientFormError('');
 
-    if (!newPatient.name.trim()) return;
+    if (!newPatient.name.trim()) { setPatientFormError('Patient name is required.'); return; }
+    if (newPatient.age && (!Number.isInteger(Number(newPatient.age)) || Number(newPatient.age) < 0 || Number(newPatient.age) > 130)) {
+      setPatientFormError('Enter an age between 0 and 130.'); return;
+    }
+    if (newPatient.creditLimit === '' || !Number.isFinite(Number(newPatient.creditLimit)) || Number(newPatient.creditLimit) < 0) {
+      setPatientFormError('Credit limit cannot be negative.'); return;
+    }
 
+    setSavingPatient(true);
     try {
-      const res = await fetch('/api/patients', {
-        method: 'POST',
+      const res = await fetch(editingPatient ? `/api/patients/${editingPatient.id}` : '/api/patients', {
+        method: editingPatient ? 'PUT' : 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
@@ -97,21 +135,22 @@ export const PatientsView: React.FC = () => {
         body: JSON.stringify({
           name: newPatient.name.trim(),
           mobile: newPatient.mobile.trim() || null,
-          age: Number(newPatient.age) || null,
+          age: newPatient.age === '' ? null : Number(newPatient.age),
           gender: newPatient.gender,
           allergyNotes: newPatient.allergyNotes.trim() || null,
-          creditLimit: Number(newPatient.creditLimit) || 0
+          creditLimit: Number(newPatient.creditLimit)
         })
       });
 
       const data = await res.json();
       if (!res.ok) {
-        setStatusMessage({ text: data.error || 'Failed to register patient', type: 'error' });
+        setPatientFormError(data.error || 'Failed to save patient');
         return;
       }
 
-      setStatusMessage({ text: 'Patient registered successfully.', type: 'success' });
-      setShowAddModal(false);
+      setStatusMessage({ text: editingPatient ? 'Patient profile updated.' : 'Patient registered successfully.', type: 'success' });
+      if (editingPatient) setSearch('');
+      closePatientModal();
       setNewPatient({
         name: '',
         mobile: '',
@@ -122,7 +161,9 @@ export const PatientsView: React.FC = () => {
       });
       fetchPatients();
     } catch (err: any) {
-      setStatusMessage({ text: err.message || 'Network error', type: 'error' });
+      setPatientFormError(err.message || 'Network error');
+    } finally {
+      setSavingPatient(false);
     }
   };
 
@@ -199,7 +240,7 @@ export const PatientsView: React.FC = () => {
             <span>Refresh</span>
           </button>
           {hasPermission('manage_patients') && (
-            <button onClick={() => setShowAddModal(true)} className="btn btn-primary btn-sm">
+            <button onClick={openNewPatient} className="btn btn-primary btn-sm">
               <Plus size={16} />
               <span>Register Patient</span>
             </button>
@@ -287,7 +328,7 @@ export const PatientsView: React.FC = () => {
                     <td>
                       <div style={{ fontWeight: 700 }}>{p.name}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        {p.gender} {p.age ? `• ${p.age} yrs` : ''} • Visits: {p.total_visits}
+                        {p.gender} {p.age !== null && p.age !== undefined ? `• ${p.age} yrs` : ''} • Visits: {p.total_visits}
                       </div>
                     </td>
                     <td>
@@ -318,6 +359,11 @@ export const PatientsView: React.FC = () => {
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: '0.4rem' }}>
+                        {hasPermission('manage_patients') && (
+                          <button onClick={() => openEditPatient(p)} className="btn btn-secondary btn-sm" style={{ fontSize: '0.72rem' }} title={`Edit ${p.name}`}>
+                            <Pencil size={13} /><span>Edit</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => handleOpenLedger(p)}
                           className="btn btn-secondary btn-sm"
@@ -352,18 +398,19 @@ export const PatientsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Register Patient Modal */}
+      {/* Register or Edit Patient Modal */}
       {showAddModal && (
         <div className="modal-overlay">
           <div className="modal-content">
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Register New Patient</h3>
-              <button onClick={() => setShowAddModal(false)} className="btn btn-secondary btn-sm" style={{ padding: '0.3rem' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{editingPatient ? `Edit Patient: ${editingPatient.name}` : 'Register New Patient'}</h3>
+              <button onClick={closePatientModal} className="btn btn-secondary btn-sm" style={{ padding: '0.3rem' }}>
                 <X size={16} />
               </button>
             </div>
 
-            <form onSubmit={handleCreatePatient} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <form onSubmit={handleSavePatient} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {patientFormError && <div role="alert" style={{ padding: '0.7rem', borderRadius: 'var(--radius-md)', background: 'var(--danger-light)', color: 'var(--danger-text)', fontSize: '0.82rem' }}>{patientFormError}</div>}
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Patient Full Name *</label>
                 <input
@@ -396,9 +443,12 @@ export const PatientsView: React.FC = () => {
                     >
                       <option value="MALE">Male</option>
                       <option value="FEMALE">Female</option>
+                      <option value="OTHER">Other</option>
                     </select>
                     <input
                       type="number"
+                      min="0"
+                      max="130"
                       className="input"
                       placeholder="Age"
                       value={newPatient.age}
@@ -425,6 +475,8 @@ export const PatientsView: React.FC = () => {
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Credit Limit Allowed (Rs.)</label>
                 <input
                   type="number"
+                  min="0"
+                  step="0.01"
                   className="input"
                   value={newPatient.creditLimit}
                   onChange={e => setNewPatient({ ...newPatient, creditLimit: e.target.value })}
@@ -432,11 +484,11 @@ export const PatientsView: React.FC = () => {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
-                <button type="button" onClick={() => setShowAddModal(false)} className="btn btn-secondary">
+                <button type="button" onClick={closePatientModal} className="btn btn-secondary">
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  Save Patient Profile
+                <button type="submit" className="btn btn-primary" disabled={savingPatient}>
+                  {savingPatient ? 'Saving...' : editingPatient ? 'Save Changes' : 'Save Patient Profile'}
                 </button>
               </div>
             </form>

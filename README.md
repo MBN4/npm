@@ -1,6 +1,5 @@
 # Naveed Medical Pharmacy (NMP) — Enterprise Pharmacy System & POS
 
-[![Test Status](https://img.shields.io/badge/Tests-67%2F67%20Passing%20(100%25)-success)](https://github.com/naveedmedicalpharmacy-ship-it/nmp)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue)](https://www.typescriptlang.org/)
 [![Database](https://img.shields.io/badge/Database-SQLite%20WAL%20Embedded-orange)](https://www.sqlite.org/)
 [![Organization](https://img.shields.io/badge/GitHub-naveedmedicalpharmacy--ship--it-purple)](https://github.com/naveedmedicalpharmacy-ship-it)
@@ -23,15 +22,15 @@ A modern, comprehensive pharmacy management platform built specifically for **Na
 | **1. Dashboard** | Real-time sales, net profit, cash/card/udhar breakdown, low-stock alerts, near-expiry horizons, dead stock metrics, and quick action launchpad. |
 | **2. POS / Counter** | Barcode camera scanner & USB wedge input, automatic FEFO batch allocation, held bills queue, credit checkout, and WhatsApp digital receipts. |
 | **3. Medicines Master** | Formularies, dosage forms, strengths, pack sizes, shelf/rack coordinates, and custom barcodes. |
-| **4. Inventory & Stock** | Batch-wise stock ledger, valuation (Cost vs. MRP), physical count adjustments, and **Manual Medicine & Stock Entry Modal** with pack vs. tablet pricing math and live discount calculation. |
+| **4. Inventory & Stock** | Batch-wise stock ledger, valuation, audited quantity adjustments, manual stock entry, and editing for existing medicine names, product details, classification, and batch fields. |
 | **5. Purchases (GRN)** | Multi-line inward distributor invoices, automated batch creation, bonus quantities, and purchase returns. |
 | **6. Suppliers** | Distributor directory, payment vouchers (Cash/Cheque/Bank Transfer), and payables ledger. |
 | **7. Barcode Center** | Scanner Hub (live camera feed & hardware diagnostics) + Multi-column printable Code-128/QR sticker sheets. |
 | **8. Pharma Dictionary 📚** | Clinical drug reference monographs, generic active molecules, adult/pediatric doses, FDA pregnancy categories (A/B/C/D/X), and food administration timings. |
 | **9. Pharma.AI 🤖** | Clinical safety assistant featuring multi-drug interaction (DDI) checking, pediatric dose calculations, and clear badge separation of verified pharmacopoeia facts from AI suggestions. |
-| **10. MedPrac 🧪** | **100% isolated learning sandbox** with custom manual practice quantities, simulated doctor Rx generator, case library, and interactive self-grading dosage quizzes. |
-| **11. Prescriptions (Rx)** | Digitized doctor prescriptions, clinical diagnoses, dosage frequencies (OD, BD, TDS), and direct POS cart dispensing. |
-| **12. Patients & CRM** | Patient medical profiles, drug allergy tags with checkout alerts, and Udhar credit ledger. |
+| **10. MedPrac 🧪** | Practice records and thermal slips routed through the POS printer path, with browser print fallback. |
+| **11. Prescriptions (Rx)** | Doctor prescriptions, diagnosis and dosage details, plus registering or correcting a patient within the prescription form. |
+| **12. Patients & CRM** | New and editable patient profiles, allergy notes, credit limits, purchase history, and Udhaar ledger. |
 | **13. Expiry Control** | Configurable expiry windows (180/90/60/30/7 days), hard FEFO blocking of expired stock, disposal write-offs, and distributor return claims. |
 | **14. Accounts & Cashbook** | Daily double-entry cashbook (Cash IN / OUT), operating expense vouchers, and live Profit & Loss (P&L) statements. |
 | **15. Reports & BI** | Sales velocity, fast/slow moving items, dead stock analysis, cashier audits, and universal CSV export. |
@@ -88,7 +87,7 @@ npm run dev
 
 ## 🧪 Automated Testing
 
-To run the complete automated test suite (67 unit & integration tests):
+To run the automated server test suite:
 ```bash
 npm test
 ```
@@ -98,6 +97,8 @@ npm test
 ## 🔄 Multi-Device Data Sync (Laptop ↔ PC)
 
 SQLite database binary files (`.sqlite`) are kept local to each computer and ignored by `.gitignore`. To sync medicines, categories, generics, clinical info, and batches between your Laptop and PC:
+
+Code commits and database data are separate. A Git push/pull distributes code and catalog import scripts; it does not copy changes made only in one device's live SQLite database. For a shared live patient and stock list, devices must use the same server or follow the export/import procedure below.
 
 ### 1. On Laptop (where data was added):
 ```bash
@@ -114,6 +115,8 @@ git pull
 npm run db:import
 ```
 *(Or simply start the server with `npm run dev` — it will auto-sync on startup!)*
+
+The recent UI, inventory, and patient changes are committed locally. The configured HTTPS GitHub remote currently rejects pushes because this computer has no GitHub credentials, so other devices will need the code after authentication and a successful push/pull.
 
 ---
 
@@ -141,3 +144,5 @@ Full operational guides and architectural specs are located in the [`/docs/`](./
 - [Administrator & Pharmacist Guide](./docs/ADMIN_GUIDE.md)
 - [Disaster Recovery & Backup Runbook](./docs/RECOVERY_GUIDE.md)
 - [API Reference](./docs/API.md)
+- [Recent Changes](./docs/CHANGELOG.md)
+- [Known Limitations](./docs/KNOWN_ISSUES.md)

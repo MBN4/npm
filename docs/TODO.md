@@ -1,27 +1,19 @@
-# NMP Project Todo List
+# NMP Current Work List
 
-## Phase 1: Foundation (Current)
-- [x] Create project structure and `/docs/` memory files
-- [x] Configure server package.json, TypeScript, better-sqlite3, Express
-- [ ] Implement database migration schema and seed scripts
-- [ ] Implement JWT auth, bcrypt password hashing, and user login/me endpoints
-- [ ] Implement RBAC middleware and audit logger
-- [ ] Setup Vite + React + TS frontend with custom CSS design system
-- [ ] Build base layout (header, sidebar navigation, dark/light theme, user profile)
-- [ ] Write and run Phase 1 unit and integration tests
-- [ ] Prepare Phase 1 manual testing walkthrough for user approval
+## Completed locally
 
-## Phase 2: Medicine Master & Inventory
-- [ ] Category, Manufacturer, Generic models and APIs
-- [ ] Medicine Master management
-- [ ] Batch entry, stock movements, and valuation
+- [x] Import the PDF medicine list as catalog entries without inventing stock data.
+- [x] Edit inventory medicine names, product classification, packaging, and batch details; retain audited stock adjustments.
+- [x] Record additional Udhaar, payments, and reductions.
+- [x] Route MedPrac slips through the POS printer path with browser fallback.
+- [x] Add patient registration within the prescription form.
+- [x] Add Edit actions for existing patients in CRM and the Rx form, including clearing optional details.
+- [x] Make category menus open below their fields and standardize select arrows.
+- [x] Update the user guide, API reference, release notes, status, and handoff docs.
 
-## Phase 3: Suppliers & Purchases
-- [ ] Supplier management & ledgers
-- [ ] Purchase invoices with batch generation
-- [ ] Purchase returns and payment entries
+## Remaining delivery checks
 
-## Phase 4: POS & Sales Counter
-- [ ] Fast search & barcode listener
-- [ ] FEFO auto-batch selection & expired batch hard block
-- [ ] Hold/resume bills, sales returns, 80mm thermal receipt
+- [ ] Authenticate the configured GitHub remote, push local commits, and pull them on other devices.
+- [ ] Verify a MedPrac slip on the actual Windows POS printer.
+- [ ] Update legacy whole-suite medicine fixtures and rerun the full server suite.
+- [ ] Confirm whether devices will share one server or use controlled SQLite export/import for live records.
