@@ -47,6 +47,19 @@ export const udhaarService = {
     return await res.json();
   },
 
+  updateCustomer: async (id: number, data: Pick<UdhaarCustomer, 'name' | 'mobile' | 'reference' | 'address' | 'cnic'>): Promise<UdhaarCustomer> => {
+    const res = await fetch(`${API_BASE}/customers/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update customer');
+    }
+    return await res.json();
+  },
+
   // Create New Customer / Add New Udhaar Entry
   createUdhaar: async (data: Partial<UdhaarCustomer> & { amount?: number; description?: string }): Promise<UdhaarCustomer> => {
     const res = await fetch(`${API_BASE}/customers`, {
@@ -64,8 +77,9 @@ export const udhaarService = {
   // Record Payment or New Purchase Transaction
   recordTransaction: async (data: {
     customer_id: number;
-    type: 'CREDIT' | 'DEBIT';
+    type: 'CREDIT' | 'DEBIT' | 'ADJUSTMENT';
     amount: number;
+    adjustment_reason?: 'RETURN' | 'DISCOUNT' | 'CORRECTION' | 'WRITE_OFF';
     category?: string;
     reference_no?: string;
     description?: string;

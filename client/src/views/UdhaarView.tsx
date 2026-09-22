@@ -11,12 +11,16 @@ import {
   Edit2,
   CheckCircle2,
   ArrowLeft,
-  Scan,
   MessageSquare
 } from 'lucide-react';
 import { UdhaarCustomer, UdhaarTransaction, UdhaarKPIs } from '../types/udhaar.js';
 import { udhaarService } from '../services/udhaarService.js';
 import { NewUdhaarModal } from '../components/NewUdhaarModal.js';
+
+const localToday = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
 
 export const UdhaarView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'customer_list' | 'payment_history' | 'aging_report'>('customer_list');
@@ -24,12 +28,12 @@ export const UdhaarView: React.FC = () => {
 
   // KPI Metrics
   const [kpis, setKpis] = useState<UdhaarKPIs>({
-    total_customers: 42,
-    total_udhaar: 285420,
-    overdue_amount: 112650,
-    overdue_customers: 38,
-    paid_this_month: 173200,
-    total_transactions: 286
+    total_customers: 0,
+    total_udhaar: 0,
+    overdue_amount: 0,
+    overdue_customers: 0,
+    paid_this_month: 0,
+    total_transactions: 0
   });
 
   // Customer List State
@@ -46,9 +50,15 @@ export const UdhaarView: React.FC = () => {
   const [customerTransactions, setCustomerTransactions] = useState<UdhaarTransaction[]>([]);
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('CASH');
-  const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
+  const [payDate, setPayDate] = useState(localToday());
   const [payNotes, setPayNotes] = useState('');
   const [submittingPay, setSubmittingPay] = useState(false);
+  const [entryType, setEntryType] = useState<'CREDIT' | 'DEBIT' | 'ADJUSTMENT'>('CREDIT');
+  const [adjustmentReason, setAdjustmentReason] = useState<'RETURN' | 'DISCOUNT' | 'CORRECTION' | 'WRITE_OFF'>('RETURN');
+  const [purchaseCategory, setPurchaseCategory] = useState('Medicine');
+  const [purchaseReference, setPurchaseReference] = useState('');
+  const [editCustomer, setEditCustomer] = useState<UdhaarCustomer | null>(null);
+  const [savingCustomer, setSavingCustomer] = useState(false);
 
   // Aging Report State
   const [agingData, setAgingData] = useState<any>(null);
@@ -79,6 +89,8 @@ export const UdhaarView: React.FC = () => {
   // Load customer ledger transactions when selected for ledger view
   const openCustomerLedger = async (cust: UdhaarCustomer) => {
     setSelectedCustomer(cust);
+    setPurchaseCategory(cust.category || 'Medicine');
+    setCustomerTransactions([]);
     setViewMode('ledger');
     try {
       const data = await udhaarService.getCustomerDetail(cust.id);
@@ -89,12 +101,46 @@ export const UdhaarView: React.FC = () => {
     }
   };
 
+  const printStatement = async (cust: UdhaarCustomer) => {
+    try {
+      const data = await udhaarService.getCustomerDetail(cust.id);
+      const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] || character);
+      const rows = data.transactions.map((t) => `<tr><td>${escape(new Date(t.date_time).toLocaleDateString('en-PK'))}</td><td>${escape(t.description)}</td><td>${t.type === 'CREDIT' ? 'Payment' : t.type === 'ADJUSTMENT' ? 'Reduction' : 'Udhaar'}</td><td>Rs. ${escape(t.amount.toLocaleString())}</td><td>Rs. ${escape(t.balance_after.toLocaleString())}</td></tr>`).join('');
+      const statement = window.open('', '_blank');
+      if (!statement) { alert('Please allow pop-ups to print the statement.'); return; }
+      statement.document.write(`<!doctype html><html><head><title>Udhaar Statement - ${escape(data.customer.name)}</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#111}h1{margin-bottom:4px}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{border:1px solid #bbb;padding:8px;text-align:left}th{background:#eee}.summary{display:flex;gap:24px;margin-top:20px}</style></head><body><h1>Naveed Pharmacy</h1><div>Udhaar Statement</div><h2>${escape(data.customer.name)}</h2><div>${escape(data.customer.mobile)} · Serial ${escape(data.customer.serial_no)}</div><div class="summary"><span>Total: Rs. ${escape(data.customer.total_udhaar.toLocaleString())}</span><span>Paid: Rs. ${escape(data.customer.paid_amount.toLocaleString())}</span><span>Reductions: Rs. ${escape(Math.max(0, data.customer.total_udhaar - data.customer.paid_amount - data.customer.balance).toLocaleString())}</span><strong>Balance: Rs. ${escape(data.customer.balance.toLocaleString())}</strong></div><table><thead><tr><th>Date</th><th>Description</th><th>Type</th><th>Amount</th><th>Balance</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
+      statement.document.close();
+      statement.onload = () => statement.print();
+    } catch (err: any) { alert(err.message || 'Could not load statement'); }
+  };
+
+  const saveCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editCustomer) return;
+    setSavingCustomer(true);
+    try {
+      const updated = await udhaarService.updateCustomer(editCustomer.id, editCustomer);
+      setSelectedCustomer(updated);
+      setEditCustomer(null);
+      loadData();
+    } catch (err: any) { alert(err.message || 'Could not save customer'); }
+    finally { setSavingCustomer(false); }
+  };
+
   const handleReceivePaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCustomer) return;
     const amt = Number(payAmount);
-    if (isNaN(amt) || amt <= 0) {
+    if (!Number.isFinite(amt) || amt <= 0) {
       alert('Please enter a valid amount.');
+      return;
+    }
+    if (entryType !== 'DEBIT' && amt > selectedCustomer.balance) {
+      alert(`Amount cannot exceed the outstanding balance of Rs. ${selectedCustomer.balance.toLocaleString()}.`);
+      return;
+    }
+    if (!payDate) {
+      alert('Please select a date.');
       return;
     }
 
@@ -102,11 +148,14 @@ export const UdhaarView: React.FC = () => {
     try {
       const res = await udhaarService.recordTransaction({
         customer_id: selectedCustomer.id,
-        type: 'CREDIT',
+        type: entryType,
         amount: amt,
-        payment_method: payMethod,
-        date_time: new Date(payDate).toISOString(),
-        description: payNotes.trim() || 'Payment Received',
+        adjustment_reason: entryType === 'ADJUSTMENT' ? adjustmentReason : undefined,
+        category: entryType === 'DEBIT' ? purchaseCategory : undefined,
+        reference_no: entryType === 'DEBIT' ? purchaseReference.trim() : undefined,
+        payment_method: entryType === 'CREDIT' ? payMethod : entryType === 'DEBIT' ? 'CREDIT_LINE' : 'ADJUSTMENT',
+        date_time: `${payDate}T12:00:00`,
+        description: entryType === 'ADJUSTMENT' ? payNotes.trim() : (payNotes.trim() || (entryType === 'CREDIT' ? 'Payment Received' : 'Udhaar Purchase')),
         created_by_user_name: 'Dr. Abdul'
       });
 
@@ -114,8 +163,9 @@ export const UdhaarView: React.FC = () => {
       setCustomerTransactions([res.transaction, ...customerTransactions]);
       setPayAmount('');
       setPayNotes('');
+      setPurchaseReference('');
       loadData();
-      alert(`Payment of Rs. ${amt} successfully recorded!`);
+      alert(`${entryType === 'CREDIT' ? 'Payment' : entryType === 'ADJUSTMENT' ? 'Udhaar reduction' : 'Udhaar purchase'} of Rs. ${amt.toLocaleString()} recorded.`);
     } catch (err: any) {
       alert(err.message || 'Failed to record payment');
     } finally {
@@ -228,6 +278,7 @@ export const UdhaarView: React.FC = () => {
 
           <button
             onClick={() => {
+              setEntryType('CREDIT');
               if (selectedCustomer) openCustomerLedger(selectedCustomer);
               else if (customers.length > 0) openCustomerLedger(customers[0]);
             }}
@@ -349,7 +400,6 @@ export const UdhaarView: React.FC = () => {
             <div>
               <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Paid This Month</div>
               <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#c084fc' }}>Rs. {kpis.paid_this_month.toLocaleString()}</div>
-              <div style={{ fontSize: '0.72rem', color: '#34d399', fontWeight: 600 }}>↑ +12%</div>
             </div>
           </div>
 
@@ -569,7 +619,7 @@ export const UdhaarView: React.FC = () => {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#fff' }}>Customer Details</h4>
                     <button
-                      onClick={() => openCustomerLedger(selectedCustomer)}
+                      onClick={() => setEditCustomer({ ...selectedCustomer })}
                       style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
                     >
                       <Edit2 size={14} /> Edit
@@ -613,7 +663,7 @@ export const UdhaarView: React.FC = () => {
                   </div>
 
                   {/* Stat Boxes */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', textAlign: 'center' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', textAlign: 'center' }}>
                     <div style={{ backgroundColor: '#0f1a30', padding: '0.5rem', borderRadius: '8px', border: '1px solid #1e2f4d' }}>
                       <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Total Udhaar</div>
                       <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#38bdf8' }}>Rs. {selectedCustomer.total_udhaar}</div>
@@ -625,6 +675,10 @@ export const UdhaarView: React.FC = () => {
                     <div style={{ backgroundColor: '#0f1a30', padding: '0.5rem', borderRadius: '8px', border: '1px solid #1e2f4d' }}>
                       <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Balance</div>
                       <div style={{ fontSize: '0.85rem', fontWeight: 700, color: selectedCustomer.balance > 0 ? '#f87171' : '#34d399' }}>Rs. {selectedCustomer.balance}</div>
+                    </div>
+                    <div style={{ backgroundColor: '#0f1a30', padding: '0.5rem', borderRadius: '8px', border: '1px solid #1e2f4d' }}>
+                      <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Reductions</div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fbbf24' }}>Rs. {Math.max(0, selectedCustomer.total_udhaar - selectedCustomer.paid_amount - selectedCustomer.balance).toLocaleString()}</div>
                     </div>
                   </div>
 
@@ -644,14 +698,14 @@ export const UdhaarView: React.FC = () => {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: '#94a3b8' }}>Customer Since:</span>
-                      <span>12 Jan 2025</span>
+                      <span>{selectedCustomer.created_at ? new Date(selectedCustomer.created_at).toLocaleDateString('en-PK') : '—'}</span>
                     </div>
                   </div>
 
                   {/* Actions */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: 'auto' }}>
                     <button
-                      onClick={() => openCustomerLedger(selectedCustomer)}
+                      onClick={() => { setEntryType('CREDIT'); openCustomerLedger(selectedCustomer); }}
                       style={{
                         padding: '0.6rem',
                         backgroundColor: '#10b981',
@@ -671,7 +725,7 @@ export const UdhaarView: React.FC = () => {
                     </button>
 
                     <button
-                      onClick={() => setShowNewModal(true)}
+                      onClick={() => { setEntryType('DEBIT'); openCustomerLedger(selectedCustomer); }}
                       style={{
                         padding: '0.6rem',
                         backgroundColor: '#2563eb',
@@ -687,7 +741,15 @@ export const UdhaarView: React.FC = () => {
                         fontSize: '0.85rem'
                       }}
                     >
-                      <Plus size={16} /> + New Udhaar
+                      <Plus size={16} /> Add Udhaar for this customer
+                    </button>
+
+                    <button
+                      onClick={() => { setEntryType('ADJUSTMENT'); openCustomerLedger(selectedCustomer); }}
+                      disabled={selectedCustomer.balance <= 0}
+                      style={{ padding: '0.6rem', backgroundColor: '#b45309', border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, cursor: selectedCustomer.balance > 0 ? 'pointer' : 'not-allowed', opacity: selectedCustomer.balance > 0 ? 1 : 0.5, fontSize: '0.85rem' }}
+                    >
+                      Reduce Udhaar
                     </button>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
@@ -712,7 +774,7 @@ export const UdhaarView: React.FC = () => {
                       </button>
 
                       <button
-                        onClick={() => alert('Printing customer statement...')}
+                        onClick={() => printStatement(selectedCustomer)}
                         style={{
                           padding: '0.5rem',
                           backgroundColor: '#1e293b',
@@ -795,13 +857,13 @@ export const UdhaarView: React.FC = () => {
 
                 <div style={{ backgroundColor: '#0f1a30', border: '1px solid #1e2f4d', borderRadius: '10px', padding: '1rem' }}>
                   <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>61 - 90 Days</div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#f97316', marginTop: '4px' }}>Rs. {agingData?.aging_buckets ? agingData.aging_buckets['61_90'].amount.toLocaleString() : '28,450'}</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#f97316', marginTop: '4px' }}>Rs. {agingData?.aging_buckets?.['61_90']?.amount.toLocaleString() ?? '0'}</div>
                   <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>High Risk</div>
                 </div>
 
                 <div style={{ backgroundColor: '#0f1a30', border: '1px solid #1e2f4d', borderRadius: '10px', padding: '1rem' }}>
                   <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>90+ Days (Overdue)</div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#ef4444', marginTop: '4px' }}>Rs. {agingData?.aging_buckets ? agingData.aging_buckets['90_plus'].amount.toLocaleString() : '16,000'}</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#ef4444', marginTop: '4px' }}>Rs. {agingData?.aging_buckets?.['90_plus']?.amount.toLocaleString() ?? '0'}</div>
                   <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>Critical Action Needed</div>
                 </div>
               </div>
@@ -844,12 +906,6 @@ export const UdhaarView: React.FC = () => {
               <Search size={16} /> Search
             </button>
 
-            <button
-              onClick={() => alert('CNIC scan initiated... Last 4 digits: 5678')}
-              style={{ padding: '0.65rem 1.25rem', backgroundColor: '#0f1c36', border: '1px solid #1e2f4d', borderRadius: '8px', color: '#38bdf8', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-            >
-              <Scan size={16} /> Scan CNIC (Auto fetch last 4 digits)
-            </button>
           </div>
 
           {/* Customer Detail Banner & Status Cards */}
@@ -886,7 +942,7 @@ export const UdhaarView: React.FC = () => {
                   </div>
                 </div>
 
-                <button style={{ backgroundColor: '#1e293b', border: '1px solid #334155', color: '#fff', padding: '0.4rem 0.8rem', borderRadius: '6px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}>
+                <button onClick={() => setEditCustomer({ ...selectedCustomer })} style={{ backgroundColor: '#1e293b', border: '1px solid #334155', color: '#fff', padding: '0.4rem 0.8rem', borderRadius: '6px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}>
                   <Edit2 size={14} /> Edit
                 </button>
               </div>
@@ -904,7 +960,7 @@ export const UdhaarView: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', fontSize: '0.85rem', color: '#94a3b8', borderTop: '1px solid #1e2d4a', paddingTop: '0.75rem' }}>
                 <div>Reference: <strong style={{ color: '#fff' }}>{selectedCustomer.reference || 'Dr. Usman (OPD)'}</strong></div>
                 <div>Address: <strong style={{ color: '#fff' }}>{selectedCustomer.address || 'Lahore'}</strong></div>
-                <div>Customer Since: <strong style={{ color: '#fff' }}>12 Jan 2025</strong></div>
+                <div>Customer Since: <strong style={{ color: '#fff' }}>{selectedCustomer.created_at ? new Date(selectedCustomer.created_at).toLocaleDateString('en-PK') : '—'}</strong></div>
                 <div>Category: <strong style={{ color: '#fff' }}>{selectedCustomer.category}</strong></div>
               </div>
             </div>
@@ -934,14 +990,14 @@ export const UdhaarView: React.FC = () => {
                 </div>
 
                 <div style={{ backgroundColor: '#0a1324', border: '1px solid #1e2d4a', borderRadius: '12px', padding: '0.85rem' }}>
-                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Total Transactions</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#fff' }}>{customerTransactions.length || 12}</div>
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Reductions</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#fbbf24' }}>Rs. {Math.max(0, selectedCustomer.total_udhaar - selectedCustomer.paid_amount - selectedCustomer.balance).toLocaleString()}</div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Lower Grid: Transaction History vs Receive Payment Form */}
+          {/* Transaction history and ledger entry form */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1.25rem' }}>
             {/* Transaction History Table Panel */}
             <div style={{ backgroundColor: '#0a1324', border: '1px solid #1e2d4a', borderRadius: '14px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
@@ -949,7 +1005,7 @@ export const UdhaarView: React.FC = () => {
                 <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <FileText size={18} color="#38bdf8" /> Transaction History
                 </h3>
-                <button style={{ backgroundColor: '#1e293b', border: '1px solid #334155', color: '#fff', padding: '0.35rem 0.75rem', borderRadius: '6px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}>
+                <button onClick={() => printStatement(selectedCustomer)} style={{ backgroundColor: '#1e293b', border: '1px solid #334155', color: '#fff', padding: '0.35rem 0.75rem', borderRadius: '6px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}>
                   <Printer size={14} /> Print Statement
                 </button>
               </div>
@@ -982,12 +1038,12 @@ export const UdhaarView: React.FC = () => {
                             {new Date(t.date_time).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </td>
                           <td style={{ padding: '0.65rem', color: '#fff' }}>{t.description || 'Udhaar Transaction'}</td>
-                          <td style={{ padding: '0.65rem', fontWeight: 700, color: t.type === 'CREDIT' ? '#34d399' : '#f87171' }}>
+                          <td style={{ padding: '0.65rem', fontWeight: 700, color: t.type === 'CREDIT' ? '#34d399' : t.type === 'ADJUSTMENT' ? '#fbbf24' : '#f87171' }}>
                             {t.amount.toLocaleString()}
                           </td>
                           <td style={{ padding: '0.65rem' }}>
-                            <span style={{ fontWeight: 700, color: t.type === 'CREDIT' ? '#34d399' : '#f87171' }}>
-                              {t.type === 'CREDIT' ? 'Credit' : 'Debit'}
+                            <span style={{ fontWeight: 700, color: t.type === 'CREDIT' ? '#34d399' : t.type === 'ADJUSTMENT' ? '#fbbf24' : '#f87171' }}>
+                              {t.type === 'CREDIT' ? 'Payment' : t.type === 'ADJUSTMENT' ? 'Reduction' : 'Udhaar'}
                             </span>
                           </td>
                           <td style={{ padding: '0.65rem', fontWeight: 600, color: '#94a3b8' }}>{t.balance_after.toLocaleString()}</td>
@@ -1002,28 +1058,34 @@ export const UdhaarView: React.FC = () => {
 
             {/* Receive Payment Form Box */}
             <div style={{ backgroundColor: '#0a1324', border: '1px solid #1e2d4a', borderRadius: '14px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <CreditCard size={18} color="#34d399" /> Receive Payment
-              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.4rem' }}>
+                {(['CREDIT', 'DEBIT', 'ADJUSTMENT'] as const).map((type) => (
+                  <button key={type} type="button" onClick={() => { setEntryType(type); setPayAmount(''); setPayNotes(''); }} style={{ padding: '0.6rem 0.2rem', borderRadius: '8px', border: `1px solid ${entryType === type ? '#38bdf8' : '#334155'}`, backgroundColor: entryType === type ? '#12365b' : '#0f1a30', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: '0.72rem' }}>
+                    {type === 'CREDIT' ? 'Receive Payment' : type === 'DEBIT' ? 'Add Udhaar' : 'Reduce Udhaar'}
+                  </button>
+                ))}
+              </div>
 
               <form onSubmit={handleReceivePaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#94a3b8', marginBottom: '4px' }}>
-                      Amount Received (Rs.) *
+                    <label style={{ display: 'flex', alignItems: 'end', minHeight: '2.3rem', fontSize: '0.78rem', fontWeight: 600, color: '#94a3b8', marginBottom: '4px' }}>
+                      {entryType === 'CREDIT' ? 'Amount Received' : entryType === 'ADJUSTMENT' ? 'Reduction Amount' : 'Udhaar Amount'} (Rs.) *
                     </label>
                     <div style={{ position: 'relative' }}>
-                      <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}>₹</span>
+                      <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.8rem' }}>Rs.</span>
                       <input
                         type="number"
-                        min="1"
+                        min="0.01"
+                        step="0.01"
+                        max={entryType !== 'DEBIT' ? selectedCustomer.balance : undefined}
                         required
                         value={payAmount}
                         onChange={(e) => setPayAmount(e.target.value)}
                         placeholder="1000"
                         style={{
                           width: '100%',
-                          padding: '0.55rem 0.55rem 0.55rem 2rem',
+                          padding: '0.55rem 0.55rem 0.55rem 2.4rem',
                           backgroundColor: '#0f1a30',
                           border: '1px solid #1e2f4d',
                           borderRadius: '8px',
@@ -1037,12 +1099,12 @@ export const UdhaarView: React.FC = () => {
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#94a3b8', marginBottom: '4px' }}>
-                      Payment Method
+                    <label style={{ display: 'flex', alignItems: 'end', minHeight: '2.3rem', fontSize: '0.78rem', fontWeight: 600, color: '#94a3b8', marginBottom: '4px' }}>
+                      {entryType === 'CREDIT' ? 'Payment Method' : entryType === 'ADJUSTMENT' ? 'Reason *' : 'Category'}
                     </label>
                     <select
-                      value={payMethod}
-                      onChange={(e) => setPayMethod(e.target.value)}
+                      value={entryType === 'CREDIT' ? payMethod : entryType === 'ADJUSTMENT' ? adjustmentReason : purchaseCategory}
+                      onChange={(e) => entryType === 'CREDIT' ? setPayMethod(e.target.value) : entryType === 'ADJUSTMENT' ? setAdjustmentReason(e.target.value as typeof adjustmentReason) : setPurchaseCategory(e.target.value)}
                       style={{
                         width: '100%',
                         padding: '0.55rem',
@@ -1051,16 +1113,43 @@ export const UdhaarView: React.FC = () => {
                         borderRadius: '8px',
                         color: '#fff',
                         fontSize: '0.85rem',
-                        boxSizing: 'border-box'
+                        boxSizing: 'border-box',
+                        height: '40px'
                       }}
                     >
-                      <option value="CASH">Cash</option>
-                      <option value="BANK_TRANSFER">Bank Transfer</option>
-                      <option value="JAZZCASH">JazzCash</option>
-                      <option value="EASYPAISA">EasyPaisa</option>
+                      {entryType === 'CREDIT' ? <>
+                        <option value="CASH">Cash</option>
+                        <option value="BANK_TRANSFER">Bank Transfer</option>
+                        <option value="JAZZCASH">JazzCash</option>
+                        <option value="EASYPAISA">EasyPaisa</option>
+                      </> : entryType === 'ADJUSTMENT' ? <>
+                        <option value="RETURN">Returned items (balance only)</option>
+                        <option value="DISCOUNT">Discount</option>
+                        <option value="CORRECTION">Balance correction</option>
+                        <option value="WRITE_OFF">Write-off</option>
+                      </> : <>
+                        <option value="Medicine">Medicine</option>
+                        <option value="Cosmetics">Cosmetics</option>
+                        <option value="General Products">General Products</option>
+                        <option value="Surgical">Surgical</option>
+                      </>}
                     </select>
                   </div>
                 </div>
+
+                {entryType === 'ADJUSTMENT' && <button type="button" onClick={() => setPayAmount(String(selectedCustomer.balance))} style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: '#fbbf24', padding: 0, cursor: 'pointer', fontSize: '0.78rem' }}>
+                  Use full outstanding balance
+                </button>}
+
+                {entryType === 'DEBIT' && <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#94a3b8', marginBottom: '4px' }}>Invoice / Reference (Optional)</label>
+                  <input value={purchaseReference} onChange={(e) => setPurchaseReference(e.target.value)} maxLength={100} placeholder="Invoice or prescription number" style={{ width: '100%', padding: '0.55rem', backgroundColor: '#0f1a30', border: '1px solid #1e2f4d', borderRadius: '8px', color: '#fff', boxSizing: 'border-box' }} />
+                </div>}
+
+                {entryType === 'ADJUSTMENT' && <div style={{ padding: '0.65rem', backgroundColor: '#1c2636', border: '1px solid #755d2a', borderRadius: '8px', color: '#fbbf24', fontSize: '0.78rem' }}>
+                  Current balance: Rs. {selectedCustomer.balance.toLocaleString()} → New balance: Rs. {Math.max(0, selectedCustomer.balance - (Number(payAmount) || 0)).toLocaleString()}. This records a reduction without recording a cash payment.
+                  {adjustmentReason === 'RETURN' && <div style={{ marginTop: '0.3rem' }}>Update inventory stock separately if physical items were returned.</div>}
+                </div>}
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#94a3b8', marginBottom: '4px' }}>
@@ -1086,7 +1175,7 @@ export const UdhaarView: React.FC = () => {
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                     <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#94a3b8' }}>
-                      Notes (Optional)
+                      {entryType === 'CREDIT' ? 'Notes' : entryType === 'ADJUSTMENT' ? 'Reduction details' : 'Purchase details'} (Optional)
                     </label>
                     <span style={{ fontSize: '0.7rem', color: '#64748b' }}>{payNotes.length}/200</span>
                   </div>
@@ -1095,7 +1184,7 @@ export const UdhaarView: React.FC = () => {
                     maxLength={200}
                     value={payNotes}
                     onChange={(e) => setPayNotes(e.target.value)}
-                    placeholder="e.g. Partial payment, full settlement, etc."
+                    placeholder={entryType === 'CREDIT' ? 'e.g. Partial payment, full settlement' : entryType === 'ADJUSTMENT' ? 'e.g. Returned invoice number or correction details' : 'e.g. Products purchased'}
                     style={{
                       width: '100%',
                       padding: '0.55rem',
@@ -1129,7 +1218,7 @@ export const UdhaarView: React.FC = () => {
                     marginTop: '0.5rem'
                   }}
                 >
-                  <CheckCircle2 size={18} /> {submittingPay ? 'Saving...' : 'Save Payment'}
+                  <CheckCircle2 size={18} /> {submittingPay ? 'Saving...' : entryType === 'CREDIT' ? 'Save Payment' : entryType === 'ADJUSTMENT' ? 'Save Reduction' : 'Save Udhaar'}
                 </button>
               </form>
             </div>
@@ -1146,6 +1235,19 @@ export const UdhaarView: React.FC = () => {
           openCustomerLedger(newCust);
         }}
       />
+      {editCustomer && <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'grid', placeItems: 'center', padding: '1rem' }}>
+        <form onSubmit={saveCustomer} style={{ width: '100%', maxWidth: '460px', backgroundColor: '#0a1324', border: '1px solid #334155', borderRadius: '14px', padding: '1.5rem', display: 'grid', gap: '0.85rem' }}>
+          <h3 style={{ margin: 0 }}>Edit Customer</h3>
+          {(['name', 'mobile', 'cnic', 'reference', 'address'] as const).map((field) => <label key={field} style={{ display: 'grid', gap: '0.3rem', color: '#cbd5e1', textTransform: 'capitalize', fontSize: '0.85rem' }}>
+            {field}{(field === 'name' || field === 'mobile') && ' *'}
+            <input required={field === 'name' || field === 'mobile'} value={editCustomer[field] || ''} onChange={(e) => setEditCustomer({ ...editCustomer, [field]: e.target.value })} style={{ padding: '0.65rem', backgroundColor: '#0f1a30', border: '1px solid #334155', borderRadius: '7px', color: '#fff' }} />
+          </label>)}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+            <button type="button" onClick={() => setEditCustomer(null)} style={{ padding: '0.6rem 1rem', backgroundColor: '#1e293b', color: '#fff', border: '1px solid #334155', borderRadius: '7px', cursor: 'pointer' }}>Cancel</button>
+            <button type="submit" disabled={savingCustomer} style={{ padding: '0.6rem 1rem', backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '7px', cursor: 'pointer' }}>{savingCustomer ? 'Saving...' : 'Save Changes'}</button>
+          </div>
+        </form>
+      </div>}
     </div>
   );
 };

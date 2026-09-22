@@ -726,7 +726,8 @@ CREATE TABLE IF NOT EXISTS udhaar_transactions (
   transaction_id TEXT UNIQUE NOT NULL,
   customer_id INTEGER NOT NULL,
   date_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-  type TEXT NOT NULL, -- 'DEBIT' (Udhaar taken) or 'CREDIT' (Payment received)
+  type TEXT NOT NULL, -- 'DEBIT' (Udhaar taken), 'CREDIT' (Payment received), or 'ADJUSTMENT' (balance reduction)
+  adjustment_reason TEXT, -- RETURN, DISCOUNT, CORRECTION, WRITE_OFF
   category TEXT DEFAULT 'Medicine', -- Medicine, Cosmetics, General Products, Surgical
   reference_no TEXT,
   description TEXT,
@@ -747,7 +748,6 @@ CREATE INDEX IF NOT EXISTS idx_udhaar_cust_cnic ON udhaar_customers(cnic);
 CREATE INDEX IF NOT EXISTS idx_udhaar_cust_status ON udhaar_customers(status);
 CREATE INDEX IF NOT EXISTS idx_udhaar_trx_cust ON udhaar_transactions(customer_id);
 CREATE INDEX IF NOT EXISTS idx_udhaar_trx_date ON udhaar_transactions(date_time);
-
 
 
 

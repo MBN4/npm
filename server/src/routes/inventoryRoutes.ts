@@ -14,7 +14,7 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
       b.*,
       m.brand_name, m.strength, m.dosage_form, m.pack_size,
       COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
-      m.stock_unit, m.packaging_type,
+      m.stock_unit, m.packaging_type, m.therapeutic_class,
       c.name as category_name,
       m.barcode,
       COALESCE(NULLIF(b.rack_location, ''), m.rack_location) as medicine_rack,
@@ -53,7 +53,7 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
 
 inventoryRouter.put('/batches/:id', authenticateToken, requirePermission('manage_inventory'), (req: AuthenticatedRequest, res: Response) => {
   const batchId = Number(req.params.id);
-  const { batchNumber, expiryDate, mfgDate, purchasePrice, salePrice, rackLocation, status } = req.body;
+  const { batchNumber, expiryDate, mfgDate, purchasePrice, salePrice, rackLocation, status, categoryName, dosageForm, therapeuticClass } = req.body;
 
   const existing = db.prepare('SELECT * FROM batches WHERE id = ?').get(batchId) as any;
   if (!existing) {
@@ -74,8 +74,16 @@ inventoryRouter.put('/batches/:id', authenticateToken, requirePermission('manage
 
   try {
     const trimmedRack = rackLocation !== undefined && rackLocation !== null ? String(rackLocation).trim() : null;
+    const trimmedCategory = categoryName !== undefined ? String(categoryName).trim() : null;
+    let categoryId: number | null = null;
+    if (trimmedCategory !== null) {
+      const category = db.prepare('SELECT id FROM categories WHERE name = ? COLLATE NOCASE').get(trimmedCategory) as { id: number } | undefined;
+      if (!category) return res.status(400).json({ error: 'Please select a valid main category' });
+      categoryId = category.id;
+    }
 
-    db.prepare(`
+    runTransaction(() => {
+      db.prepare(`
       UPDATE batches SET
         batch_number = COALESCE(?, batch_number),
         expiry_date = COALESCE(?, expiry_date),
@@ -86,7 +94,7 @@ inventoryRouter.put('/batches/:id', authenticateToken, requirePermission('manage
         status = COALESCE(?, status),
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(
+      `).run(
       trimmedBatchNumber,
       expiryDate || null,
       mfgDate || null,
@@ -95,15 +103,25 @@ inventoryRouter.put('/batches/:id', authenticateToken, requirePermission('manage
       trimmedRack,
       status || null,
       batchId
-    );
+      );
 
-    if (trimmedRack) {
-      db.prepare('UPDATE medicines SET rack_location = ? WHERE id = ?').run(trimmedRack, existing.medicine_id);
-    }
+      if (categoryId !== null || dosageForm !== undefined || therapeuticClass !== undefined || trimmedRack) {
+        db.prepare(`UPDATE medicines SET
+          category_id = COALESCE(?, category_id),
+          dosage_form = COALESCE(?, dosage_form),
+          therapeutic_class = CASE WHEN ? THEN ? ELSE therapeutic_class END,
+          rack_location = COALESCE(?, rack_location),
+          updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+          .run(categoryId, dosageForm !== undefined ? String(dosageForm).trim() || null : null,
+            therapeuticClass !== undefined ? 1 : 0,
+            therapeuticClass !== undefined ? String(therapeuticClass).trim() || null : null,
+            trimmedRack || null, existing.medicine_id);
+      }
 
-    if (trimmedBatchNumber && trimmedBatchNumber !== existing.batch_number) {
-      db.prepare('UPDATE purchase_items SET batch_number = ? WHERE batch_id = ?').run(trimmedBatchNumber, batchId);
-    }
+      if (trimmedBatchNumber && trimmedBatchNumber !== existing.batch_number) {
+        db.prepare('UPDATE purchase_items SET batch_number = ? WHERE batch_id = ?').run(trimmedBatchNumber, batchId);
+      }
+    });
 
     logAudit({
       userId: req.user?.id,
@@ -111,7 +129,7 @@ inventoryRouter.put('/batches/:id', authenticateToken, requirePermission('manage
       entity: 'BATCHES',
       entityId: batchId,
       oldValues: existing,
-      newValues: { batchNumber: trimmedBatchNumber, expiryDate, salePrice, purchasePrice, rackLocation },
+      newValues: { batchNumber: trimmedBatchNumber, expiryDate, salePrice, purchasePrice, rackLocation, categoryName: trimmedCategory, dosageForm, therapeuticClass },
       ipAddress: req.ip
     });
 
@@ -1052,5 +1070,4 @@ async function lookupOnlineBarcode(code: string): Promise<any | null> {
 
   return null;
 }
-
 

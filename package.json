@@ -12,6 +12,7 @@
     "seed": "npm --prefix server run seed",
     "db:export": "npm --prefix server run db:export",
     "db:import": "npm --prefix server run db:import",
+    "catalog:new-rack": "npm --prefix server run catalog:new-rack",
     "test": "npm --prefix server run test",
     "build": "npm --prefix client run build"
   },

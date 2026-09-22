@@ -22,7 +22,8 @@ export interface UdhaarTransaction {
   transaction_id: string;
   customer_id: number;
   date_time: string;
-  type: 'DEBIT' | 'CREDIT';
+  type: 'DEBIT' | 'CREDIT' | 'ADJUSTMENT';
+  adjustment_reason?: 'RETURN' | 'DISCOUNT' | 'CORRECTION' | 'WRITE_OFF' | null;
   category?: string | null;
   reference_no?: string | null;
   description?: string | null;

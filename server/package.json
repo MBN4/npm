@@ -11,6 +11,7 @@
     "seed": "tsx src/db/seed.ts",
     "db:export": "tsx src/scripts/syncExport.ts",
     "db:import": "tsx src/scripts/syncImport.ts",
+    "catalog:new-rack": "tsx src/scripts/addNewRackMedicines.ts",
     "test": "vitest run --fileParallelism=false"
   },
   "keywords": [],

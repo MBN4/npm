@@ -127,6 +127,26 @@ udhaarRouter.get('/customers/:id', (req: Request, res: Response) => {
   }
 });
 
+udhaarRouter.patch('/customers/:id', (req: Request, res: Response) => {
+  try {
+    const existing = db.prepare('SELECT * FROM udhaar_customers WHERE id = ?').get(req.params.id) as any;
+    if (!existing) return res.status(404).json({ error: 'Customer not found' });
+
+    const name = String(req.body.name || '').trim();
+    const mobile = String(req.body.mobile || '').trim();
+    if (!name || !mobile) return res.status(400).json({ error: 'Customer name and mobile are required' });
+    const duplicate = db.prepare('SELECT id FROM udhaar_customers WHERE mobile = ? AND id != ?').get(mobile, existing.id);
+    if (duplicate) return res.status(409).json({ error: 'This mobile number belongs to another customer' });
+
+    const cnic = String(req.body.cnic || '').trim();
+    db.prepare(`UPDATE udhaar_customers SET name = ?, mobile = ?, cnic = ?, serial_no = ?, reference = ?, address = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+      .run(name, mobile, cnic || null, deriveSerialNo(cnic, mobile), String(req.body.reference || '').trim() || null, String(req.body.address || '').trim() || null, existing.id);
+    res.json(db.prepare('SELECT * FROM udhaar_customers WHERE id = ?').get(existing.id));
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to update customer', details: error.message });
+  }
+});
+
 // 4. POST Create New Udhaar Entry / New Customer
 udhaarRouter.post('/customers', (req: Request, res: Response) => {
   try {
@@ -153,6 +173,9 @@ udhaarRouter.post('/customers', (req: Request, res: Response) => {
 
     const categoryVal = category || 'Medicine';
     const amountVal = Number(amount || 0);
+    if (!Number.isFinite(amountVal) || amountVal < 0) {
+      return res.status(400).json({ error: 'Udhaar amount must be zero or greater' });
+    }
     const serial_no = deriveSerialNo(cnic, mobile);
     const userId = created_by_user_id || 1;
     const userName = created_by_user_name || 'Dr. Abdul';
@@ -230,8 +253,9 @@ udhaarRouter.post('/transactions', (req: Request, res: Response) => {
   try {
     const {
       customer_id,
-      type, // 'CREDIT' (Payment) or 'DEBIT' (New credit purchase)
+      type, // 'CREDIT' (Payment), 'DEBIT' (New credit purchase), or 'ADJUSTMENT' (Balance reduction)
       amount,
+      adjustment_reason,
       category,
       reference_no,
       description,
@@ -244,13 +268,21 @@ udhaarRouter.post('/transactions', (req: Request, res: Response) => {
     if (!customer_id) {
       return res.status(400).json({ error: 'Customer ID is required' });
     }
-    const amtNum = Number(amount);
-    if (isNaN(amtNum) || amtNum <= 0) {
+    const amtNum = Math.round(Number(amount) * 100) / 100;
+    if (!Number.isFinite(amtNum) || amtNum <= 0) {
       return res.status(400).json({ error: 'Valid transaction amount is required' });
     }
 
     const typeVal = (type || 'CREDIT').toUpperCase();
-    const payMethod = payment_method || 'CASH';
+    if (!['CREDIT', 'DEBIT', 'ADJUSTMENT'].includes(typeVal)) {
+      return res.status(400).json({ error: 'Invalid Udhaar transaction type' });
+    }
+    const reasonVal = String(adjustment_reason || '').toUpperCase();
+    const adjustmentLabels: Record<string, string> = { RETURN: 'Returned items', DISCOUNT: 'Discount', CORRECTION: 'Balance correction', WRITE_OFF: 'Write-off' };
+    if (typeVal === 'ADJUSTMENT' && !adjustmentLabels[reasonVal]) {
+      return res.status(400).json({ error: 'Select a reason for reducing Udhaar' });
+    }
+    const payMethod = typeVal === 'ADJUSTMENT' ? 'ADJUSTMENT' : (payment_method || 'CASH');
     const userId = created_by_user_id || 1;
     const userName = created_by_user_name || 'Dr. Abdul';
     const trxDate = date_time || new Date().toISOString();
@@ -260,17 +292,22 @@ udhaarRouter.post('/transactions', (req: Request, res: Response) => {
       if (!cust) {
         throw new Error('Customer not found');
       }
+      if ((typeVal === 'CREDIT' || typeVal === 'ADJUSTMENT') && amtNum > cust.balance) {
+        throw new Error('Reduction cannot exceed the outstanding balance');
+      }
 
       let newPaid = cust.paid_amount;
       let newTotalUdhaar = cust.total_udhaar;
       let newBalance = cust.balance;
 
       if (typeVal === 'CREDIT') {
-        newPaid += amtNum;
-        newBalance = Math.max(0, cust.balance - amtNum);
+        newPaid = Math.round((newPaid + amtNum) * 100) / 100;
+        newBalance = Math.round((cust.balance - amtNum) * 100) / 100;
+      } else if (typeVal === 'ADJUSTMENT') {
+        newBalance = Math.round((cust.balance - amtNum) * 100) / 100;
       } else {
-        newTotalUdhaar += amtNum;
-        newBalance += amtNum;
+        newTotalUdhaar = Math.round((newTotalUdhaar + amtNum) * 100) / 100;
+        newBalance = Math.round((newBalance + amtNum) * 100) / 100;
       }
 
       const newStatus = newBalance <= 0 ? 'CLEARED' : (cust.status === 'OVERDUE' ? 'OVERDUE' : 'DUE');
@@ -284,16 +321,19 @@ udhaarRouter.post('/transactions', (req: Request, res: Response) => {
       const trxId = `UD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
       db.prepare(`
         INSERT INTO udhaar_transactions (
-          transaction_id, customer_id, date_time, type, category, reference_no, description, amount, payment_method, balance_after, created_by_user_id, created_by_user_name
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          transaction_id, customer_id, date_time, type, adjustment_reason, category, reference_no, description, amount, payment_method, balance_after, created_by_user_id, created_by_user_name
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         trxId,
         cust.id,
         trxDate,
         typeVal,
+        typeVal === 'ADJUSTMENT' ? reasonVal : null,
         category || cust.category || 'Medicine',
         reference_no || null,
-        description || (typeVal === 'CREDIT' ? 'Payment Received' : 'Udhaar Purchase'),
+        typeVal === 'ADJUSTMENT'
+          ? `${adjustmentLabels[reasonVal]}${String(description || '').trim() ? `: ${String(description).trim()}` : ''}`
+          : (description || (typeVal === 'CREDIT' ? 'Payment Received' : 'Udhaar Purchase')),
         amtNum,
         payMethod,
         newBalance,
@@ -309,7 +349,7 @@ udhaarRouter.post('/transactions', (req: Request, res: Response) => {
 
     res.status(201).json(result);
   } catch (error: any) {
-    res.status(500).json({ error: 'Failed to record Udhaar transaction', details: error.message });
+    res.status(error.message === 'Reduction cannot exceed the outstanding balance' || error.message === 'Customer not found' ? 400 : 500).json({ error: error.message || 'Failed to record Udhaar transaction' });
   }
 });
 

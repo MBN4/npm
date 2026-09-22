@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { db } from '../db/index.js';
+import { upsertSyncRows } from './syncRowHelpers.js';
 
 export interface SyncDataExport {
   version: string;
@@ -30,7 +31,11 @@ export function exportSyncData(outputPath: string = DEFAULT_SYNC_PATH): { succes
   const manufacturers = db.prepare('SELECT * FROM manufacturers').all();
   const generics = db.prepare('SELECT * FROM generics').all();
   const suppliers = db.prepare('SELECT * FROM suppliers').all();
-  const medicines = db.prepare('SELECT * FROM medicines').all();
+  const medicines = db.prepare(`SELECT m.*, g.name AS sync_generic_name, c.name AS sync_category_name,
+    mf.name AS sync_manufacturer_name FROM medicines m
+    LEFT JOIN generics g ON g.id = m.generic_id
+    LEFT JOIN categories c ON c.id = m.category_id
+    LEFT JOIN manufacturers mf ON mf.id = m.manufacturer_id`).all();
   const drug_clinical_info = db.prepare('SELECT * FROM drug_clinical_info').all();
   const batches = db.prepare('SELECT * FROM batches').all();
 
@@ -87,43 +92,18 @@ export function importSyncData(inputPath: string = DEFAULT_SYNC_PATH): { success
     batches: 0,
   };
 
-  function upsertRows(tableName: string, rows: any[]) {
-    if (!rows || !Array.isArray(rows) || rows.length === 0) return 0;
-    
-    // Get columns from existing table schema to avoid inserting invalid columns
-    const tableInfo = db.pragma(`table_info(${tableName})`) as Array<{ name: string }>;
-    if (!tableInfo || tableInfo.length === 0) return 0;
-
-    const validCols = new Set(tableInfo.map(c => c.name));
-
-    let count = 0;
-    for (const row of rows) {
-      const keys = Object.keys(row).filter(k => validCols.has(k));
-      if (keys.length === 0) continue;
-
-      const placeholders = keys.map(() => '?').join(', ');
-      const sql = `INSERT OR REPLACE INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders})`;
-      const stmt = db.prepare(sql);
-
-      const values = keys.map(k => (row[k] !== undefined ? row[k] : null));
-      stmt.run(...values);
-      count++;
-    }
-    return count;
-  }
-
   // Disable foreign keys outside transaction (SQLite requirement)
   db.pragma('foreign_keys = OFF');
 
   try {
     const syncTx = db.transaction(() => {
-      importedCounts.categories = upsertRows('categories', payload.categories || []);
-      importedCounts.manufacturers = upsertRows('manufacturers', payload.manufacturers || []);
-      importedCounts.generics = upsertRows('generics', payload.generics || []);
-      importedCounts.suppliers = upsertRows('suppliers', payload.suppliers || []);
-      importedCounts.medicines = upsertRows('medicines', payload.medicines || []);
-      importedCounts.drug_clinical_info = upsertRows('drug_clinical_info', payload.drug_clinical_info || []);
-      importedCounts.batches = upsertRows('batches', payload.batches || []);
+      importedCounts.categories = upsertSyncRows(db, 'categories', payload.categories || []);
+      importedCounts.manufacturers = upsertSyncRows(db, 'manufacturers', payload.manufacturers || []);
+      importedCounts.generics = upsertSyncRows(db, 'generics', payload.generics || []);
+      importedCounts.suppliers = upsertSyncRows(db, 'suppliers', payload.suppliers || []);
+      importedCounts.medicines = upsertSyncRows(db, 'medicines', payload.medicines || []);
+      importedCounts.drug_clinical_info = upsertSyncRows(db, 'drug_clinical_info', payload.drug_clinical_info || []);
+      importedCounts.batches = upsertSyncRows(db, 'batches', payload.batches || []);
     });
 
     syncTx();

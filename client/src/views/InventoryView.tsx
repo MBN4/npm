@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.js';
-import { TherapeuticCategorySelect } from '../components/TherapeuticCategorySelect.js';
+import { TherapeuticCategorySelect, MASTER_THERAPEUTIC_CATEGORIES } from '../components/TherapeuticCategorySelect.js';
 import { StrengthInput } from '../components/StrengthInput.js';
 import { getProductPackaging } from '../utils/productPackaging.js';
 import { PRODUCT_CATEGORIES, getSubcategories } from '../utils/productCatalog.js';
@@ -39,6 +39,7 @@ export interface BatchItem {
   stock_unit?: string;
   packaging_type?: 'MULTI_TIER' | 'SIMPLE';
   category_name?: string;
+  therapeutic_class?: string | null;
   barcode?: string;
   medicine_rack?: string;
   batch_number: string;
@@ -94,6 +95,10 @@ export const InventoryView: React.FC = () => {
   const [editPurchasePrice, setEditPurchasePrice] = useState('');
   const [editSalePrice, setEditSalePrice] = useState('');
   const [editRackLocation, setEditRackLocation] = useState('');
+  const [editCategoryName, setEditCategoryName] = useState('');
+  const [editDosageForm, setEditDosageForm] = useState('');
+  const [editTherapeuticClass, setEditTherapeuticClass] = useState('');
+  const [editCustomTherapeutic, setEditCustomTherapeutic] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState(false);
 
@@ -495,6 +500,11 @@ export const InventoryView: React.FC = () => {
     setEditPurchasePrice(String(batch.purchase_price));
     setEditSalePrice(String(batch.sale_price));
     setEditRackLocation(batch.medicine_rack || '');
+    setEditCategoryName(batch.category_name || '');
+    setEditDosageForm(batch.dosage_form || '');
+    setEditTherapeuticClass(batch.therapeutic_class || '');
+    setEditCustomTherapeutic(Boolean(batch.therapeutic_class && !MASTER_THERAPEUTIC_CATEGORIES.some(group =>
+      group.name === batch.therapeutic_class || group.subcategories.includes(batch.therapeutic_class!))));
     setEditError(null);
   };
 
@@ -516,7 +526,10 @@ export const InventoryView: React.FC = () => {
           expiryDate: editExpiryDate,
           purchasePrice: Number(editPurchasePrice) || 0,
           salePrice: Number(editSalePrice) || 0,
-          rackLocation: editRackLocation
+          rackLocation: editRackLocation,
+          categoryName: editCategoryName,
+          dosageForm: editDosageForm,
+          therapeuticClass: editTherapeuticClass
         })
       });
 
@@ -525,7 +538,7 @@ export const InventoryView: React.FC = () => {
         throw new Error(data.error || 'Failed to update batch');
       }
 
-      setAdjustSuccess(`Batch ${editBatchNumber} updated successfully.`);
+      setAdjustSuccess(`Batch ${editBatchNumber} and medicine classification updated successfully.`);
       setEditingBatch(null);
       fetchInventoryData();
     } catch (err: any) {
@@ -848,6 +861,9 @@ export const InventoryView: React.FC = () => {
                           <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{b.brand_name}</div>
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                             {b.dosage_form} • {b.strength || 'Standard'} • {b.pack_size || 1} {batchPackaging.unitPlural.toLowerCase()}/{batchPackaging.outer.toLowerCase()}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                            {b.category_name || 'Uncategorized'}{b.therapeutic_class ? ` • ${b.therapeutic_class}` : ''}
                           </div>
                         </td>
                         <td>
@@ -1818,6 +1834,43 @@ export const InventoryView: React.FC = () => {
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
                   Current Stock: <strong>{editingBatch.quantity} Units</strong>
+                </div>
+              </div>
+
+              <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Medicine classification applies to every batch of this product.</div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>Main Category *</label>
+                  <select className="select" value={editCategoryName} onChange={e => {
+                    const nextCategory = e.target.value;
+                    setEditCategoryName(nextCategory);
+                    setEditDosageForm(getSubcategories(nextCategory)[0] || '');
+                  }} required>
+                    {editCategoryName && !PRODUCT_CATEGORIES.some(category => category.name === editCategoryName) && <option value={editCategoryName}>{editCategoryName}</option>}
+                    {PRODUCT_CATEGORIES.map(category => <option key={category.name} value={category.name}>{category.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>Subcategory / Product Type</label>
+                  <select className="select" value={editDosageForm} onChange={e => setEditDosageForm(e.target.value)}>
+                    {editDosageForm && !getSubcategories(editCategoryName).includes(editDosageForm) && <option value={editDosageForm}>{editDosageForm}</option>}
+                    {getSubcategories(editCategoryName).map(subcategory => <option key={subcategory} value={subcategory}>{subcategory}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>Therapeutic Class</label>
+                  <select className="select" value={editCustomTherapeutic ? '__custom__' : editTherapeuticClass} onChange={e => {
+                    if (e.target.value === '__custom__') setEditCustomTherapeutic(true);
+                    else { setEditCustomTherapeutic(false); setEditTherapeuticClass(e.target.value); }
+                  }}>
+                    <option value="">No therapeutic class</option>
+                    {MASTER_THERAPEUTIC_CATEGORIES.map(group => <optgroup key={group.id} label={group.name}>
+                      <option value={group.name}>{group.name}</option>
+                      {group.subcategories.map(subcategory => <option key={subcategory} value={subcategory}>{subcategory}</option>)}
+                    </optgroup>)}
+                    <option value="__custom__">Custom class…</option>
+                  </select>
+                  {editCustomTherapeutic && <input className="input" style={{ marginTop: '0.5rem' }} value={editTherapeuticClass} onChange={e => setEditTherapeuticClass(e.target.value)} placeholder="Enter therapeutic class" />}
                 </div>
               </div>
 

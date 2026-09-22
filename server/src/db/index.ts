@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { upsertSyncRows } from '../services/syncRowHelpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -243,6 +244,12 @@ export function initDatabase() {
     // ignore
   }
 
+  // Existing installations need the adjustment reason column before new ledger entries are written.
+  const udhaarTransactionColumns = new Set((db.pragma('table_info(udhaar_transactions)') as Array<{ name: string }>).map(column => column.name));
+  if (udhaarTransactionColumns.size && !udhaarTransactionColumns.has('adjustment_reason')) {
+    db.exec('ALTER TABLE udhaar_transactions ADD COLUMN adjustment_reason TEXT');
+  }
+
   // Seed default Udhaar customers if missing
   try {
     const custCount = (db.prepare('SELECT COUNT(*) as count FROM udhaar_customers').get() as { count: number }).count;
@@ -316,33 +323,16 @@ export function initDatabase() {
       const fileContent = fs.readFileSync(syncDataPath, 'utf8');
       const payload = JSON.parse(fileContent);
 
-      const upsertRows = (tableName: string, rows: any[]) => {
-        if (!rows || !Array.isArray(rows) || rows.length === 0) return;
-        const tableInfo = db.pragma(`table_info(${tableName})`) as Array<{ name: string }>;
-        if (!tableInfo || tableInfo.length === 0) return;
-        const validCols = new Set(tableInfo.map(c => c.name));
-
-        for (const row of rows) {
-          const keys = Object.keys(row).filter(k => validCols.has(k));
-          if (keys.length === 0) continue;
-          const placeholders = keys.map(() => '?').join(', ');
-          const sql = `INSERT OR REPLACE INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders})`;
-          const stmt = db.prepare(sql);
-          const values = keys.map(k => (row[k] !== undefined ? row[k] : null));
-          stmt.run(...values);
-        }
-      };
-
       db.pragma('foreign_keys = OFF');
       try {
         db.transaction(() => {
-          upsertRows('categories', payload.categories || []);
-          upsertRows('manufacturers', payload.manufacturers || []);
-          upsertRows('generics', payload.generics || []);
-          upsertRows('suppliers', payload.suppliers || []);
-          upsertRows('medicines', payload.medicines || []);
-          upsertRows('drug_clinical_info', payload.drug_clinical_info || []);
-          upsertRows('batches', payload.batches || []);
+          upsertSyncRows(db, 'categories', payload.categories || []);
+          upsertSyncRows(db, 'manufacturers', payload.manufacturers || []);
+          upsertSyncRows(db, 'generics', payload.generics || []);
+          upsertSyncRows(db, 'suppliers', payload.suppliers || []);
+          upsertSyncRows(db, 'medicines', payload.medicines || []);
+          upsertSyncRows(db, 'drug_clinical_info', payload.drug_clinical_info || []);
+          upsertSyncRows(db, 'batches', payload.batches || []);
         })();
       } finally {
         db.pragma('foreign_keys = ON');
