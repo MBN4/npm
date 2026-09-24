@@ -252,11 +252,20 @@ CREATE TABLE IF NOT EXISTS customer_ledgers (
 );
 
 -- 8. Sales & Held Bills
+CREATE TABLE IF NOT EXISTS billing_persons (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  is_active INTEGER DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS sales (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   invoice_number TEXT UNIQUE NOT NULL,
   customer_id INTEGER,
   cashier_id INTEGER NOT NULL,
+  billing_person_id INTEGER,
+  custom_slip_name TEXT,
   subtotal REAL NOT NULL,
   discount REAL DEFAULT 0.0,
   tax REAL DEFAULT 0.0,
@@ -269,7 +278,8 @@ CREATE TABLE IF NOT EXISTS sales (
   notes TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (customer_id) REFERENCES customers(id),
-  FOREIGN KEY (cashier_id) REFERENCES users(id)
+  FOREIGN KEY (cashier_id) REFERENCES users(id),
+  FOREIGN KEY (billing_person_id) REFERENCES billing_persons(id)
 );
 
 CREATE TABLE IF NOT EXISTS sale_items (
@@ -665,6 +675,17 @@ CREATE TABLE IF NOT EXISTS medprac_visit_medicines (
   inventory_deducted INTEGER DEFAULT 0,
   FOREIGN KEY (visit_id) REFERENCES medprac_visits(id) ON DELETE CASCADE,
   FOREIGN KEY (medicine_id) REFERENCES medicines(id)
+);
+
+-- Tracks exactly which batch(es) a MedPrac dispensed line drew stock from, so a void can restore the same batches.
+CREATE TABLE IF NOT EXISTS medprac_medicine_batch_deductions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  visit_medicine_id INTEGER NOT NULL,
+  batch_id INTEGER NOT NULL,
+  quantity INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (visit_medicine_id) REFERENCES medprac_visit_medicines(id) ON DELETE CASCADE,
+  FOREIGN KEY (batch_id) REFERENCES batches(id)
 );
 
 CREATE TABLE IF NOT EXISTS medprac_reversals (

@@ -22,6 +22,7 @@ import { PharmaDictionaryView } from './views/PharmaDictionaryView.js';
 import { PharmaAiView } from './views/PharmaAiView.js';
 import { MedPracView } from './views/MedPracView.js';
 import { UdhaarView } from './views/UdhaarView.js';
+import { ActivityLogView } from './views/ActivityLogView.js';
 import { UpcomingPhaseView } from './views/UpcomingPhaseView.js';
 
 export const AppContent: React.FC = () => {
@@ -76,6 +77,8 @@ export const AppContent: React.FC = () => {
         return <AccountsView />;
       case 'balance':
         return <BalanceView />;
+      case 'activity':
+        return <ActivityLogView />;
       case 'reports':
         return <ReportsView />;
       case 'staff':

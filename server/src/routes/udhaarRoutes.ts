@@ -1,7 +1,9 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { db, runTransaction } from '../db/index.js';
+import { authenticateToken, AuthenticatedRequest } from '../middleware/auth.js';
 
 export const udhaarRouter = Router();
+udhaarRouter.use(authenticateToken);
 
 // Helper: Extract last 4 digits from CNIC or Phone for serial_no
 function deriveSerialNo(cnic?: string, mobile?: string): string {
@@ -22,7 +24,7 @@ function deriveSerialNo(cnic?: string, mobile?: string): string {
 }
 
 // 1. GET Udhaar Dashboard Summary KPIs
-udhaarRouter.get('/dashboard', (req: Request, res: Response) => {
+udhaarRouter.get('/dashboard', (req: AuthenticatedRequest, res: Response) => {
   try {
     const totalsRow = db.prepare(`
       SELECT 
@@ -58,7 +60,7 @@ udhaarRouter.get('/dashboard', (req: Request, res: Response) => {
 });
 
 // 2. GET Customers List (with Search & Status Filter)
-udhaarRouter.get('/customers', (req: Request, res: Response) => {
+udhaarRouter.get('/customers', (req: AuthenticatedRequest, res: Response) => {
   try {
     const search = ((req.query.search as string) || '').trim();
     const status = (req.query.status as string || '').trim().toUpperCase();
@@ -103,7 +105,7 @@ udhaarRouter.get('/customers', (req: Request, res: Response) => {
 });
 
 // 3. GET Customer Detail & Transactions
-udhaarRouter.get('/customers/:id', (req: Request, res: Response) => {
+udhaarRouter.get('/customers/:id', (req: AuthenticatedRequest, res: Response) => {
   try {
     const id = req.params.id;
     const customer = db.prepare(`
@@ -127,7 +129,7 @@ udhaarRouter.get('/customers/:id', (req: Request, res: Response) => {
   }
 });
 
-udhaarRouter.patch('/customers/:id', (req: Request, res: Response) => {
+udhaarRouter.patch('/customers/:id', (req: AuthenticatedRequest, res: Response) => {
   try {
     const existing = db.prepare('SELECT * FROM udhaar_customers WHERE id = ?').get(req.params.id) as any;
     if (!existing) return res.status(404).json({ error: 'Customer not found' });
@@ -148,7 +150,7 @@ udhaarRouter.patch('/customers/:id', (req: Request, res: Response) => {
 });
 
 // 4. POST Create New Udhaar Entry / New Customer
-udhaarRouter.post('/customers', (req: Request, res: Response) => {
+udhaarRouter.post('/customers', (req: AuthenticatedRequest, res: Response) => {
   try {
     const {
       name,
@@ -177,8 +179,8 @@ udhaarRouter.post('/customers', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Udhaar amount must be zero or greater' });
     }
     const serial_no = deriveSerialNo(cnic, mobile);
-    const userId = created_by_user_id || 1;
-    const userName = created_by_user_name || 'Dr. Abdul';
+    const userId = req.user?.id || created_by_user_id || 1;
+    const userName = req.user?.fullName || created_by_user_name || 'Dr. Abdul';
 
     const resultCustomer = runTransaction(() => {
       // Check if customer with same mobile or CNIC exists
@@ -249,7 +251,7 @@ udhaarRouter.post('/customers', (req: Request, res: Response) => {
 });
 
 // 5. POST Receive Payment / Add Transaction
-udhaarRouter.post('/transactions', (req: Request, res: Response) => {
+udhaarRouter.post('/transactions', (req: AuthenticatedRequest, res: Response) => {
   try {
     const {
       customer_id,
@@ -283,8 +285,8 @@ udhaarRouter.post('/transactions', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Select a reason for reducing Udhaar' });
     }
     const payMethod = typeVal === 'ADJUSTMENT' ? 'ADJUSTMENT' : (payment_method || 'CASH');
-    const userId = created_by_user_id || 1;
-    const userName = created_by_user_name || 'Dr. Abdul';
+    const userId = req.user?.id || created_by_user_id || 1;
+    const userName = req.user?.fullName || created_by_user_name || 'Dr. Abdul';
     const trxDate = date_time || new Date().toISOString();
 
     const result = runTransaction(() => {
@@ -354,7 +356,7 @@ udhaarRouter.post('/transactions', (req: Request, res: Response) => {
 });
 
 // 6. GET Aging Analysis Report
-udhaarRouter.get('/aging-report', (req: Request, res: Response) => {
+udhaarRouter.get('/aging-report', (req: AuthenticatedRequest, res: Response) => {
   try {
     const rows = db.prepare(`
       SELECT *,

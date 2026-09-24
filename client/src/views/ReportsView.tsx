@@ -176,8 +176,27 @@ export const ReportsView: React.FC = () => {
     if (activeTab === 'staff') fetchStaffData();
   }, [activeTab, fetchSalesData, fetchInventoryData, fetchDeadStock, fetchCreditData, fetchPayablesData, fetchStaffData]);
 
-  const handleExportCsv = (type: string) => {
-    window.open(`/api/reports/export-csv?type=${type}`, '_blank');
+  const handleExportCsv = async (type: string) => {
+    try {
+      const res = await fetch(`/api/reports/export-csv?type=${type}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to export CSV');
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${type}-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(err.message || 'Failed to export CSV');
+    }
   };
 
   return (

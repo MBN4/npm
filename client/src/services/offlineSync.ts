@@ -22,6 +22,8 @@ export interface OfflineSale {
   paymentMethod: string;
   notes?: string;
   timestamp: string;
+  billingPersonId?: number | null;
+  customSlipName?: string;
 }
 
 const OFFLINE_SALES_KEY = 'nmp_offline_sales_queue';

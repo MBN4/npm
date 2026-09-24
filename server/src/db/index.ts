@@ -250,6 +250,45 @@ export function initDatabase() {
     db.exec('ALTER TABLE udhaar_transactions ADD COLUMN adjustment_reason TEXT');
   }
 
+  // Auto-migrate billing_persons table + sales attribution columns (Billing Person dropdown + slip name fix)
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS billing_persons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+  } catch (e) {
+    // ignore
+  }
+
+  // Auto-migrate: table tracking exactly which batch(es) a MedPrac dispensed line drew stock from
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS medprac_medicine_batch_deductions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        visit_medicine_id INTEGER NOT NULL,
+        batch_id INTEGER NOT NULL,
+        quantity INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (visit_medicine_id) REFERENCES medprac_visit_medicines(id) ON DELETE CASCADE,
+        FOREIGN KEY (batch_id) REFERENCES batches(id)
+      );
+    `);
+  } catch (e) {
+    // ignore
+  }
+
+  const salesColumns = new Set((db.pragma('table_info(sales)') as Array<{ name: string }>).map(column => column.name));
+  if (salesColumns.size && !salesColumns.has('billing_person_id')) {
+    db.exec('ALTER TABLE sales ADD COLUMN billing_person_id INTEGER REFERENCES billing_persons(id)');
+  }
+  if (salesColumns.size && !salesColumns.has('custom_slip_name')) {
+    db.exec('ALTER TABLE sales ADD COLUMN custom_slip_name TEXT');
+  }
+
   // Seed default Udhaar customers if missing
   try {
     const custCount = (db.prepare('SELECT COUNT(*) as count FROM udhaar_customers').get() as { count: number }).count;

@@ -103,7 +103,9 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
     totalAmount,
     paidAmount,
     paymentMethod,
-    notes
+    notes,
+    billingPersonId,
+    customSlipName
   } = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
@@ -199,16 +201,19 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
 
       const insertSale = db.prepare(`
         INSERT INTO sales (
-          invoice_number, customer_id, cashier_id, subtotal, discount, tax,
+          invoice_number, customer_id, cashier_id, billing_person_id, custom_slip_name,
+          subtotal, discount, tax,
           total_amount, paid_amount, remaining_amount, change_amount, payment_method,
           status, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)
       `);
 
       const saleResult = insertSale.run(
         invoiceNumber,
         customerId || null,
         req.user?.id,
+        billingPersonId ? Number(billingPersonId) : null,
+        customSlipName ? String(customSlipName).trim() || null : null,
         billSubtotal,
         billDiscount,
         billTax,
@@ -405,7 +410,9 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
           paidAmount,
           paymentMethod,
           notes,
-          timestamp
+          timestamp,
+          billingPersonId,
+          customSlipName
         } = rawSale;
 
         const billTotal = Number(totalAmount) || 0;
@@ -476,14 +483,17 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
 
         const saleResult = db.prepare(`
           INSERT INTO sales (
-            invoice_number, customer_id, cashier_id, subtotal, discount, tax,
+            invoice_number, customer_id, cashier_id, billing_person_id, custom_slip_name,
+            subtotal, discount, tax,
             total_amount, paid_amount, remaining_amount, change_amount, payment_method,
             status, notes, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)
         `).run(
           invoiceNumber,
           customerId || null,
           req.user?.id,
+          billingPersonId ? Number(billingPersonId) : null,
+          customSlipName ? String(customSlipName).trim() || null : null,
           billSubtotal,
           billDiscount,
           billTax,

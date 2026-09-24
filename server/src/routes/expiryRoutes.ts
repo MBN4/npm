@@ -105,6 +105,10 @@ expiryRouter.post('/dispose', authenticateToken, requirePermission('adjust_stock
         throw new Error('Batch not found');
       }
 
+      if (batch.expiry_date > new Date().toISOString().split('T')[0]) {
+        throw new Error(`Batch ${batch.batch_number} of ${batch.brand_name} has not expired yet (expires ${batch.expiry_date}) and cannot be written off as expired stock.`);
+      }
+
       if (batch.quantity < disposeQty) {
         throw new Error(`Cannot dispose ${disposeQty} units. Only ${batch.quantity} units available.`);
       }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../context/AuthContext.js';
 import {
   FlaskConical,
   Search,
@@ -41,7 +42,16 @@ import { MedPracHistoryModal } from '../components/MedPracHistoryModal.js';
 import { MedPracVoidModal } from '../components/MedPracVoidModal.js';
 import { MedPracCategoryAdminModal } from '../components/MedPracCategoryAdminModal.js';
 
+// Standard dose-schedule notation per doses-per-day count (OD/BD/TDS/QID)
+const DOSE_COUNT_NOTATION: Record<string, string> = {
+  '1': '1-0-0',
+  '2': '1-0-1',
+  '3': '1-1-1',
+  '4': '1-1-1-1'
+};
+
 export const MedPracView: React.FC = () => {
+  const { user } = useAuth();
   // Navigation Modes
   const [activeTab, setActiveTab] = useState<'new_entry' | 'history' | 'reports'>('new_entry');
 
@@ -85,7 +95,7 @@ export const MedPracView: React.FC = () => {
   const [medicineSearchQuery, setMedicineSearchQuery] = useState('');
 
   const [notes, setNotes] = useState('');
-  const [medpracByUserName] = useState('Wajid Khan');
+  const medpracByUserName = user?.fullName || user?.username || 'Pharmacist';
 
   // Duplicate Check Modal
   const [duplicateMatches, setDuplicateMatches] = useState<MedPracPatient[]>([]);
@@ -369,12 +379,12 @@ export const MedPracView: React.FC = () => {
         therapeutic_category_id: categories.find(c => c.name === selectedCategory)?.id || null,
         therapeutic_category_name: selectedCategory,
         dose_given: doseGiven,
-        dose_notation: doseGiven === 'Custom' ? customDoseNotation : '1-0-1',
+        dose_notation: doseGiven === 'Custom' ? customDoseNotation : (DOSE_COUNT_NOTATION[doseGiven] || '1-0-1'),
         practice_dose_charge: doseChargeNum,
         services: selectedServicesPayload,
         medicines: medicinesList,
         notes: notes.trim() || null,
-        medprac_by_user_id: 1,
+        medprac_by_user_id: user?.id,
         medprac_by_user_name: medpracByUserName
       };
 
@@ -1007,7 +1017,7 @@ export const MedPracView: React.FC = () => {
                         }}
                       >
                         <span style={{ fontSize: '1rem' }}>{d}</span>
-                        <span style={{ fontSize: '0.65rem', opacity: isSelected ? 0.9 : 0.6 }}>(1-0-1)</span>
+                        <span style={{ fontSize: '0.65rem', opacity: isSelected ? 0.9 : 0.6 }}>({DOSE_COUNT_NOTATION[d]})</span>
                       </button>
                     );
                   })}
@@ -1065,7 +1075,7 @@ export const MedPracView: React.FC = () => {
                 </label>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {services.slice(0, 4).map(svc => {
+                  {services.map(svc => {
                     const state = selectedServiceCodes[svc.code] || { selected: false, cost: svc.default_cost };
                     return (
                       <div key={svc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
@@ -1772,6 +1782,7 @@ export const MedPracView: React.FC = () => {
             loadRecentVisits();
             loadKPIs();
           }}
+          currentUser={user ? { id: user.id, fullName: user.fullName || user.username } : undefined}
         />
       )}
 

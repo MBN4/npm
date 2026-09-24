@@ -1,9 +1,23 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requirePermission, AuthenticatedRequest } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
 
 export const cashOutRouter = Router();
+
+// Cash Out recording is used both from the POS counter (cashiers, drawer/day-end expenses)
+// and from the Accounts screen (Admin/Pharmacist) - allow either legitimate caller.
+function requireCashOutAccess(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+  if (!req.user) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+  if (req.user.roleName === 'Admin' || req.user.permissions.includes('create_sales') || req.user.permissions.includes('view_accounts')) {
+    next();
+    return;
+  }
+  res.status(403).json({ error: 'Access denied. Requires POS or accounts access.' });
+}
 
 // 1. Get Categories
 cashOutRouter.get('/categories', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
@@ -45,7 +59,7 @@ cashOutRouter.post('/categories', authenticateToken, requirePermission('manage_s
 });
 
 // 2. Record New Cash Out Entry
-cashOutRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+cashOutRouter.post('/', authenticateToken, requireCashOutAccess, (req: AuthenticatedRequest, res: Response) => {
   try {
     const {
       amount,

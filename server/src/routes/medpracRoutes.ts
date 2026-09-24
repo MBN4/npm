@@ -1,8 +1,10 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { db, runTransaction } from '../db/index.js';
+import { authenticateToken, AuthenticatedRequest } from '../middleware/auth.js';
 import crypto from 'crypto';
 
 export const medpracRouter = Router();
+medpracRouter.use(authenticateToken);
 
 // Helper: Format patient serial number (e.g., MP-000123)
 function generatePatientSerial(): string {
@@ -29,7 +31,7 @@ function generateVisitId(visitDateStr?: string): string {
 }
 
 // 1. GET Next Patient Serial Number
-medpracRouter.get('/next-serial', (req: Request, res: Response) => {
+medpracRouter.get('/next-serial', (req: AuthenticatedRequest, res: Response) => {
   try {
     const serial = generatePatientSerial();
     res.json({ serial_number: serial });
@@ -39,7 +41,7 @@ medpracRouter.get('/next-serial', (req: Request, res: Response) => {
 });
 
 // 2. GET Search Patients (by Serial, Name, Phone)
-medpracRouter.get('/patients/search', (req: Request, res: Response) => {
+medpracRouter.get('/patients/search', (req: AuthenticatedRequest, res: Response) => {
   try {
     const q = ((req.query.q as string) || '').trim();
     if (!q) {
@@ -73,7 +75,7 @@ medpracRouter.get('/patients/search', (req: Request, res: Response) => {
 });
 
 // 3. POST Check Duplicate Patient
-medpracRouter.post('/patients/check-duplicate', (req: Request, res: Response) => {
+medpracRouter.post('/patients/check-duplicate', (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, phone, age, sex } = req.body;
     if (!name) {
@@ -114,7 +116,7 @@ medpracRouter.post('/patients/check-duplicate', (req: Request, res: Response) =>
 });
 
 // 4. POST Create New Patient
-medpracRouter.post('/patients', (req: Request, res: Response) => {
+medpracRouter.post('/patients', (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, age, age_unit, sex, phone, address } = req.body;
 
@@ -144,8 +146,8 @@ medpracRouter.post('/patients', (req: Request, res: Response) => {
       INSERT INTO medprac_audit_logs (user_id, user_name, action, entity, entity_id, new_value)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(
-      req.body.created_by_user_id || null,
-      req.body.created_by_user_name || 'System',
+      req.user?.id || null,
+      req.user?.fullName || 'System',
       'PATIENT_CREATED',
       'medprac_patients',
       String(newPatient.id),
@@ -159,7 +161,7 @@ medpracRouter.post('/patients', (req: Request, res: Response) => {
 });
 
 // 5. GET Patient Details & Full Visit History
-medpracRouter.get('/patients/:id', (req: Request, res: Response) => {
+medpracRouter.get('/patients/:id', (req: AuthenticatedRequest, res: Response) => {
   try {
     const patientId = req.params.id;
     const patient = db.prepare(`
@@ -197,13 +199,12 @@ medpracRouter.get('/patients/:id', (req: Request, res: Response) => {
 });
 
 // 6. GET Therapeutic Categories
-medpracRouter.get('/categories', (req: Request, res: Response) => {
+medpracRouter.get('/categories', (req: AuthenticatedRequest, res: Response) => {
   try {
-    const categories = db.prepare(`
-      SELECT * FROM medprac_categories 
-      WHERE is_active = 1
-      ORDER BY sort_order ASC, name ASC
-    `).all();
+    const includeInactive = req.query.includeInactive === 'true';
+    const categories = includeInactive
+      ? db.prepare(`SELECT * FROM medprac_categories ORDER BY sort_order ASC, name ASC`).all()
+      : db.prepare(`SELECT * FROM medprac_categories WHERE is_active = 1 ORDER BY sort_order ASC, name ASC`).all();
     res.json(categories);
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to fetch categories', details: error.message });
@@ -211,7 +212,7 @@ medpracRouter.get('/categories', (req: Request, res: Response) => {
 });
 
 // Admin Category Management: POST, PUT, DELETE
-medpracRouter.post('/categories', (req: Request, res: Response) => {
+medpracRouter.post('/categories', (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, description, icon, sort_order } = req.body;
     if (!name) return res.status(400).json({ error: 'Category name required' });
@@ -227,7 +228,7 @@ medpracRouter.post('/categories', (req: Request, res: Response) => {
   }
 });
 
-medpracRouter.put('/categories/:id', (req: Request, res: Response) => {
+medpracRouter.put('/categories/:id', (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, description, icon, sort_order, is_active } = req.body;
     db.prepare(`
@@ -244,7 +245,7 @@ medpracRouter.put('/categories/:id', (req: Request, res: Response) => {
 });
 
 // 7. GET Practice Services
-medpracRouter.get('/services', (req: Request, res: Response) => {
+medpracRouter.get('/services', (req: AuthenticatedRequest, res: Response) => {
   try {
     const services = db.prepare(`
       SELECT * FROM medprac_services 
@@ -257,7 +258,7 @@ medpracRouter.get('/services', (req: Request, res: Response) => {
   }
 });
 
-medpracRouter.post('/services', (req: Request, res: Response) => {
+medpracRouter.post('/services', (req: AuthenticatedRequest, res: Response) => {
   try {
     const { code, name, default_cost, sort_order } = req.body;
     if (!code || !name) return res.status(400).json({ error: 'Service code and name required' });
@@ -274,7 +275,7 @@ medpracRouter.post('/services', (req: Request, res: Response) => {
 });
 
 // 8. POST Record New Medprac Visit Encounter
-medpracRouter.post('/visits', (req: Request, res: Response) => {
+medpracRouter.post('/visits', (req: AuthenticatedRequest, res: Response) => {
   try {
     const {
       patient_id,
@@ -324,8 +325,8 @@ medpracRouter.post('/visits', (req: Request, res: Response) => {
     });
 
     const total_amount = doseChargeNum + servicesTotal + medicinesTotal;
-    const userName = medprac_by_user_name || 'Pharmacist';
-    const userId = medprac_by_user_id || 1;
+    const userName = req.user?.fullName || medprac_by_user_name || 'Pharmacist';
+    const userId = req.user?.id || medprac_by_user_id || 1;
 
     const newVisit = runTransaction(() => {
       // 1. Insert Visit Record
@@ -361,31 +362,37 @@ medpracRouter.post('/visits', (req: Request, res: Response) => {
           quantity_used, batch_number, expiry_date, unit_cost, selling_price, total_price, inventory_deducted
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
+      const insertBatchDeduction = db.prepare(`
+        INSERT INTO medprac_medicine_batch_deductions (visit_medicine_id, batch_id, quantity)
+        VALUES (?, ?, ?)
+      `);
 
       medicinesList.forEach(m => {
         const lineTotal = Number(m.selling_price || 0) * Number(m.quantity_used || 1);
         let deducted = 0;
+        const deductions: { batchId: number; quantity: number }[] = [];
 
         if (m.deduct_inventory && m.medicine_id) {
-          // Deduct stock using FEFO from batches
+          // Deduct stock using FEFO from active, non-expired batches
           const qtyNeeded = Number(m.quantity_used || 1);
           const batches = db.prepare(`
-            SELECT * FROM batches 
-            WHERE medicine_id = ? AND current_stock > 0
+            SELECT * FROM batches
+            WHERE medicine_id = ? AND quantity > 0 AND status = 'ACTIVE' AND expiry_date > date('now')
             ORDER BY expiry_date ASC
           `).all(m.medicine_id) as any[];
 
           let remaining = qtyNeeded;
           for (const b of batches) {
             if (remaining <= 0) break;
-            const take = Math.min(remaining, b.current_stock);
-            db.prepare(`UPDATE batches SET current_stock = current_stock - ? WHERE id = ?`).run(take, b.id);
+            const take = Math.min(remaining, b.quantity);
+            db.prepare(`UPDATE batches SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(take, b.id);
+            deductions.push({ batchId: b.id, quantity: take });
             remaining -= take;
           }
-          deducted = 1;
+          if (deductions.length > 0) deducted = 1;
         }
 
-        insertMed.run(
+        const medResult = insertMed.run(
           insertedVisitId,
           m.medicine_id || null,
           m.brand_name,
@@ -400,6 +407,9 @@ medpracRouter.post('/visits', (req: Request, res: Response) => {
           lineTotal,
           deducted
         );
+
+        const visitMedicineId = medResult.lastInsertRowid;
+        deductions.forEach(d => insertBatchDeduction.run(visitMedicineId, d.batchId, d.quantity));
       });
 
       // 4. Record Audit Log
@@ -423,7 +433,7 @@ medpracRouter.post('/visits', (req: Request, res: Response) => {
 });
 
 // 9. GET Recent Visits (with Filters)
-medpracRouter.get('/visits', (req: Request, res: Response) => {
+medpracRouter.get('/visits', (req: AuthenticatedRequest, res: Response) => {
   try {
     const page = parseInt(req.query.page as string || '1', 10);
     const limit = parseInt(req.query.limit as string || '50', 10);
@@ -505,7 +515,7 @@ medpracRouter.get('/visits', (req: Request, res: Response) => {
 });
 
 // 10. GET Single Visit Detail
-medpracRouter.get('/visits/:id', (req: Request, res: Response) => {
+medpracRouter.get('/visits/:id', (req: AuthenticatedRequest, res: Response) => {
   try {
     const visitId = req.params.id;
     const visit = db.prepare(`
@@ -532,7 +542,7 @@ medpracRouter.get('/visits/:id', (req: Request, res: Response) => {
 });
 
 // 11. POST Reversal / Void Visit
-medpracRouter.post('/visits/:id/void', (req: Request, res: Response) => {
+medpracRouter.post('/visits/:id/void', (req: AuthenticatedRequest, res: Response) => {
   try {
     const visitId = req.params.id;
     const { reason, reversed_by_user_id, reversed_by_user_name } = req.body;
@@ -549,8 +559,8 @@ medpracRouter.post('/visits/:id/void', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Visit is already voided/reversed' });
     }
 
-    const userId = reversed_by_user_id || 1;
-    const userName = reversed_by_user_name || 'Pharmacist';
+    const userId = req.user?.id || reversed_by_user_id || 1;
+    const userName = req.user?.fullName || reversed_by_user_name || 'Pharmacist';
 
     runTransaction(() => {
       // Mark as voided
@@ -562,15 +572,12 @@ medpracRouter.post('/visits/:id/void', (req: Request, res: Response) => {
         VALUES (?, ?, ?, ?, ?, ?)
       `).run(visit.id, reason.trim(), userId, userName, visit.total_amount, visit.total_amount);
 
-      // Restore inventory if medicines were deducted
+      // Restore inventory to the exact batch(es) it was deducted from
       const deductedMeds = db.prepare(`SELECT * FROM medprac_visit_medicines WHERE visit_id = ? AND inventory_deducted = 1`).all(visit.id) as any[];
       for (const m of deductedMeds) {
-        if (m.medicine_id) {
-          // Add back to batch or latest batch
-          const batch = db.prepare(`SELECT * FROM batches WHERE medicine_id = ? ORDER BY expiry_date DESC LIMIT 1`).get(m.medicine_id) as any;
-          if (batch) {
-            db.prepare(`UPDATE batches SET current_stock = current_stock + ? WHERE id = ?`).run(m.quantity_used, batch.id);
-          }
+        const deductions = db.prepare(`SELECT * FROM medprac_medicine_batch_deductions WHERE visit_medicine_id = ?`).all(m.id) as any[];
+        for (const d of deductions) {
+          db.prepare(`UPDATE batches SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(d.quantity, d.batch_id);
         }
       }
 
@@ -592,7 +599,7 @@ medpracRouter.post('/visits/:id/void', (req: Request, res: Response) => {
 });
 
 // 12. GET Medprac Reports & Revenue Analytics
-medpracRouter.get('/reports', (req: Request, res: Response) => {
+medpracRouter.get('/reports', (req: AuthenticatedRequest, res: Response) => {
   try {
     const startDate = (req.query.startDate as string) || new Date().toISOString().split('T')[0];
     const endDate = (req.query.endDate as string) || new Date().toISOString().split('T')[0];
@@ -682,7 +689,7 @@ medpracRouter.get('/reports', (req: Request, res: Response) => {
 });
 
 // 13. GET Dashboard Summary KPIs (Today)
-medpracRouter.get('/dashboard', (req: Request, res: Response) => {
+medpracRouter.get('/dashboard', (req: AuthenticatedRequest, res: Response) => {
   try {
     const today = new Date().toISOString().split('T')[0];
 
@@ -734,7 +741,7 @@ medpracRouter.get('/dashboard', (req: Request, res: Response) => {
 });
 
 // 14. GET Audit Logs
-medpracRouter.get('/audit-logs', (req: Request, res: Response) => {
+medpracRouter.get('/audit-logs', (req: AuthenticatedRequest, res: Response) => {
   try {
     const logs = db.prepare(`
       SELECT * FROM medprac_audit_logs 

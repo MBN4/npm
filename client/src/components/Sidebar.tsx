@@ -18,7 +18,8 @@ import {
   Wallet,
   BarChart3,
   ShieldCheck,
-  Settings
+  Settings,
+  History
 } from 'lucide-react';
 
 export type NavView =
@@ -38,6 +39,7 @@ export type NavView =
   | 'udhaar'
   | 'accounts'
   | 'balance'
+  | 'activity'
   | 'reports'
   | 'staff'
   | 'settings';
@@ -67,6 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => 
     { id: 'expiry', label: 'Expiry Control', icon: <AlertTriangle size={18} /> },
     { id: 'accounts', label: 'Accounts & Cash', icon: <ReceiptText size={18} />, permission: 'view_accounts' },
     { id: 'balance', label: 'Balance & Day-End 💰', icon: <Wallet size={18} />, permission: 'view_accounts' },
+    { id: 'activity', label: 'Activity Log', icon: <History size={18} />, permission: 'view_accounts' },
     { id: 'reports', label: 'Reports', icon: <BarChart3 size={18} />, permission: 'export_data' },
     { id: 'staff', label: 'Staff & Audit', icon: <ShieldCheck size={18} />, adminOnly: true },
     { id: 'settings', label: 'Settings', icon: <Settings size={18} />, adminOnly: true }

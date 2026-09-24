@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Plus } from 'lucide-react';
 import { MedPracCategory } from '../types/medprac.js';
 import { medpracService } from '../services/medpracService.js';
@@ -10,14 +10,27 @@ interface MedPracCategoryAdminModalProps {
 }
 
 export const MedPracCategoryAdminModal: React.FC<MedPracCategoryAdminModalProps> = ({
-  categories,
+  categories: activeCategories,
   onClose,
   onRefresh
 }) => {
+  // The admin list must include disabled categories too (so "Enable" is actually reachable),
+  // unlike the active-only list the rest of the app uses for the New Entry dropdown.
+  const [categories, setCategories] = useState<MedPracCategory[]>(activeCategories);
   const [editingCat, setEditingCat] = useState<Partial<MedPracCategory> | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const loadAllCategories = async () => {
+    const all = await medpracService.getCategories(true);
+    setCategories(all);
+  };
+
+  useEffect(() => {
+    loadAllCategories();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleStartEdit = (cat?: MedPracCategory) => {
     if (cat) {
@@ -46,6 +59,7 @@ export const MedPracCategoryAdminModal: React.FC<MedPracCategoryAdminModalProps>
       setEditingCat(null);
       setName('');
       setDescription('');
+      await loadAllCategories();
       onRefresh();
     } catch (err: any) {
       alert(err.message || 'Failed to save category');
@@ -60,6 +74,7 @@ export const MedPracCategoryAdminModal: React.FC<MedPracCategoryAdminModalProps>
         ...cat,
         is_active: cat.is_active === 1 ? 0 : 1
       });
+      await loadAllCategories();
       onRefresh();
     } catch (err: any) {
       alert(err.message || 'Failed to update category');

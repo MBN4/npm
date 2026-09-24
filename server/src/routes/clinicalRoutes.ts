@@ -24,7 +24,7 @@ clinicalRouter.post('/check-interactions', authenticateToken, (req: Request, res
         g.therapeutic_class,
         ci.pregnancy_category,
         ci.lactation_safety,
-        ci.food_instructions,
+        ci.food_interactions as food_instructions,
         ci.hepatic_renal_precautions
       FROM medicines m
       LEFT JOIN generics g ON m.generic_id = g.id
@@ -172,9 +172,9 @@ clinicalRouter.get('/medicine/:id/monograph', authenticateToken, (req: Request, 
         ci.lactation_safety,
         ci.adult_dosage,
         ci.pediatric_dosage,
-        ci.food_instructions,
+        ci.food_interactions as food_instructions,
         ci.hepatic_renal_precautions,
-        ci.common_side_effects
+        ci.side_effects_common as common_side_effects
       FROM medicines m
       LEFT JOIN generics g ON m.generic_id = g.id
       LEFT JOIN drug_clinical_info ci ON g.id = ci.generic_id
@@ -807,8 +807,8 @@ clinicalRouter.post('/ai-consult', authenticateToken, (req: Request, res: Respon
     if (medicineId) {
       contextData = db.prepare(`
         SELECT m.id, m.brand_name, m.strength, m.dosage_form, g.id as generic_id, g.name as generic_name, g.therapeutic_class,
-               ci.pregnancy_category, ci.lactation_safety, ci.adult_dosage, ci.pediatric_dosage, ci.food_instructions,
-               ci.hepatic_renal_precautions, ci.common_side_effects
+               ci.pregnancy_category, ci.lactation_safety, ci.adult_dosage, ci.pediatric_dosage, ci.food_interactions as food_instructions,
+               ci.hepatic_renal_precautions, ci.side_effects_common as common_side_effects
         FROM medicines m
         LEFT JOIN generics g ON m.generic_id = g.id
         LEFT JOIN drug_clinical_info ci ON g.id = ci.generic_id

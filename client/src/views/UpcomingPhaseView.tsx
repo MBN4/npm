@@ -19,6 +19,7 @@ const phaseDetails: Record<NavView, { phase: string; title: string; desc: string
   expiry: { phase: 'Live', title: 'Expiry Control', desc: 'Configurable expiry windows (180/90/60/30/7 days), supplier return claims, and disposal register.' },
   accounts: { phase: 'Live', title: 'Financial Accounts & Cashbook', desc: 'Daily cashbook entries, expenses, profit & loss statement, and customer receivables.' },
   balance: { phase: 'Live', title: 'Store Balance & Day-End Register', desc: 'Running drawer cash balance, cash additions, operating expenses, and Day-End shift settlements.' },
+  activity: { phase: 'Live', title: 'Activity Log', desc: 'Unified chronological feed of every bill, Udhaar entry, cash-out, and stock movement.' },
   reports: { phase: 'Live', title: 'Business Reports', desc: 'Sales velocity, fast/slow movers, cashier audit, profit margins, and export to CSV.' },
   staff: { phase: 'Live', title: 'Staff & Audit', desc: 'User management, roles, and immutable audit logs.' },
   settings: { phase: 'Live', title: 'System Settings', desc: 'Pharmacy info, tax rates, receipt formatting, and backup configurations.' }

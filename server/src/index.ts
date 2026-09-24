@@ -26,6 +26,8 @@ import { cashOutRouter } from './routes/cashOutRoutes.js';
 import { syncRouter } from './routes/syncRoutes.js';
 import { medpracRouter } from './routes/medpracRoutes.js';
 import { udhaarRouter } from './routes/udhaarRoutes.js';
+import { billingPersonRouter } from './routes/billingPersonRoutes.js';
+import { activityRouter } from './routes/activityRoutes.js';
 import { securityHeaders } from './middleware/security.js';
 
 dotenv.config();
@@ -95,6 +97,8 @@ app.use('/api/cashout', cashOutRouter);
 app.use('/api/sync', syncRouter);
 app.use('/api/medprac', medpracRouter);
 app.use('/api/udhaar', udhaarRouter);
+app.use('/api/billing-persons', billingPersonRouter);
+app.use('/api/activity', activityRouter);
 
 // Global 404 Handler
 app.use((req: Request, res: Response) => {

@@ -71,10 +71,11 @@ integrationRouter.get('/receipt-escpos/:invoiceNumber', authenticateToken, (req:
   try {
     const invoiceNumber = req.params.invoiceNumber;
     const sale = db.prepare(`
-      SELECT s.*, u.username as cashier_name, c.name as customer_name
+      SELECT s.*, u.username as cashier_name, c.name as customer_name, bp.name as billing_person_name
       FROM sales s
       JOIN users u ON s.cashier_id = u.id
       LEFT JOIN customers c ON s.customer_id = c.id
+      LEFT JOIN billing_persons bp ON s.billing_person_id = bp.id
       WHERE s.invoice_number = ?
     `).get(invoiceNumber) as any;
 
@@ -100,7 +101,7 @@ integrationRouter.get('/receipt-escpos/:invoiceNumber', authenticateToken, (req:
       'Phone: 03454142863\\n',
       '------------------------------------------------\\n',
       `\\x1B\\x61\\x00Invoice: ${sale.invoice_number}    Date: ${sale.created_at}\\n`,
-      `Cashier: ${sale.cashier_name}    Customer: ${sale.customer_name || 'Walk-in'}\\n`,
+      `Cashier: ${sale.billing_person_name || sale.cashier_name}    Customer: ${sale.custom_slip_name || sale.customer_name || 'Walk-in'}\\n`,
       '------------------------------------------------\\n',
       'Item                     Qty   Price   Total\\n',
       '------------------------------------------------\\n'
@@ -207,10 +208,11 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     const targetPrinter = printerName || 'Speed-X 400UL';
 
     const sale = db.prepare(`
-      SELECT s.*, u.username as cashier_name, c.name as customer_name, c.mobile as customer_mobile
+      SELECT s.*, u.username as cashier_name, c.name as customer_name, c.mobile as customer_mobile, bp.name as billing_person_name
       FROM sales s
       JOIN users u ON s.cashier_id = u.id
       LEFT JOIN customers c ON s.customer_id = c.id
+      LEFT JOIN billing_persons bp ON s.billing_person_id = bp.id
       WHERE s.invoice_number = ?
     `).get(invoiceNumber) as any;
 
@@ -259,9 +261,9 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     const timeStr = saleDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
     chunks.push(Buffer.from(padBetween(`Invoice #: ${sale.invoice_number}`, `POS No.: 01`, 42) + '\n', 'utf8'));
-    chunks.push(Buffer.from(`Cashier: ${sale.cashier_name || 'Dr. Naveed'}\n`, 'utf8'));
+    chunks.push(Buffer.from(`Cashier: ${sale.billing_person_name || sale.cashier_name || 'Dr. Naveed'}\n`, 'utf8'));
     chunks.push(Buffer.from(padBetween(`Mode of Payment: ${sale.payment_method || 'CASH'}`, `${dateStr} ${timeStr}`, 42) + '\n', 'utf8'));
-    chunks.push(Buffer.from(`Customer: ${sale.customer_name || 'CASH SALES-WALKING CUSTOMER A/C'}\n`, 'utf8'));
+    chunks.push(Buffer.from(`Customer: ${sale.custom_slip_name || sale.customer_name || 'CASH SALES-WALKING CUSTOMER A/C'}\n`, 'utf8'));
     chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
     chunks.push(Buffer.from(padBetween('#  Description', 'Qty   Price     Total', 42) + '\n', 'utf8'));
     chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
@@ -664,7 +666,7 @@ integrationRouter.post('/qr-webhook', (req: Request, res: Response) => {
 });
 
 // Simulator endpoint to test QR payment arrival easily from UI or curl
-integrationRouter.post('/qr-simulate', (req: Request, res: Response) => {
+integrationRouter.post('/qr-simulate', authenticateToken, (req: Request, res: Response) => {
   try {
     const { amount, provider, trxId } = req.body;
     const paymentEvent: QrPaymentEvent = {

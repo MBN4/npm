@@ -2,11 +2,19 @@ import { UdhaarCustomer, UdhaarTransaction, UdhaarKPIs } from '../types/udhaar.j
 
 const API_BASE = '/api/udhaar';
 
+function authHeaders(withJson = false): Record<string, string> {
+  const token = localStorage.getItem('nmp_token');
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (withJson) headers['Content-Type'] = 'application/json';
+  return headers;
+}
+
 export const udhaarService = {
   // Get Summary KPIs
   getKPIs: async (): Promise<UdhaarKPIs> => {
     try {
-      const res = await fetch(`${API_BASE}/dashboard`);
+      const res = await fetch(`${API_BASE}/dashboard`, { headers: authHeaders() });
       if (!res.ok) throw new Error('Failed to load Udhaar KPIs');
       return await res.json();
     } catch {
@@ -29,7 +37,7 @@ export const udhaarService = {
       if (status && status !== 'ALL') params.append('status', status);
       params.append('page', String(page));
 
-      const res = await fetch(`${API_BASE}/customers?${params.toString()}`);
+      const res = await fetch(`${API_BASE}/customers?${params.toString()}`, { headers: authHeaders() });
       if (!res.ok) throw new Error('Failed to fetch customers');
       return await res.json();
     } catch {
@@ -42,7 +50,7 @@ export const udhaarService = {
 
   // Get Single Customer Detail with Transactions
   getCustomerDetail: async (id: string | number): Promise<{ customer: UdhaarCustomer; transactions: UdhaarTransaction[] }> => {
-    const res = await fetch(`${API_BASE}/customers/${id}`);
+    const res = await fetch(`${API_BASE}/customers/${id}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Customer not found');
     return await res.json();
   },
@@ -50,7 +58,7 @@ export const udhaarService = {
   updateCustomer: async (id: number, data: Pick<UdhaarCustomer, 'name' | 'mobile' | 'reference' | 'address' | 'cnic'>): Promise<UdhaarCustomer> => {
     const res = await fetch(`${API_BASE}/customers/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(true),
       body: JSON.stringify(data)
     });
     if (!res.ok) {
@@ -64,7 +72,7 @@ export const udhaarService = {
   createUdhaar: async (data: Partial<UdhaarCustomer> & { amount?: number; description?: string }): Promise<UdhaarCustomer> => {
     const res = await fetch(`${API_BASE}/customers`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(true),
       body: JSON.stringify(data)
     });
     if (!res.ok) {
@@ -90,7 +98,7 @@ export const udhaarService = {
   }): Promise<{ customer: UdhaarCustomer; transaction: UdhaarTransaction }> => {
     const res = await fetch(`${API_BASE}/transactions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(true),
       body: JSON.stringify(data)
     });
     if (!res.ok) {
@@ -102,7 +110,7 @@ export const udhaarService = {
 
   // Get Aging Report
   getAgingReport: async (): Promise<any> => {
-    const res = await fetch(`${API_BASE}/aging-report`);
+    const res = await fetch(`${API_BASE}/aging-report`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Failed to load aging report');
     return await res.json();
   }

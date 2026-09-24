@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 
 export interface BatchItem {
-  id: number;
+  id: number | null;
   medicine_id: number;
   brand_name: string;
   strength?: string;
@@ -48,18 +48,18 @@ export interface BatchItem {
   therapeutic_class?: string | null;
   barcode?: string;
   medicine_rack?: string;
-  batch_number: string;
+  batch_number: string | null;
   mfg_date?: string;
-  expiry_date: string;
-  purchase_price: number;
-  sale_price: number;
-  quantity: number;
+  expiry_date: string | null;
+  purchase_price: number | null;
+  sale_price: number | null;
+  quantity: number | null;
   bonus_quantity: number;
   supplier_name?: string;
-  computed_expiry_status: 'ACTIVE' | 'NEAR_EXPIRY' | 'EXPIRED';
-  days_to_expiry: number;
-  unit_margin: number;
-  margin_percent: number;
+  computed_expiry_status: 'ACTIVE' | 'NEAR_EXPIRY' | 'EXPIRED' | 'NO_STOCK';
+  days_to_expiry: number | null;
+  unit_margin: number | null;
+  margin_percent: number | null;
 }
 
 export interface StockMovement {
@@ -400,6 +400,15 @@ export const InventoryView: React.FC = () => {
     }
   };
 
+  const handleAddStockForMedicine = (medicineId: number) => {
+    setEntryMode('existing_med');
+    setModalError(null);
+    handleAutoBatch();
+    setQuickExpiry(2);
+    setShowAddStockModal(true);
+    handleSelectExistingMed(String(medicineId));
+  };
+
   const handleSaveDirectStock = async (e: React.FormEvent) => {
     e.preventDefault();
     setModalError(null);
@@ -516,7 +525,7 @@ export const InventoryView: React.FC = () => {
 
   const handleOpenEdit = (batch: BatchItem) => {
     setEditingBatch(batch);
-    setEditBatchNumber(batch.batch_number);
+    setEditBatchNumber(batch.batch_number || '');
     setEditBrandName(batch.brand_name);
     setEditGenericName(batch.generic_name || '');
     setEditManufacturerName(batch.manufacturer_name || '');
@@ -530,7 +539,7 @@ export const InventoryView: React.FC = () => {
     setEditReorderLevel(String(batch.reorder_level ?? 20));
     setEditNotes(batch.notes || '');
     setEditMfgDate(batch.mfg_date || '');
-    setEditExpiryDate(batch.expiry_date);
+    setEditExpiryDate(batch.expiry_date || '');
     setEditPurchasePrice(String(batch.purchase_price));
     setEditSalePrice(String(batch.sale_price));
     setEditRackLocation(batch.medicine_rack || '');
@@ -633,9 +642,9 @@ export const InventoryView: React.FC = () => {
   };
 
   const filteredBatches = batches.filter(b => {
-    const matchesSearch = !searchQuery.trim() || 
+    const matchesSearch = !searchQuery.trim() ||
       b.brand_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.batch_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (b.batch_number && b.batch_number.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (b.barcode && b.barcode.includes(searchQuery.trim())) ||
       (b.medicine_rack && b.medicine_rack.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -901,12 +910,13 @@ export const InventoryView: React.FC = () => {
                   </tr>
                 ) : (
                   filteredBatches.map(b => {
+                    const hasBatch = b.id != null;
                     const isExpired = b.computed_expiry_status === 'EXPIRED';
                     const isNear = b.computed_expiry_status === 'NEAR_EXPIRY';
                     const batchPackaging = getProductPackaging(b.dosage_form, b.stock_unit, b.category_name);
 
                     return (
-                      <tr key={b.id} style={{ backgroundColor: isExpired ? 'rgba(239, 68, 68, 0.04)' : undefined }}>
+                      <tr key={hasBatch ? `batch-${b.id}` : `med-${b.medicine_id}`} style={{ backgroundColor: isExpired ? 'rgba(239, 68, 68, 0.04)' : !hasBatch ? 'rgba(148, 163, 184, 0.04)' : undefined }}>
                         <td>
                           <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{b.brand_name}</div>
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
@@ -916,32 +926,41 @@ export const InventoryView: React.FC = () => {
                             {b.category_name || 'Uncategorized'}{b.therapeutic_class ? ` • ${b.therapeutic_class}` : ''}
                           </div>
                         </td>
-                        <td>
-                          <code style={{ fontWeight: 700, backgroundColor: 'var(--bg-app)', padding: '0.2rem 0.45rem', borderRadius: '4px', border: '1px solid var(--border)', fontSize: '0.78rem' }}>
-                            {b.batch_number}
-                          </code>
-                        </td>
-                        <td>
-                          <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>{b.expiry_date}</div>
-                          <span className={`badge ${isExpired ? 'badge-danger' : isNear ? 'badge-warning' : 'badge-success'}`} style={{ fontSize: '0.64rem', marginTop: '3px' }}>
-                            {isExpired ? 'EXPIRED' : isNear ? 'NEAR EXPIRY' : 'ACTIVE FEFO'}
-                          </span>
-                        </td>
-                        <td>
-                          <span style={{ fontSize: '0.82rem', fontWeight: isExpired ? 700 : 500, color: isExpired ? 'var(--danger)' : isNear ? 'var(--warning)' : 'inherit' }}>
-                            {isExpired ? `${Math.abs(b.days_to_expiry)}d ago` : `${b.days_to_expiry} days`}
-                          </span>
-                        </td>
-                        <td style={{ fontSize: '0.82rem' }}>Rs. {Number(b.purchase_price).toFixed(2)}</td>
-                        <td style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>Rs. {Number(b.sale_price).toFixed(2)}</td>
-                        <td>
-                          <span className="badge badge-primary" style={{ fontSize: '0.68rem' }}>
-                            {b.margin_percent}%
-                          </span>
-                        </td>
+                        {!hasBatch ? (
+                          <td colSpan={6} style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                            <span className="badge badge-warning" style={{ fontSize: '0.68rem' }}>NO STOCK YET</span>
+                            <span style={{ marginLeft: '0.5rem' }}>Added to catalog — add a batch to make it sellable in POS with real stock.</span>
+                          </td>
+                        ) : (
+                          <>
+                            <td>
+                              <code style={{ fontWeight: 700, backgroundColor: 'var(--bg-app)', padding: '0.2rem 0.45rem', borderRadius: '4px', border: '1px solid var(--border)', fontSize: '0.78rem' }}>
+                                {b.batch_number}
+                              </code>
+                            </td>
+                            <td>
+                              <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>{b.expiry_date}</div>
+                              <span className={`badge ${isExpired ? 'badge-danger' : isNear ? 'badge-warning' : 'badge-success'}`} style={{ fontSize: '0.64rem', marginTop: '3px' }}>
+                                {isExpired ? 'EXPIRED' : isNear ? 'NEAR EXPIRY' : 'ACTIVE FEFO'}
+                              </span>
+                            </td>
+                            <td>
+                              <span style={{ fontSize: '0.82rem', fontWeight: isExpired ? 700 : 500, color: isExpired ? 'var(--danger)' : isNear ? 'var(--warning)' : 'inherit' }}>
+                                {isExpired ? `${Math.abs(Number(b.days_to_expiry))}d ago` : `${b.days_to_expiry} days`}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: '0.82rem' }}>Rs. {Number(b.purchase_price).toFixed(2)}</td>
+                            <td style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>Rs. {Number(b.sale_price).toFixed(2)}</td>
+                            <td>
+                              <span className="badge badge-primary" style={{ fontSize: '0.68rem' }}>
+                                {b.margin_percent}%
+                              </span>
+                            </td>
+                          </>
+                        )}
                         <td>
                           <span style={{ fontSize: '0.95rem', fontWeight: 800, color: isExpired ? 'var(--danger)' : 'var(--text-primary)' }}>
-                            {b.quantity}
+                            {hasBatch ? b.quantity : 0}
                           </span>
                         </td>
                         <td>
@@ -954,38 +973,54 @@ export const InventoryView: React.FC = () => {
                         </td>
                         <td>
                           <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
-                            {hasPermission('adjust_stock') && (
-                              <button
-                                onClick={() => handleOpenAdjustment(b)}
-                                className="btn btn-secondary btn-sm"
-                                style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-                                title="Adjust physical stock quantity"
-                              >
-                                <SlidersHorizontal size={12} />
-                                <span>Adjust</span>
-                              </button>
-                            )}
-
-                            {hasPermission('manage_inventory') && (
+                            {!hasBatch ? (
+                              hasPermission('manage_inventory') && (
+                                <button
+                                  onClick={() => handleAddStockForMedicine(b.medicine_id)}
+                                  className="btn btn-primary btn-sm"
+                                  style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                                  title="Add a batch/stock for this medicine"
+                                >
+                                  <PlusCircle size={12} />
+                                  <span>Add Stock</span>
+                                </button>
+                              )
+                            ) : (
                               <>
-                                <button
-                                  onClick={() => handleOpenEdit(b)}
-                                  className="btn btn-secondary btn-sm"
-                                  style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--primary)' }}
-                                  title="Edit batch pricing and details"
-                                >
-                                  <Edit size={12} />
-                                  <span>Edit</span>
-                                </button>
+                                {hasPermission('adjust_stock') && (
+                                  <button
+                                    onClick={() => handleOpenAdjustment(b)}
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                                    title="Adjust physical stock quantity"
+                                  >
+                                    <SlidersHorizontal size={12} />
+                                    <span>Adjust</span>
+                                  </button>
+                                )}
 
-                                <button
-                                  onClick={() => handleDeleteBatch(b)}
-                                  className="btn btn-secondary btn-sm"
-                                  style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', color: 'var(--danger)' }}
-                                  title="Delete batch"
-                                >
-                                  <Trash2 size={12} />
-                                </button>
+                                {hasPermission('manage_inventory') && (
+                                  <>
+                                    <button
+                                      onClick={() => handleOpenEdit(b)}
+                                      className="btn btn-secondary btn-sm"
+                                      style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--primary)' }}
+                                      title="Edit batch pricing and details"
+                                    >
+                                      <Edit size={12} />
+                                      <span>Edit</span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleDeleteBatch(b)}
+                                      className="btn btn-secondary btn-sm"
+                                      style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', color: 'var(--danger)' }}
+                                      title="Delete batch"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  </>
+                                )}
                               </>
                             )}
                           </div>

@@ -96,7 +96,7 @@ export const ExpiryView: React.FC = () => {
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
-          supplierId: selectedBatchForClaim.supplier_id || 1,
+          supplierId: selectedBatchForClaim.supplier_id,
           batchIds: [selectedBatchForClaim.id],
           notes: claimNotes
         })
@@ -354,7 +354,7 @@ export const ExpiryView: React.FC = () => {
                               <Trash2 size={13} />
                               <span>Write Off</span>
                             </button>
-                          ) : (
+                          ) : b.supplier_id ? (
                             <button
                               onClick={() => setSelectedBatchForClaim(b)}
                               className="btn btn-secondary btn-sm"
@@ -364,6 +364,10 @@ export const ExpiryView: React.FC = () => {
                               <FileSpreadsheet size={13} />
                               <span>Claim Return</span>
                             </button>
+                          ) : (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }} title="No supplier on record for this batch - direct procurement stock cannot be claimed back">
+                              No supplier to claim
+                            </span>
                           )}
                         </div>
                       </td>

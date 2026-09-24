@@ -45,7 +45,7 @@ export interface CartItem {
 }
 
 export const PosView: React.FC = () => {
-  const { token, user } = useAuth();
+  const { token, user, hasRole } = useAuth();
 
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -60,6 +60,13 @@ export const PosView: React.FC = () => {
   const [customers, setCustomers] = useState<{ id: number; name: string; mobile?: string; current_balance: number }[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [customSlipName, setCustomSlipName] = useState<string>('');
+  const [billingPersons, setBillingPersons] = useState<{ id: number; name: string; is_active: number }[]>([]);
+  const [selectedBillingPersonId, setSelectedBillingPersonId] = useState<string>('');
+  const [showManageBillingPersons, setShowManageBillingPersons] = useState(false);
+  const [newBillingPersonName, setNewBillingPersonName] = useState('');
+  const [billingPersonError, setBillingPersonError] = useState<string | null>(null);
+  const [editingBillingPersonId, setEditingBillingPersonId] = useState<number | null>(null);
+  const [editingBillingPersonName, setEditingBillingPersonName] = useState('');
   const [billDiscount, setBillDiscount] = useState<string>('0');
   const [discountType, setDiscountType] = useState<'RS' | 'PERCENT'>('PERCENT');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'JAZZCASH' | 'AL_HABIB' | 'CREDIT'>('CASH');
@@ -136,6 +143,60 @@ export const PosView: React.FC = () => {
       setErrorMessage(err.message || 'Error registering customer');
     } finally {
       setAddingCustomer(false);
+    }
+  };
+
+  const handleAddBillingPerson = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBillingPersonName.trim()) return;
+    setBillingPersonError(null);
+    try {
+      const res = await fetch('/api/billing-persons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: newBillingPersonName.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add billing person');
+      setNewBillingPersonName('');
+      fetchBillingPersons();
+    } catch (err: any) {
+      setBillingPersonError(err.message || 'Error adding billing person');
+    }
+  };
+
+  const handleSaveBillingPersonEdit = async (id: number) => {
+    if (!editingBillingPersonName.trim()) return;
+    setBillingPersonError(null);
+    try {
+      const res = await fetch(`/api/billing-persons/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: editingBillingPersonName.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update billing person');
+      setEditingBillingPersonId(null);
+      setEditingBillingPersonName('');
+      fetchBillingPersons();
+    } catch (err: any) {
+      setBillingPersonError(err.message || 'Error updating billing person');
+    }
+  };
+
+  const handleDeleteBillingPerson = async (id: number) => {
+    setBillingPersonError(null);
+    try {
+      const res = await fetch(`/api/billing-persons/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete billing person');
+      if (selectedBillingPersonId === String(id)) setSelectedBillingPersonId('');
+      fetchBillingPersons();
+    } catch (err: any) {
+      setBillingPersonError(err.message || 'Error deleting billing person');
     }
   };
 
@@ -239,7 +300,7 @@ export const PosView: React.FC = () => {
   };
 
   const handlePrintReceipt = () => {
-    printThermalElement('nmp-printable-receipt', (settings['printer_paper_width'] as any) || '80mm');
+    printThermalElement('nmp-pos-receipt', (settings['printer_paper_width'] as any) || '80mm');
   };
 
   useEffect(() => {
@@ -297,6 +358,18 @@ export const PosView: React.FC = () => {
     };
   }, [token]);
 
+  const fetchBillingPersons = async () => {
+    try {
+      const res = await fetch('/api/billing-persons', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setBillingPersons(data.billingPersons || []);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     async function loadInitialData() {
       try {
@@ -328,6 +401,7 @@ export const PosView: React.FC = () => {
 
     loadInitialData();
     fetchHeldBills();
+    fetchBillingPersons();
   }, [token]);
 
   useEffect(() => {
@@ -628,7 +702,9 @@ export const PosView: React.FC = () => {
           totalAmount: grandTotal,
           paidAmount: numericPaid,
           paymentMethod,
-          notes: ''
+          notes: '',
+          billingPersonId: selectedBillingPersonId ? Number(selectedBillingPersonId) : null,
+          customSlipName: customSlipName.trim()
         })
       });
 
@@ -638,12 +714,13 @@ export const PosView: React.FC = () => {
       }
 
       const data = await res.json();
+      const billingPersonName = billingPersons.find(p => String(p.id) === selectedBillingPersonId)?.name;
       const invoiceData = {
         ...data.invoice,
         tax: printFee,
         customer: customers.find(c => String(c.id) === selectedCustomerId),
         customSlipName: customSlipName.trim(),
-        cashierName: user?.fullName || 'Cashier',
+        cashierName: billingPersonName || user?.fullName || 'Cashier',
         paymentMethod
       };
       setLastInvoice(invoiceData);
@@ -676,7 +753,9 @@ export const PosView: React.FC = () => {
           totalAmount: grandTotal,
           paidAmount: numericPaid,
           paymentMethod,
-          notes: ''
+          notes: '',
+          billingPersonId: selectedBillingPersonId ? Number(selectedBillingPersonId) : null,
+          customSlipName: customSlipName.trim()
         });
 
         const offlineInvoiceData = {
@@ -691,7 +770,7 @@ export const PosView: React.FC = () => {
           items: cart,
           customer: customers.find(c => String(c.id) === selectedCustomerId),
           customSlipName: customSlipName.trim(),
-          cashierName: user?.fullName || 'Cashier',
+          cashierName: billingPersons.find(p => String(p.id) === selectedBillingPersonId)?.name || user?.fullName || 'Cashier',
           paymentMethod,
           createdAt: new Date().toISOString()
         };
@@ -1215,7 +1294,7 @@ export const PosView: React.FC = () => {
                     try {
                       await fetch('/api/integrations/qr-simulate', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                         body: JSON.stringify({
                           amount: grandTotal,
                           provider: 'NAYAPAY',
@@ -1245,6 +1324,32 @@ export const PosView: React.FC = () => {
                 onSelectCustomer={setSelectedCustomerId}
                 onAddNewCustomer={() => setShowAddCustomerModal(true)}
               />
+            </div>
+
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>
+                <span>Billed By (Billing Person)</span>
+                {hasRole(['Admin']) && (
+                  <button
+                    type="button"
+                    onClick={() => setShowManageBillingPersons(true)}
+                    style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, padding: 0 }}
+                  >
+                    Manage
+                  </button>
+                )}
+              </label>
+              <select
+                className="input"
+                style={{ fontSize: '0.8rem' }}
+                value={selectedBillingPersonId}
+                onChange={e => setSelectedBillingPersonId(e.target.value)}
+              >
+                <option value="">{user?.fullName || user?.username || 'Logged-in Cashier'} (default)</option>
+                {billingPersons.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
             </div>
 
             <div>
@@ -1841,6 +1946,87 @@ export const PosView: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Billing Persons Modal (Admin only) */}
+      {showManageBillingPersons && (
+        <div className="modal-overlay" onClick={() => setShowManageBillingPersons(false)}>
+          <div className="modal-content" style={{ maxWidth: '480px', padding: '1.25rem' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+              <span style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--primary)' }}>
+                Manage Billing Persons
+              </span>
+              <button onClick={() => setShowManageBillingPersons(false)} className="btn btn-secondary btn-sm" style={{ padding: '0.2rem' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            {billingPersonError && (
+              <div style={{ padding: '0.6rem 0.8rem', background: 'var(--danger-light)', color: 'var(--danger-text)', borderRadius: 'var(--radius-md)', marginBottom: '0.75rem', fontSize: '0.8rem' }}>
+                {billingPersonError}
+              </div>
+            )}
+
+            <form onSubmit={handleAddBillingPerson} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+              <input
+                type="text"
+                className="input"
+                placeholder="e.g. Ali Raza"
+                value={newBillingPersonName}
+                onChange={e => setNewBillingPersonName(e.target.value)}
+                style={{ flex: 1 }}
+                autoFocus
+              />
+              <button type="submit" className="btn btn-primary btn-sm">Add</button>
+            </form>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '320px', overflowY: 'auto' }}>
+              {billingPersons.length === 0 ? (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem 0' }}>
+                  No billing persons added yet.
+                </div>
+              ) : (
+                billingPersons.map(p => (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.45rem 0.6rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+                    {editingBillingPersonId === p.id ? (
+                      <>
+                        <input
+                          type="text"
+                          className="input input-sm"
+                          value={editingBillingPersonName}
+                          onChange={e => setEditingBillingPersonName(e.target.value)}
+                          style={{ flex: 1 }}
+                          autoFocus
+                        />
+                        <button type="button" className="btn btn-primary btn-sm" onClick={() => handleSaveBillingPersonEdit(p.id)}>Save</button>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setEditingBillingPersonId(null); setEditingBillingPersonName(''); }}>Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: 600 }}>{p.name}</span>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => { setEditingBillingPersonId(p.id); setEditingBillingPersonName(p.name); }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ color: 'var(--danger)' }}
+                          onClick={() => handleDeleteBillingPerson(p.id)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}

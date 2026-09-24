@@ -9,11 +9,19 @@ import {
 
 const API_BASE = '/api/medprac';
 
+function authHeaders(withJson = false): Record<string, string> {
+  const token = localStorage.getItem('nmp_token');
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (withJson) headers['Content-Type'] = 'application/json';
+  return headers;
+}
+
 export const medpracService = {
   // Get next auto-generated patient serial number (e.g. MP-000123)
   getNextSerial: async (): Promise<string> => {
     try {
-      const res = await fetch(`${API_BASE}/next-serial`);
+      const res = await fetch(`${API_BASE}/next-serial`, { headers: authHeaders() });
       if (!res.ok) throw new Error('Failed to fetch serial');
       const data = await res.json();
       return data.serial_number;
@@ -28,7 +36,7 @@ export const medpracService = {
   // Search patients by Name, Serial Number, or Phone
   searchPatients: async (query: string): Promise<MedPracPatient[]> => {
     try {
-      const res = await fetch(`${API_BASE}/patients/search?q=${encodeURIComponent(query)}`);
+      const res = await fetch(`${API_BASE}/patients/search?q=${encodeURIComponent(query)}`, { headers: authHeaders() });
       if (!res.ok) throw new Error('Search failed');
       return await res.json();
     } catch {
@@ -49,7 +57,7 @@ export const medpracService = {
     try {
       const res = await fetch(`${API_BASE}/patients/check-duplicate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(true),
         body: JSON.stringify(patientData)
       });
       if (!res.ok) throw new Error('Duplicate check failed');
@@ -64,7 +72,7 @@ export const medpracService = {
     try {
       const res = await fetch(`${API_BASE}/patients`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(true),
         body: JSON.stringify(patientData)
       });
       if (!res.ok) {
@@ -103,7 +111,7 @@ export const medpracService = {
   // Get patient details with full visit history
   getPatientHistory: async (patientId: string | number): Promise<{ patient: MedPracPatient; visits: MedPracVisit[] }> => {
     try {
-      const res = await fetch(`${API_BASE}/patients/${patientId}`);
+      const res = await fetch(`${API_BASE}/patients/${patientId}`, { headers: authHeaders() });
       if (!res.ok) throw new Error('Failed to load patient history');
       return await res.json();
     } catch {
@@ -116,9 +124,9 @@ export const medpracService = {
   },
 
   // Fetch therapeutic categories
-  getCategories: async (): Promise<MedPracCategory[]> => {
+  getCategories: async (includeInactive = false): Promise<MedPracCategory[]> => {
     try {
-      const res = await fetch(`${API_BASE}/categories`);
+      const res = await fetch(`${API_BASE}/categories${includeInactive ? '?includeInactive=true' : ''}`, { headers: authHeaders() });
       if (!res.ok) throw new Error('Failed to load categories');
       return await res.json();
     } catch {
@@ -145,7 +153,7 @@ export const medpracService = {
     const method = categoryData.id ? 'PUT' : 'POST';
     const res = await fetch(url, {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(true),
       body: JSON.stringify(categoryData)
     });
     if (!res.ok) throw new Error('Failed to save category');
@@ -155,7 +163,7 @@ export const medpracService = {
   // Fetch practice services
   getServices: async (): Promise<MedPracService[]> => {
     try {
-      const res = await fetch(`${API_BASE}/services`);
+      const res = await fetch(`${API_BASE}/services`, { headers: authHeaders() });
       if (!res.ok) throw new Error('Failed to load services');
       return await res.json();
     } catch {
@@ -177,7 +185,7 @@ export const medpracService = {
     const method = serviceData.id ? 'PUT' : 'POST';
     const res = await fetch(url, {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(true),
       body: JSON.stringify(serviceData)
     });
     if (!res.ok) throw new Error('Failed to save service');
@@ -189,7 +197,7 @@ export const medpracService = {
     try {
       const res = await fetch(`${API_BASE}/visits`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(true),
         body: JSON.stringify(visitData)
       });
       if (!res.ok) {
@@ -239,7 +247,7 @@ export const medpracService = {
   getVisits: async (filters: Record<string, string>): Promise<{ visits: MedPracVisit[]; pagination: any }> => {
     try {
       const query = new URLSearchParams(filters).toString();
-      const res = await fetch(`${API_BASE}/visits?${query}`);
+      const res = await fetch(`${API_BASE}/visits?${query}`, { headers: authHeaders() });
       if (!res.ok) throw new Error('Failed to fetch visits');
       return await res.json();
     } catch {
@@ -255,7 +263,7 @@ export const medpracService = {
   voidVisit: async (visitId: number | string, reason: string, userId?: number, userName?: string) => {
     const res = await fetch(`${API_BASE}/visits/${visitId}/void`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(true),
       body: JSON.stringify({ reason, reversed_by_user_id: userId, reversed_by_user_name: userName })
     });
     if (!res.ok) {
@@ -268,7 +276,7 @@ export const medpracService = {
   // Get Dashboard Summary KPIs
   getDashboardKPIs: async (): Promise<MedPracKPIs> => {
     try {
-      const res = await fetch(`${API_BASE}/dashboard`);
+      const res = await fetch(`${API_BASE}/dashboard`, { headers: authHeaders() });
       if (!res.ok) throw new Error('Failed to load KPIs');
       return await res.json();
     } catch {
@@ -287,7 +295,7 @@ export const medpracService = {
 
   // Get Medprac Reports
   getReports: async (startDate: string, endDate: string): Promise<MedPracReportData> => {
-    const res = await fetch(`${API_BASE}/reports?startDate=${startDate}&endDate=${endDate}`);
+    const res = await fetch(`${API_BASE}/reports?startDate=${startDate}&endDate=${endDate}`, { headers: authHeaders() });
     if (!res.ok) throw new Error('Failed to load reports');
     return await res.json();
   }

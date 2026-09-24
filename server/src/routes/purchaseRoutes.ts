@@ -138,7 +138,7 @@ purchaseRouter.post('/', authenticateToken, requirePermission('create_purchases'
 
         // Check if this batch already exists for this medicine
         const existingBatch = db.prepare(`
-          SELECT id, quantity FROM batches WHERE medicine_id = ? AND batch_number = ?
+          SELECT id, quantity, purchase_price FROM batches WHERE medicine_id = ? AND batch_number = ?
         `).get(medId, batchNum) as any;
 
         let batchId: number;
@@ -146,16 +146,23 @@ purchaseRouter.post('/', authenticateToken, requirePermission('create_purchases'
 
         if (existingBatch) {
           batchId = existingBatch.id;
-          newBatchQty = existingBatch.quantity + qty + bonus;
+          const incomingQty = qty + bonus;
+          newBatchQty = existingBatch.quantity + incomingQty;
+          // Weighted-average the cost across old + newly received stock so already-received/possibly-sold
+          // units aren't silently re-valued at the new invoice's cost.
+          const weightedCost = newBatchQty > 0
+            ? ((existingBatch.quantity * existingBatch.purchase_price) + (incomingQty * costPrice)) / newBatchQty
+            : costPrice;
           db.prepare(`
             UPDATE batches SET
               quantity = ?,
               purchase_price = ?,
               sale_price = ?,
+              bonus_quantity = bonus_quantity + ?,
               expiry_date = ?,
               updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-          `).run(newBatchQty, costPrice, salePrice, expiry, batchId);
+          `).run(newBatchQty, Math.round(weightedCost * 100) / 100, salePrice, bonus, expiry, batchId);
         } else {
           newBatchQty = qty + bonus;
           const bResult = db.prepare(`

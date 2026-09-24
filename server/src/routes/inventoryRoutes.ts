@@ -10,8 +10,10 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
   const status = req.query.status as string | undefined;
 
   let query = `
-    SELECT 
-      b.*,
+    SELECT
+      b.id, b.medicine_id as batch_medicine_id, b.batch_number, b.mfg_date, b.expiry_date,
+      b.purchase_price, b.sale_price, b.quantity, b.bonus_quantity, b.status, b.supplier_id, b.rack_location,
+      m.id as medicine_id,
       m.brand_name, m.strength, m.dosage_form, m.pack_size,
       g.name as generic_name, mf.name as manufacturer_name,
       COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
@@ -20,26 +22,27 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
       m.barcode, m.min_stock_level, m.reorder_level, m.notes,
       COALESCE(NULLIF(b.rack_location, ''), m.rack_location) as medicine_rack,
       s.name as supplier_name,
-      CASE 
+      CASE
+        WHEN b.id IS NULL THEN 'NO_STOCK'
         WHEN b.expiry_date <= date('now') THEN 'EXPIRED'
         WHEN b.expiry_date <= date('now', '+90 days') THEN 'NEAR_EXPIRY'
         ELSE 'ACTIVE'
       END as computed_expiry_status,
-      CAST((julianday(b.expiry_date) - julianday('now')) AS INTEGER) as days_to_expiry,
-      ROUND((b.sale_price - b.purchase_price), 2) as unit_margin,
-      ROUND(((b.sale_price - b.purchase_price) / b.purchase_price) * 100, 1) as margin_percent
-    FROM batches b
-    JOIN medicines m ON b.medicine_id = m.id
+      CASE WHEN b.expiry_date IS NULL THEN NULL ELSE CAST((julianday(b.expiry_date) - julianday('now')) AS INTEGER) END as days_to_expiry,
+      CASE WHEN b.id IS NULL THEN NULL ELSE ROUND((b.sale_price - b.purchase_price), 2) END as unit_margin,
+      CASE WHEN b.id IS NULL OR b.purchase_price = 0 THEN NULL ELSE ROUND(((b.sale_price - b.purchase_price) / b.purchase_price) * 100, 1) END as margin_percent
+    FROM medicines m
+    LEFT JOIN batches b ON b.medicine_id = m.id AND b.id != 0
     LEFT JOIN categories c ON m.category_id = c.id
     LEFT JOIN generics g ON m.generic_id = g.id
     LEFT JOIN manufacturers mf ON m.manufacturer_id = mf.id
     LEFT JOIN suppliers s ON b.supplier_id = s.id
-    WHERE b.id != 0
+    WHERE m.is_active = 1
   `;
   const params: any[] = [];
 
   if (medicineId) {
-    query += ' AND b.medicine_id = ?';
+    query += ' AND m.id = ?';
     params.push(medicineId);
   }
 
@@ -48,7 +51,7 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
     params.push(status);
   }
 
-  query += ' ORDER BY b.expiry_date ASC';
+  query += ' ORDER BY (b.expiry_date IS NULL) ASC, b.expiry_date ASC';
 
   const batches = db.prepare(query).all(...params);
   res.json({ batches });
