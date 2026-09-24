@@ -281,7 +281,7 @@ export const PosView: React.FC = () => {
           ...data.invoice,
           tax: currentPrintFee,
           customer: customers.find(c => String(c.id) === selectedCustomerRef.current),
-          cashierName: user?.fullName || 'Cashier',
+          cashierName: user?.fullName || user?.username,
           paymentMethod: method
         };
         setLastInvoice(invoiceData);
@@ -714,13 +714,12 @@ export const PosView: React.FC = () => {
       }
 
       const data = await res.json();
-      const billingPersonName = billingPersons.find(p => String(p.id) === selectedBillingPersonId)?.name;
       const invoiceData = {
         ...data.invoice,
         tax: printFee,
         customer: customers.find(c => String(c.id) === selectedCustomerId),
         customSlipName: customSlipName.trim(),
-        cashierName: billingPersonName || user?.fullName || 'Cashier',
+        cashierName: user?.fullName || user?.username,
         paymentMethod
       };
       setLastInvoice(invoiceData);
@@ -770,7 +769,7 @@ export const PosView: React.FC = () => {
           items: cart,
           customer: customers.find(c => String(c.id) === selectedCustomerId),
           customSlipName: customSlipName.trim(),
-          cashierName: billingPersons.find(p => String(p.id) === selectedBillingPersonId)?.name || user?.fullName || 'Cashier',
+          cashierName: user?.fullName || user?.username,
           paymentMethod,
           createdAt: new Date().toISOString()
         };
@@ -1679,7 +1678,10 @@ export const PosView: React.FC = () => {
                   <span>Mode of Payment: {lastInvoice.paymentMethod || paymentMethod}</span>
                 </div>
                 <div style={{ borderTop: '1px dotted #ccc', marginTop: '0.2rem', paddingTop: '0.2rem' }}>
-                  Customer: <strong>{lastInvoice.customSlipName ? lastInvoice.customSlipName : (lastInvoice.customer ? `${lastInvoice.customer.name} (${lastInvoice.customer.mobile || ''})` : 'CASH SALES-WALKING CUSTOMER A/C')}</strong>
+                  Customer: <strong>{lastInvoice.customSlipName ? lastInvoice.customSlipName : (lastInvoice.customer ? lastInvoice.customer.name : 'WALK-IN CUSTOMER')}</strong>
+                  {lastInvoice.customer?.mobile && !lastInvoice.customSlipName && (
+                    <div>Mobile: {lastInvoice.customer.mobile}</div>
+                  )}
                 </div>
               </div>
 
