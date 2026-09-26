@@ -290,9 +290,18 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         ipAddress: req.ip
       });
 
+      let billingPersonName: string | null = null;
+      if (billingPersonId) {
+        const bp = db.prepare('SELECT name FROM billing_persons WHERE id = ?').get(Number(billingPersonId)) as any;
+        if (bp) billingPersonName = bp.name;
+      }
+
       return {
         saleId,
         invoiceNumber,
+        cashierName: billingPersonName || req.user?.fullName || req.user?.username || 'Ali Raza',
+        billingPersonName,
+        customSlipName: customSlipName ? String(customSlipName).trim() : null,
         subtotal: billSubtotal,
         discount: billDiscount,
         tax: billTax,

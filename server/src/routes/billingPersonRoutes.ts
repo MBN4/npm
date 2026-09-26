@@ -14,8 +14,8 @@ billingPersonRouter.get('/', authenticateToken, (req: AuthenticatedRequest, res:
   res.json({ billingPersons });
 });
 
-// Add a new billing person (Admin only)
-billingPersonRouter.post('/', authenticateToken, requireRole(['Admin']), (req: AuthenticatedRequest, res: Response) => {
+// Add a new billing person
+billingPersonRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const { name } = req.body;
   if (!name || !name.trim()) {
     res.status(400).json({ error: 'Name is required' });
@@ -36,8 +36,8 @@ billingPersonRouter.post('/', authenticateToken, requireRole(['Admin']), (req: A
   res.status(201).json({ message: 'Billing person added', billingPersonId: result.lastInsertRowid });
 });
 
-// Edit a billing person's name / active status (Admin only)
-billingPersonRouter.put('/:id', authenticateToken, requireRole(['Admin']), (req: AuthenticatedRequest, res: Response) => {
+// Edit a billing person's name / active status
+billingPersonRouter.put('/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const id = Number(req.params.id);
   const { name, isActive } = req.body;
 
@@ -65,8 +65,8 @@ billingPersonRouter.put('/:id', authenticateToken, requireRole(['Admin']), (req:
   res.json({ message: 'Billing person updated' });
 });
 
-// Delete a billing person (Admin only). Sales that already reference it keep the historical row via ON DELETE SET NULL-like behavior.
-billingPersonRouter.delete('/:id', authenticateToken, requireRole(['Admin']), (req: AuthenticatedRequest, res: Response) => {
+// Delete a billing person
+billingPersonRouter.delete('/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const id = Number(req.params.id);
 
   const existing = db.prepare('SELECT * FROM billing_persons WHERE id = ?').get(id) as any;

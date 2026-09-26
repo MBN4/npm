@@ -68,7 +68,7 @@ patientRouter.get('/:id', authenticateToken, (req: AuthenticatedRequest, res: Re
 });
 
 // Register patient / customer
-patientRouter.post('/', authenticateToken, requirePermission('manage_patients'), (req: AuthenticatedRequest, res: Response) => {
+patientRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const { name, mobile, age, gender, allergyNotes, creditLimit } = req.body;
 
   if (!name || !name.trim()) {
@@ -114,7 +114,7 @@ patientRouter.post('/', authenticateToken, requirePermission('manage_patients'),
 });
 
 // Update patient
-patientRouter.put('/:id', authenticateToken, requirePermission('manage_patients'), (req: AuthenticatedRequest, res: Response) => {
+patientRouter.put('/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const id = Number(req.params.id);
   const { name, mobile, age, gender, allergyNotes, creditLimit, isActive } = req.body;
 
@@ -170,6 +170,26 @@ patientRouter.put('/:id', authenticateToken, requirePermission('manage_patients'
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Delete / Deactivate customer
+patientRouter.delete('/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const existing = db.prepare('SELECT * FROM customers WHERE id = ?').get(id) as any;
+  if (!existing) {
+    res.status(404).json({ error: 'Customer not found' });
+    return;
+  }
+
+  const usageCount = (db.prepare('SELECT COUNT(*) as count FROM sales WHERE customer_id = ?').get(id) as { count: number }).count;
+  if (usageCount > 0 || Number(existing.current_balance) > 0) {
+    db.prepare('UPDATE customers SET is_active = 0 WHERE id = ?').run(id);
+    res.json({ message: 'Customer has sales history or balance due, so account was deactivated.' });
+    return;
+  }
+
+  db.prepare('DELETE FROM customers WHERE id = ?').run(id);
+  res.json({ message: 'Customer deleted successfully' });
 });
 
 // Record customer payment recovery (reduces receivable balance and records cash inflow)

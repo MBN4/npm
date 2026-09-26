@@ -71,9 +71,10 @@ integrationRouter.get('/receipt-escpos/:invoiceNumber', authenticateToken, (req:
   try {
     const invoiceNumber = req.params.invoiceNumber;
     const sale = db.prepare(`
-      SELECT s.*, u.full_name as cashier_name, c.name as customer_name
+      SELECT s.*, u.full_name as cashier_name, bp.name as billing_person_name, c.name as customer_name
       FROM sales s
       JOIN users u ON s.cashier_id = u.id
+      LEFT JOIN billing_persons bp ON s.billing_person_id = bp.id
       LEFT JOIN customers c ON s.customer_id = c.id
       WHERE s.invoice_number = ?
     `).get(invoiceNumber) as any;
@@ -100,7 +101,7 @@ integrationRouter.get('/receipt-escpos/:invoiceNumber', authenticateToken, (req:
       'Phone: 03454142863\\n',
       '------------------------------------------------\\n',
       `\\x1B\\x61\\x00Invoice: ${sale.invoice_number}    Date: ${sale.created_at}\\n`,
-      `Cashier: ${sale.cashier_name}    Customer: ${sale.custom_slip_name || sale.customer_name || 'WALK-IN CUSTOMER'}\\n`,
+      `Cashier: ${sale.billing_person_name || sale.cashier_name}    Customer: ${sale.custom_slip_name || sale.customer_name || 'WALK-IN CUSTOMER'}\\n`,
       '------------------------------------------------\\n',
       'Item                     Qty   Price   Total\\n',
       '------------------------------------------------\\n'
@@ -203,28 +204,86 @@ integrationRouter.post('/print-medprac-direct', authenticateToken, async (req: R
 
 integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { invoiceNumber, printerName } = req.body;
+    const { invoiceNumber, printerName, invoiceData } = req.body;
     const targetPrinter = printerName || 'Speed-X 400UL';
 
-    const sale = db.prepare(`
-      SELECT s.*, u.full_name as cashier_name, c.name as customer_name, c.mobile as customer_mobile, c.id as customer_row_id, c.current_balance as customer_balance
-      FROM sales s
-      JOIN users u ON s.cashier_id = u.id
-      LEFT JOIN customers c ON s.customer_id = c.id
-      WHERE s.invoice_number = ?
-    `).get(invoiceNumber) as any;
+    let invNo = invoiceNumber;
+    let cashierName = 'Ali Raza';
+    let customerName = 'WALK-IN CUSTOMER';
+    let customerMobile = '';
+    let customerRowId = '';
+    let customerBalance = 0;
+    let paymentMethod = 'CASH';
+    let createdAtStr = new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    let subtotalAmt = 0;
+    let discountAmt = 0;
+    let totalAmt = 0;
+    let paidAmt = 0;
+    let changeAmt = 0;
+    let remainingAmt = 0;
+    let itemsList: any[] = [];
 
-    if (!sale) {
-      return res.status(404).json({ error: 'Invoice not found' });
+    if (invoiceData && Array.isArray(invoiceData.items) && invoiceData.items.length > 0) {
+      invNo = invoiceData.invoiceNumber || invoiceNumber || 'NMP-2025-000123';
+      cashierName = invoiceData.cashierName || 'Ali Raza';
+      customerName = invoiceData.customerName || 'WALK-IN CUSTOMER';
+      customerMobile = invoiceData.customerPhone || '';
+      customerRowId = invoiceData.customerId || '';
+      paymentMethod = invoiceData.paymentMethod || 'CASH';
+      subtotalAmt = Number(invoiceData.subtotal) || 0;
+      totalAmt = Number(invoiceData.grandTotal) || subtotalAmt;
+      paidAmt = invoiceData.paidAmount !== undefined ? Number(invoiceData.paidAmount) : totalAmt;
+      remainingAmt = invoiceData.balance !== undefined ? Number(invoiceData.balance) : Math.max(0, totalAmt - paidAmt);
+      if (invoiceData.date && invoiceData.time) {
+        createdAtStr = `${invoiceData.date} ${invoiceData.time}`;
+      }
+      itemsList = invoiceData.items.map((it: any) => ({
+        brand_name: it.brandName,
+        strength: it.strength || '',
+        quantity: it.unitsTaken || it.quantity || 1,
+        unit_price: Number(it.unitPrice) || 0,
+        line_total: Number(it.total || it.lineTotal) || 0
+      }));
+    } else if (invoiceNumber) {
+      const sale = db.prepare(`
+        SELECT s.*, u.full_name as cashier_name, bp.name as billing_person_name, c.name as customer_name, c.mobile as customer_mobile, c.id as customer_row_id, c.current_balance as customer_balance
+        FROM sales s
+        JOIN users u ON s.cashier_id = u.id
+        LEFT JOIN billing_persons bp ON s.billing_person_id = bp.id
+        LEFT JOIN customers c ON s.customer_id = c.id
+        WHERE s.invoice_number = ?
+      `).get(invoiceNumber) as any;
+
+      if (sale) {
+        invNo = sale.invoice_number;
+        cashierName = sale.billing_person_name || sale.cashier_name || 'Ali Raza';
+        customerName = sale.custom_slip_name || sale.customer_name || 'WALK-IN CUSTOMER';
+        customerMobile = sale.customer_mobile || '';
+        customerRowId = sale.customer_row_id || '';
+        customerBalance = Number(sale.customer_balance) || 0;
+        paymentMethod = sale.payment_method || 'CASH';
+        subtotalAmt = Number(sale.subtotal) || 0;
+        discountAmt = Number(sale.discount) || 0;
+        totalAmt = Number(sale.total_amount) || 0;
+        paidAmt = Number(sale.paid_amount) || 0;
+        changeAmt = Number(sale.change_amount) || 0;
+        remainingAmt = Number(sale.remaining_amount) || 0;
+        const d = new Date(sale.created_at || Date.now());
+        createdAtStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        itemsList = db.prepare(`
+          SELECT si.*, m.brand_name, m.strength, m.dosage_form, b.batch_number, b.expiry_date
+          FROM sale_items si
+          JOIN medicines m ON si.medicine_id = m.id
+          JOIN batches b ON si.batch_id = b.id
+          WHERE si.sale_id = ?
+        `).all(sale.id) as any[];
+      }
     }
 
-    const items = db.prepare(`
-      SELECT si.*, m.brand_name, m.strength, m.dosage_form, b.batch_number, b.expiry_date
-      FROM sale_items si
-      JOIN medicines m ON si.medicine_id = m.id
-      JOIN batches b ON si.batch_id = b.id
-      WHERE si.sale_id = ?
-    `).all(sale.id) as any[];
+    if (itemsList.length === 0) {
+      return res.status(400).json({ error: 'No items to print' });
+    }
 
     // Fetch store settings
     const settingsRows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'pharmacy_%' OR key LIKE 'receipt_%' OR key LIKE 'license_%' OR key LIKE 'tax_%'").all() as any[];
@@ -232,9 +291,7 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     settingsRows.forEach(r => { settingsMap[r.key] = r.value; });
 
     const pharmacyName = settingsMap['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY (NMP)';
-    const phone = settingsMap['pharmacy_phone'] || '03454142863';
-    const footer = settingsMap['receipt_footer'] || 'Thank you for choosing NMP. Get well soon!';
-    const printFee = 2.00; // Rs. 2 fee on each receipt print
+    const phone = settingsMap['pharmacy_phone'] || '0318-0425090';
 
     const chunks: Buffer[] = [
       Buffer.from([0x1B, 0x40]), // ESC @ - Initialize
@@ -242,8 +299,8 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
       Buffer.from([0x1B, 0x45, 0x01]), // ESC E 1 - Bold On
       Buffer.from(`${pharmacyName}\n`, 'utf8'),
       Buffer.from([0x1B, 0x45, 0x00]), // ESC E 0 - Bold Off
-      Buffer.from('31 32 Chowk Chohan Road Outfall,\n', 'utf8'),
-      Buffer.from('Islampura, Lahore\n', 'utf8'),
+      Buffer.from('Shop #31-32, Chowk Chohan Park,\n', 'utf8'),
+      Buffer.from('Islampura, Lahore - 54000\n', 'utf8'),
       Buffer.from(`Phone: ${phone}\n`, 'utf8')
     ];
 
@@ -254,95 +311,76 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     chunks.push(Buffer.from([0x1B, 0x61, 0x00])); // ESC a 0 - Left align
     chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
 
-    const saleDate = new Date(sale.created_at || Date.now());
-    const dateStr = saleDate.toLocaleDateString();
-    const timeStr = saleDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    chunks.push(Buffer.from(padBetween(`Invoice #: ${invNo}`, `POS: 01`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween(`Cashier: ${cashierName}`, `${createdAtStr}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(`Mode of Payment: ${paymentMethod}\n`, 'utf8'));
+    chunks.push(Buffer.from(`Customer: ${customerName}\n`, 'utf8'));
+    if (customerMobile) chunks.push(Buffer.from(`Mobile: ${customerMobile}\n`, 'utf8'));
+    if (customerBalance > 0) chunks.push(Buffer.from(`Udhaar Balance: Rs. ${customerBalance.toFixed(2)}\n`, 'utf8'));
 
-    chunks.push(Buffer.from(padBetween(`Invoice #: ${sale.invoice_number}`, `POS No.: 01`, 42) + '\n', 'utf8'));
-    chunks.push(Buffer.from(`Cashier: ${sale.cashier_name}\n`, 'utf8'));
-    chunks.push(Buffer.from(padBetween(`Mode of Payment: ${sale.payment_method || 'CASH'}`, `${dateStr} ${timeStr}`, 42) + '\n', 'utf8'));
-
-    const customSlip = (sale.custom_slip_name || '').trim();
-    if (customSlip) {
-      chunks.push(Buffer.from(`Customer: ${customSlip}\n`, 'utf8'));
-    } else if (sale.customer_name) {
-      chunks.push(Buffer.from(`Customer: ${sale.customer_name}\n`, 'utf8'));
-      if (sale.customer_mobile) {
-        chunks.push(Buffer.from(`Mobile: ${sale.customer_mobile}\n`, 'utf8'));
-      }
-      if (sale.customer_row_id) {
-        chunks.push(Buffer.from(`Customer ID: ${sale.customer_row_id}\n`, 'utf8'));
-      }
-      if (Number(sale.customer_balance) > 0) {
-        chunks.push(Buffer.from(`Udhaar Balance: ${Number(sale.customer_balance).toFixed(2)}\n`, 'utf8'));
-      }
-    } else {
-      chunks.push(Buffer.from('Customer: WALK-IN CUSTOMER\n', 'utf8'));
-    }
     chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
     chunks.push(Buffer.from(padBetween('#  Description', 'Qty   Price     Total', 42) + '\n', 'utf8'));
     chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
 
     let totalUnits = 0;
-    items.forEach((it, idx) => {
-      totalUnits += (it.quantity || 1);
-      let brand = (it.brand_name || '').trim();
+    itemsList.forEach((it, idx) => {
+      const q = Number(it.quantity || it.unitsTaken) || 1;
+      totalUnits += q;
+      let brand = (it.brand_name || it.brandName || '').trim();
       const strength = (it.strength || '').trim();
-      const normBrand = brand.toLowerCase().replace(/[\s\-_]/g, '');
-      const normStrength = strength.toLowerCase().replace(/[\s\-_]/g, '');
-      if (normStrength && !normBrand.includes(normStrength)) {
+      if (strength && !brand.toLowerCase().includes(strength.toLowerCase())) {
         brand += ` ${strength}`;
       }
-      const itemTitle = `${idx + 1}  ${brand}`.trim();
+      const itemTitle = `${idx + 1}  ${brand}`.slice(0, 42);
       chunks.push(Buffer.from(`${itemTitle}\n`, 'utf8'));
 
-      const qtyPrice = `     ${it.quantity} x ${Number(it.unit_price).toFixed(2)}`;
-      const lineTotalStr = `${Number(it.line_total).toFixed(2)}`;
+      const unitP = Number(it.unit_price || it.unitPrice) || 0;
+      const lineTot = Number(it.line_total || it.total) || (q * unitP);
+      const qtyPrice = `     ${q} x ${unitP.toFixed(2)}`;
+      const lineTotalStr = `${lineTot.toFixed(2)}`;
       chunks.push(Buffer.from(padBetween(qtyPrice, lineTotalStr, 42) + '\n', 'utf8'));
     });
 
     chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
-    chunks.push(Buffer.from(padBetween(`Total Qty: ${totalUnits}`, `Total Amount:    ${Number(sale.subtotal).toFixed(2)}`, 42) + '\n', 'utf8'));
-    chunks.push(Buffer.from(padBetween('', `Sales Tax:         0.00`, 42) + '\n', 'utf8'));
-    if (Number(sale.discount) > 0) {
-      chunks.push(Buffer.from(padBetween('', `Discount:         -${Number(sale.discount).toFixed(2)}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween(`Total Qty: ${totalUnits}`, `Subtotal: Rs. ${subtotalAmt.toFixed(2)}`, 42) + '\n', 'utf8'));
+    if (discountAmt > 0) {
+      chunks.push(Buffer.from(padBetween('', `Discount: -Rs. ${discountAmt.toFixed(2)}`, 42) + '\n', 'utf8'));
     }
-    chunks.push(Buffer.from(padBetween('', `POS Service Fee:   ${printFee.toFixed(2)}`, 42) + '\n', 'utf8'));
-    chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
 
     chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
-    chunks.push(Buffer.from(padBetween('Payable:', `${Number(sale.total_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('Payable Net:', `Rs. ${totalAmt.toFixed(2)}`, 42) + '\n', 'utf8'));
     chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
 
-    chunks.push(Buffer.from(padBetween('Cash Tendered:', `${Number(sale.paid_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
-    if (Number(sale.change_amount) > 0) {
-      chunks.push(Buffer.from(padBetween('Change Return:', `${Number(sale.change_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('Cash Paid:', `Rs. ${paidAmt.toFixed(2)}`, 42) + '\n', 'utf8'));
+    if (changeAmt > 0) {
+      chunks.push(Buffer.from(padBetween('Change Return:', `Rs. ${changeAmt.toFixed(2)}`, 42) + '\n', 'utf8'));
     }
-    if (Number(sale.remaining_amount) > 0) {
-      chunks.push(Buffer.from(padBetween('Balance Due:', `${Number(sale.remaining_amount).toFixed(2)}`, 42) + '\n', 'utf8'));
+    if (remainingAmt > 0) {
+      chunks.push(Buffer.from(padBetween('Balance Due:', `Rs. ${remainingAmt.toFixed(2)}`, 42) + '\n', 'utf8'));
     }
     chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
 
     // Footer
     chunks.push(Buffer.from([0x1B, 0x61, 0x01])); // Center
     chunks.push(Buffer.from('Thank you for choosing NMP. Get well soon!\n', 'utf8'));
-    chunks.push(Buffer.from('Keep medicines below 30°C in dry place.\n', 'utf8'));
+    chunks.push(Buffer.from('Your Health Our Priority 🍃\n', 'utf8'));
     chunks.push(Buffer.from('*** NAVEED MEDICAL PHARMACY ***\n\n', 'utf8'));
 
-    // Feed 6 lines to clear the tear bar completely & partial cut
+    // Feed 6 lines & partial cut & drawer kick pulse
     chunks.push(Buffer.from([0x1B, 0x64, 0x06]));
     chunks.push(Buffer.from([0x1D, 0x56, 0x41, 0x00]));
+    chunks.push(Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]));
 
     const finalBuffer = Buffer.concat(chunks);
     const printRes = await printRawToPrinter(finalBuffer, targetPrinter);
     if (printRes.success) {
-      res.json({ success: true, message: `Receipt sent to ${printRes.printerName || targetPrinter} successfully` });
+      res.json({ success: true, message: `Receipt printed directly to ${printRes.printerName || targetPrinter}` });
     } else {
-      res.json({ success: false, fallbackToDialog: true, message: printRes.reason || 'Thermal hardware printer not detected on this system' });
+      res.json({ success: false, fallbackToDialog: true, message: printRes.reason || 'Hardware printer offline' });
     }
   } catch (err: any) {
     console.error('Direct print receipt error:', err);
-    res.json({ success: false, fallbackToDialog: true, message: err.message || 'Direct print failed, using dialog fallback' });
+    res.json({ success: false, fallbackToDialog: true, message: err.message || 'Direct print failed' });
   }
 });
 
