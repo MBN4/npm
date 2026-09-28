@@ -1028,16 +1028,46 @@ export const CashMemoView: React.FC = () => {
         </div>
 
         {/* Product Search Bar with Multi-Add Support */}
-        <div ref={searchContainerRef} style={{ position: 'relative', width: '360px' }}>
+        <div ref={searchContainerRef} style={{ position: 'relative', width: '380px' }}>
           <input
             ref={searchInputRef}
             className="input"
             placeholder="Search Product (Barcode / Name / Generic)..."
             value={query}
             onChange={e => setQuery(e.target.value)}
-            style={{ paddingLeft: '2.2rem', paddingRight: '2.2rem', fontSize: '0.82rem', height: '34px', backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)', borderRadius: '4px', border: '1px solid var(--border)' }}
+            onKeyDown={async (e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const codeToSearch = query.trim();
+                if (!codeToSearch) return;
+
+                if (searchResults.length > 0) {
+                  handleMultiAddFromSearch(searchResults[0]);
+                  setQuery('');
+                  setSearchResults([]);
+                  return;
+                }
+
+                try {
+                  const res = await fetch(`/api/pos/search?q=${encodeURIComponent(codeToSearch)}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    if (data.results && data.results.length > 0) {
+                      handleMultiAddFromSearch(data.results[0]);
+                      setQuery('');
+                      setSearchResults([]);
+                    }
+                  }
+                } catch (err) {
+                  console.error(err);
+                }
+              }
+            }}
+            style={{ paddingLeft: '2.5rem', paddingRight: '2.2rem', fontSize: '0.82rem', height: '36px', backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)', borderRadius: '4px', border: '1px solid var(--border)' }}
           />
-          <Search size={16} style={{ position: 'absolute', left: '0.7rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <Search size={16} style={{ position: 'absolute', left: '0.8rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           {query && (
             <button
               onClick={() => { setQuery(''); setSearchResults([]); }}

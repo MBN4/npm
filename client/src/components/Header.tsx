@@ -277,11 +277,11 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'pos', onNavigate 
         {/* Center: Flexible Global Search Bar */}
         <div ref={searchContainerRef} style={{ position: 'relative', flex: 1, maxWidth: '440px', margin: '0 0.5rem' }}>
           <div style={{ position: 'relative' }}>
-            <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <Search size={15} style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
             <input
               type="text"
               className="input input-sm"
-              style={{ paddingLeft: '2.1rem', paddingRight: '2rem', height: '36px', fontSize: '0.8rem', borderRadius: 'var(--radius-full)' }}
+              style={{ paddingLeft: '2.5rem', paddingRight: '2rem', height: '36px', fontSize: '0.8rem', borderRadius: 'var(--radius-full)' }}
               placeholder="Search Medicines, Barcode, Patients (F2)..."
               value={globalSearchQuery}
               onChange={e => setGlobalSearchQuery(e.target.value)}

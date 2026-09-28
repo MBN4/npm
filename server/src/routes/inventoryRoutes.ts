@@ -19,7 +19,7 @@ inventoryRouter.get('/batches', authenticateToken, (req: AuthenticatedRequest, r
       COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
       m.stock_unit, m.packaging_type, m.therapeutic_class,
       c.name as category_name,
-      m.barcode, m.min_stock_level, m.reorder_level, m.notes,
+      COALESCE(m.barcode, m.custom_barcode) as barcode, m.custom_barcode, m.min_stock_level, m.reorder_level, m.notes,
       COALESCE(NULLIF(b.rack_location, ''), m.rack_location) as medicine_rack,
       s.name as supplier_name,
       CASE
@@ -475,42 +475,69 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
           finalCustom = `NMP-${Math.floor(100000 + Math.random() * 900000)}`;
         }
 
-        const medInsert = db.prepare(`
-          INSERT INTO medicines (
-            brand_name, generic_id, category_id, manufacturer_id, strength, dosage_form,
-            therapeutic_class, stock_unit, packaging_type,
-            pack_size, tablets_per_pack, barcode, custom_barcode, rack_location, min_stock_level, reorder_level,
-            is_prescription_required, notes
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          brandName.trim(),
-          finalGenId,
-          finalCatId,
-          finalManId,
-          strength ? strength.trim() : null,
-          dosageForm || 'Tablet',
-          therapeuticClass ? String(therapeuticClass).trim() : null,
-          stockUnit ? String(stockUnit).trim() : null,
-          packagingType === 'SIMPLE' ? 'SIMPLE' : 'MULTI_TIER',
-          numericPackSize,
-          numericTabletsPerPack,
-          finalBarcode,
-          finalCustom,
-          rackLocation ? rackLocation.trim() : null,
-          minStockLevel,
-          reorderLevel,
-          isPrescriptionRequired ? 1 : 0,
-          notes ? notes.trim() : null
-        );
+        // Auto-link if medicine with this barcode or brand name already exists in SQLite
+        const existingBarcodeMed = finalBarcode ? db.prepare(`
+          SELECT id FROM medicines 
+          WHERE (barcode IS NOT NULL AND (barcode = ? OR custom_barcode = ?))
+             OR (custom_barcode IS NOT NULL AND (barcode = ? OR custom_barcode = ?))
+          LIMIT 1
+        `).get(finalBarcode, finalBarcode, finalBarcode, finalBarcode) as any : null;
 
-        finalMedId = Number(medInsert.lastInsertRowid);
+        const existingBrandMed = !existingBarcodeMed && brandName ? db.prepare(`
+          SELECT id FROM medicines WHERE brand_name = ? COLLATE NOCASE LIMIT 1
+        `).get(brandName.trim()) as any : null;
+
+        const matchedMed = existingBarcodeMed || existingBrandMed;
+
+        if (matchedMed) {
+          finalMedId = Number(matchedMed.id);
+          db.prepare(`
+            UPDATE medicines SET
+              barcode = COALESCE(?, barcode),
+              custom_barcode = COALESCE(?, custom_barcode),
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).run(finalBarcode, finalCustom, finalMedId);
+        } else {
+          const medInsert = db.prepare(`
+            INSERT INTO medicines (
+              brand_name, generic_id, category_id, manufacturer_id, strength, dosage_form,
+              therapeutic_class, stock_unit, packaging_type,
+              pack_size, tablets_per_pack, barcode, custom_barcode, rack_location, min_stock_level, reorder_level,
+              is_prescription_required, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            brandName.trim(),
+            finalGenId,
+            finalCatId,
+            finalManId,
+            strength ? strength.trim() : null,
+            dosageForm || 'Tablet',
+            therapeuticClass ? String(therapeuticClass).trim() : null,
+            stockUnit ? String(stockUnit).trim() : null,
+            packagingType === 'SIMPLE' ? 'SIMPLE' : 'MULTI_TIER',
+            numericPackSize,
+            numericTabletsPerPack,
+            finalBarcode,
+            finalCustom,
+            rackLocation ? rackLocation.trim() : null,
+            minStockLevel,
+            reorderLevel,
+            isPrescriptionRequired ? 1 : 0,
+            notes ? notes.trim() : null
+          );
+
+          finalMedId = Number(medInsert.lastInsertRowid);
+        }
       } else {
         db.prepare(`
           UPDATE medicines SET
             pack_size = ?, tablets_per_pack = ?,
             stock_unit = COALESCE(?, stock_unit),
             packaging_type = COALESCE(?, packaging_type),
-            barcode = COALESCE(?, barcode)
+            barcode = COALESCE(?, barcode),
+            custom_barcode = COALESCE(?, custom_barcode),
+            updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
         `).run(
           numericPackSize,
@@ -518,6 +545,7 @@ inventoryRouter.post('/direct-entry', authenticateToken, requirePermission('mana
           stockUnit ? String(stockUnit).trim() : null,
           packagingType === 'SIMPLE' || packagingType === 'MULTI_TIER' ? packagingType : null,
           barcode && String(barcode).trim() ? String(barcode).trim() : null,
+          customBarcode && String(customBarcode).trim() ? String(customBarcode).trim() : null,
           finalMedId
         );
       }
@@ -684,8 +712,8 @@ inventoryRouter.get('/lookup-barcode', authenticateToken, async (req: Authentica
       LEFT JOIN generics g ON m.generic_id = g.id
       LEFT JOIN categories c ON m.category_id = c.id
       LEFT JOIN manufacturers man ON m.manufacturer_id = man.id
-      WHERE m.barcode = ? OR m.custom_barcode = ? OR m.barcode = ? OR m.custom_barcode = ? OR m.barcode = ? OR m.custom_barcode = ?
-    `).get(rawCode, rawCode, searchCode, searchCode, strippedCode, strippedCode) as any;
+      WHERE m.barcode = ? OR m.custom_barcode = ? OR m.barcode = ? OR m.custom_barcode = ? OR m.barcode = ? OR m.custom_barcode = ? OR m.brand_name LIKE ?
+    `).get(rawCode, rawCode, searchCode, searchCode, strippedCode, strippedCode, `%${rawCode}%`) as any;
 
 
     if (existingMed) {

@@ -985,29 +985,37 @@ export const PosView: React.FC = () => {
                 onKeyDown={async (e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
+                    const codeToSearch = query.trim();
+                    if (!codeToSearch) return;
+
                     if (searchResults.length > 0) {
                       handleAddToCart(searchResults[0]);
-                    } else if (query.trim()) {
-                      try {
-                        const res = await fetch(`/api/pos/search?q=${encodeURIComponent(query.trim())}`, {
-                          headers: { Authorization: `Bearer ${token}` }
-                        });
-                        if (res.ok) {
-                          const data = await res.json();
-                          if (data.results && data.results.length > 0) {
-                            handleAddToCart(data.results[0]);
-                          }
+                      setQuery('');
+                      setSearchResults([]);
+                      return;
+                    }
+
+                    try {
+                      const res = await fetch(`/api/pos/search?q=${encodeURIComponent(codeToSearch)}`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                      });
+                      if (res.ok) {
+                        const data = await res.json();
+                        if (data.results && data.results.length > 0) {
+                          handleAddToCart(data.results[0]);
+                          setQuery('');
+                          setSearchResults([]);
                         }
-                      } catch (err) {
-                        console.error(err);
                       }
+                    } catch (err) {
+                      console.error(err);
                     }
                   }
                 }}
                 autoFocus
-                style={{ paddingLeft: '2.5rem', fontSize: '0.95rem', height: '44px' }}
+                style={{ paddingLeft: '2.5rem', fontSize: '0.92rem', height: '44px' }}
               />
-              <Search size={18} style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <Search size={18} style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               {query && (
                 <button
                   onClick={() => { setQuery(''); setSearchResults([]); }}

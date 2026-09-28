@@ -202,9 +202,10 @@ export const InventoryView: React.FC = () => {
         return;
       }
 
-      setShowAddStockModal(true);
-
       if (data.found && data.source === 'existing_medicine') {
+        setShowAddStockModal(false);
+        setSearchQuery(data.brandName || code);
+        setActiveTab('all');
 
         setEntryMode('existing_med');
         setSelectedMedId(String(data.medicineId));
@@ -233,8 +234,10 @@ export const InventoryView: React.FC = () => {
         setExpiryDate(data.expiryDate);
 
         setScanStatus('success');
-        setScanVerifiedMessage(`✓ SpeedX Verified: ${data.brandName} ${data.strength ? `(${data.strength})` : ''} — Retail MRP: Rs. ${data.boxSalePrice} (Pack: Rs. ${data.packSalePrice})`);
+        setScanVerifiedMessage(`✓ SpeedX Verified: ${data.brandName} ${data.strength ? `(${data.strength})` : ''} — Retail MRP: Rs. ${data.boxSalePrice} (Pack: Rs. ${data.packSalePrice}) | Filtered in list below!`);
       } else if (data.found && (data.source === 'pharma_dictionary' || data.source === 'online_catalog')) {
+        setShowAddStockModal(true);
+        setSearchQuery(data.brandName || code);
         setEntryMode('new_med');
         setSelectedMedId('');
         setBrandName(data.brandName || '');
@@ -264,6 +267,8 @@ export const InventoryView: React.FC = () => {
         setScanStatus('success');
         setScanVerifiedMessage(`✓ SpeedX Auto-Matched: ${data.brandName} (${data.categoryName || 'Catalog Item'}) — Price: Rs. ${data.boxSalePrice}`);
       } else {
+        setShowAddStockModal(true);
+        setSearchQuery(code);
         setEntryMode('new_med');
         setSelectedMedId('');
         setBarcode(code);
@@ -288,6 +293,52 @@ export const InventoryView: React.FC = () => {
     } catch (err: any) {
       setScanStatus('idle');
       console.error('Scan lookup error:', err);
+    }
+  };
+
+  const handleModalBarcodeLookup = async (codeToLookup: string) => {
+    const code = codeToLookup.trim();
+    if (!code) return;
+
+    try {
+      const res = await fetch(`/api/inventory/lookup-barcode?code=${encodeURIComponent(code)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.found && data.source === 'existing_medicine') {
+          setEntryMode('existing_med');
+          setSelectedMedId(String(data.medicineId));
+          setBrandName(data.brandName || '');
+          setGenericName(data.genericName || '');
+          setCategoryName(data.categoryName || 'Tablets');
+          setManufacturerName(data.manufacturerName || '');
+          setStrength(data.strength || '');
+          setDosageForm(data.dosageForm || 'Regular');
+          setTherapeuticClass(data.therapeuticClass || '');
+          setRackLocation(data.rackLocation || 'Rack A-01');
+          setBarcode(data.barcode || code);
+          setModalError(null);
+          setScanVerifiedMessage(`✓ Auto-selected existing medicine: ${data.brandName} (${data.strength || ''})`);
+          setTimeout(() => {
+            if (boxesReceivedInputRef.current) {
+              boxesReceivedInputRef.current.focus();
+              boxesReceivedInputRef.current.select();
+            }
+          }, 150);
+        } else if (data.found) {
+          setBrandName(data.brandName || brandName);
+          setGenericName(data.genericName || genericName);
+          setCategoryName(data.categoryName || categoryName);
+          setManufacturerName(data.manufacturerName || manufacturerName);
+          setStrength(data.strength || strength);
+          setDosageForm(data.dosageForm || dosageForm);
+          setBarcode(code);
+          setScanVerifiedMessage(`✓ Catalog specs matched for barcode ${code}`);
+        }
+      }
+    } catch (err) {
+      console.error('Modal barcode lookup error:', err);
     }
   };
 
@@ -438,6 +489,9 @@ export const InventoryView: React.FC = () => {
 
       if (entryMode === 'existing_med' && selectedMedId) {
         payload.medicineId = Number(selectedMedId);
+        if (barcode && barcode.trim()) {
+          payload.barcode = barcode.trim();
+        }
       } else {
         payload.brandName = brandName.trim();
         payload.genericName = genericName.trim();
@@ -465,6 +519,13 @@ export const InventoryView: React.FC = () => {
 
       setAdjustSuccess(`Successfully added stock for ${brandName || 'Medicine'} (${totalSellableTablets} ${packaging.unitPlural.toLowerCase()} across ${numBoxes} ${packaging.outerPlural.toLowerCase()} in batch ${batchNumber}).`);
       setShowAddStockModal(false);
+
+      const addedTerm = brandName.trim() || barcode.trim();
+      if (addedTerm) {
+        setSearchQuery(addedTerm);
+        setActiveTab('all');
+      }
+
       setBrandName('');
       setGenericName('');
       setBatchNumber('');
@@ -642,11 +703,22 @@ export const InventoryView: React.FC = () => {
   };
 
   const filteredBatches = batches.filter(b => {
-    const matchesSearch = !searchQuery.trim() ||
-      b.brand_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (b.batch_number && b.batch_number.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (b.barcode && b.barcode.includes(searchQuery.trim())) ||
-      (b.medicine_rack && b.medicine_rack.toLowerCase().includes(searchQuery.toLowerCase()));
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) {
+      if (activeTab === 'near_expiry') return b.computed_expiry_status === 'NEAR_EXPIRY';
+      if (activeTab === 'expired') return b.computed_expiry_status === 'EXPIRED';
+      return true;
+    }
+
+    const matchesBrand = Boolean(b.brand_name && b.brand_name.toLowerCase().includes(q));
+    const matchesGeneric = Boolean(b.generic_name && b.generic_name.toLowerCase().includes(q));
+    const matchesBatch = Boolean(b.batch_number && b.batch_number.toLowerCase().includes(q));
+    const matchesBarcode = Boolean(b.barcode && b.barcode.toLowerCase().includes(q));
+    const matchesRack = Boolean(b.medicine_rack && b.medicine_rack.toLowerCase().includes(q));
+    const matchesCategory = Boolean(b.category_name && b.category_name.toLowerCase().includes(q));
+    const matchesManufacturer = Boolean(b.manufacturer_name && b.manufacturer_name.toLowerCase().includes(q));
+
+    const matchesSearch = matchesBrand || matchesGeneric || matchesBatch || matchesBarcode || matchesRack || matchesCategory || matchesManufacturer;
 
     if (!matchesSearch) return false;
     if (activeTab === 'near_expiry') return b.computed_expiry_status === 'NEAR_EXPIRY';
@@ -782,16 +854,16 @@ export const InventoryView: React.FC = () => {
                   type="text"
                   className="input"
                   style={{
-                    paddingLeft: '2.4rem',
-                    paddingRight: '7.5rem',
+                    paddingLeft: '2.5rem',
+                    paddingRight: '10rem',
                     height: '44px',
-                    fontSize: '0.9rem',
+                    fontSize: '0.88rem',
                     fontWeight: 700,
                     border: '2px solid var(--success)',
                     borderRadius: 'var(--radius-md)',
                     backgroundColor: 'var(--bg-surface)'
                   }}
-                  placeholder="Scan product barcode here with SpeedX scanner..."
+                  placeholder="Scan product barcode (SpeedX / 1D / 2D)..."
                   value={scanQuery}
                   onChange={(e) => setScanQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -804,7 +876,7 @@ export const InventoryView: React.FC = () => {
                     }
                   }}
                 />
-                <Search size={18} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--success)' }} />
+                <Search size={18} style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--success)' }} />
                 <button
                   type="button"
                   onClick={() => {
@@ -832,6 +904,49 @@ export const InventoryView: React.FC = () => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {scanVerifiedMessage && !showAddStockModal && (
+        <div style={{
+          padding: '0.85rem 1.1rem',
+          background: scanStatus === 'not_found' ? 'var(--warning-light)' : 'var(--success-light)',
+          color: scanStatus === 'not_found' ? 'var(--warning-text)' : 'var(--success-text)',
+          borderRadius: 'var(--radius-md)',
+          marginBottom: '1.25rem',
+          fontSize: '0.88rem',
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '0.5rem',
+          flexWrap: 'wrap',
+          border: scanStatus === 'not_found' ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid rgba(16, 185, 129, 0.4)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flex: 1 }}>
+            <CheckCircle2 size={18} />
+            <span>{scanVerifiedMessage}</span>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            {brandName && (
+              <button
+                type="button"
+                onClick={() => setShowAddStockModal(true)}
+                className="btn btn-primary btn-sm"
+                style={{ fontSize: '0.75rem', padding: '0.25rem 0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+              >
+                <PlusCircle size={14} />
+                <span>Add Stock / Batch for {brandName}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setScanVerifiedMessage(null)}
+              style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center', opacity: 0.7 }}
+            >
+              <X size={16} />
+            </button>
           </div>
         </div>
       )}
@@ -870,11 +985,11 @@ export const InventoryView: React.FC = () => {
 
         {activeTab !== 'movements' && (
           <div style={{ position: 'relative', width: '260px' }}>
-            <Search size={14} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <Search size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
             <input
               type="text"
               className="input input-sm"
-              style={{ paddingLeft: '2rem', height: '32px', fontSize: '0.78rem' }}
+              style={{ paddingLeft: '2.4rem', height: '32px', fontSize: '0.78rem' }}
               placeholder="Search Brand, Batch, Rack..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
@@ -1355,10 +1470,24 @@ export const InventoryView: React.FC = () => {
                             placeholder="Scan or auto-create"
                             value={barcode}
                             onChange={e => setBarcode(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                if (barcode.trim()) {
+                                  handleModalBarcodeLookup(barcode.trim());
+                                }
+                              }
+                            }}
                           />
                           <button
                             type="button"
-                            onClick={handleAutoBarcode}
+                            onClick={() => {
+                              if (barcode.trim()) {
+                                handleModalBarcodeLookup(barcode.trim());
+                              } else {
+                                handleAutoBarcode();
+                              }
+                            }}
                             style={{
                               position: 'absolute',
                               right: '4px',
@@ -1378,7 +1507,7 @@ export const InventoryView: React.FC = () => {
                             }}
                           >
                             <Sparkles size={11} />
-                            <span>Auto</span>
+                            <span>{barcode.trim() ? 'Lookup' : 'Auto'}</span>
                           </button>
                         </div>
                       </div>

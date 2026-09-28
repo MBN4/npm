@@ -12,6 +12,51 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
     return;
   }
 
+  // 1. Instant Exact Barcode Match (0ms execution for barcode scanner)
+  const exactMatch = db.prepare(`
+    SELECT 
+      m.id, m.brand_name, m.strength, m.dosage_form, m.pack_size,
+      COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
+      m.stock_unit, m.packaging_type,
+      m.barcode, m.custom_barcode,
+      m.rack_location, m.is_prescription_required,
+      g.name as generic_name,
+      c.name as category_name
+    FROM medicines m
+    LEFT JOIN generics g ON m.generic_id = g.id
+    LEFT JOIN categories c ON m.category_id = c.id
+    WHERE m.is_active = 1 AND (m.barcode = ? OR m.custom_barcode = ?)
+    LIMIT 1
+  `).get(query, query) as any;
+
+  if (exactMatch) {
+    const validBatches = db.prepare(`
+      SELECT 
+        b.id as batch_id, b.batch_number, b.expiry_date, b.sale_price, b.purchase_price,
+        b.quantity, b.rack_location as batch_rack,
+        CAST((julianday(b.expiry_date) - julianday('now')) AS INTEGER) as days_to_expiry
+      FROM batches b
+      WHERE b.medicine_id = ? 
+        AND b.quantity > 0 
+        AND b.expiry_date > date('now')
+        AND b.status = 'ACTIVE'
+      ORDER BY b.expiry_date ASC
+    `).all(exactMatch.id) as any[];
+
+    const totalAvailableStock = validBatches.reduce((acc, b) => acc + b.quantity, 0);
+    const fefoBatch = validBatches.length > 0 ? validBatches[0] : null;
+
+    res.json({
+      results: [{
+        ...exactMatch,
+        total_stock: totalAvailableStock,
+        fefo_batch: fefoBatch,
+        available_batches: validBatches
+      }]
+    });
+    return;
+  }
+
   const startsWith = `${query}%`;
   const contains = `%${query}%`;
 
