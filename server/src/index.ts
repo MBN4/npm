@@ -1,4 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
+// NMP Server Entry Point - Precision TSPL Engine Loaded
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { initDatabase } from './db/index.js';

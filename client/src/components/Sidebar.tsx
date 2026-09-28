@@ -25,6 +25,7 @@ import {
 export type NavView =
   | 'dashboard'
   | 'pos'
+  | 'cash-memo'
   | 'medicines'
   | 'inventory'
   | 'purchases'
@@ -55,6 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => 
   const navItems: { id: NavView; label: string; icon: React.ReactNode; permission?: string; adminOnly?: boolean; badge?: string }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
     { id: 'pos', label: 'POS / Counter', icon: <ShoppingCart size={18} />, permission: 'create_sales' },
+    { id: 'cash-memo', label: 'Cash Memo 🧾', icon: <ReceiptText size={18} />, permission: 'create_sales' },
     { id: 'medicines', label: 'Medicines Master', icon: <Pill size={18} /> , permission: 'manage_medicines' },
     { id: 'inventory', label: 'Inventory & Stock', icon: <Boxes size={18} />, permission: 'manage_inventory' },
     { id: 'purchases', label: 'Purchases', icon: <Truck size={18} />, permission: 'view_purchases' },

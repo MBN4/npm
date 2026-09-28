@@ -12,7 +12,8 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
     return;
   }
 
-  const s = `%${query}%`;
+  const startsWith = `${query}%`;
+  const contains = `%${query}%`;
 
   const medicines = db.prepare(`
     SELECT 
@@ -30,10 +31,21 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
       m.barcode = ? OR
       m.custom_barcode = ? OR
       m.brand_name LIKE ? OR
-      g.name LIKE ?
+      g.name LIKE ? OR
+      c.name LIKE ?
     )
-    LIMIT 25
-  `).all(query, query, s, s) as any[];
+    ORDER BY 
+      CASE 
+        WHEN m.barcode = ? OR m.custom_barcode = ? THEN 0
+        WHEN m.brand_name LIKE ? THEN 1
+        WHEN g.name LIKE ? THEN 2
+        WHEN m.brand_name LIKE ? THEN 3
+        WHEN g.name LIKE ? THEN 4
+        ELSE 5
+      END ASC,
+      m.brand_name ASC
+    LIMIT 30
+  `).all(query, query, contains, contains, contains, query, query, startsWith, startsWith, contains, contains) as any[];
 
   const results = medicines.map(med => {
     const validBatches = db.prepare(`

@@ -120,6 +120,8 @@ catalogRouter.get('/global-search', authenticateToken, (req: AuthenticatedReques
     return;
   }
 
+  const startsWith = `${q}%`;
+  const contains = `%${q}%`;
   const searchTerm = `%${q}%`;
 
   // Medicines & Barcodes
@@ -131,8 +133,18 @@ catalogRouter.get('/global-search', authenticateToken, (req: AuthenticatedReques
     FROM medicines m
     LEFT JOIN generics g ON m.generic_id = g.id
     WHERE m.brand_name LIKE ? OR m.barcode LIKE ? OR m.custom_barcode LIKE ? OR g.name LIKE ?
-    LIMIT 6
-  `).all(searchTerm, searchTerm, searchTerm, searchTerm);
+    ORDER BY 
+      CASE 
+        WHEN m.barcode = ? OR m.custom_barcode = ? THEN 0
+        WHEN m.brand_name LIKE ? THEN 1
+        WHEN g.name LIKE ? THEN 2
+        WHEN m.brand_name LIKE ? THEN 3
+        WHEN g.name LIKE ? THEN 4
+        ELSE 5
+      END ASC,
+      m.brand_name ASC
+    LIMIT 10
+  `).all(contains, q, q, contains, q, q, startsWith, startsWith, contains, contains);
 
   // Customers
   const customers = db.prepare(`

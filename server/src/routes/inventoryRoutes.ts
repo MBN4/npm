@@ -1085,44 +1085,6 @@ async function lookupOnlineBarcode(code: string): Promise<any | null> {
     };
   }
 
-  // Fallback: Query online UPC / EAN databases with timeout
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2500);
-
-    const res = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${cleanCode}`, {
-      signal: controller.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0' }
-    });
-    clearTimeout(timeout);
-
-    if (res.ok) {
-      const data = await res.json() as any;
-      const item = data.items?.[0];
-      if (item && item.title) {
-        const brand = item.brand || item.title.split(' ')[0] || 'Scanned Brand';
-        const category = item.category || 'General / FMCG';
-        return {
-          brandName: item.title,
-          genericName: brand,
-          categoryName: category.includes('Food') || category.includes('Milk') || category.includes('Baby') ? 'Milk & Infant Formula' : 'General / FMCG',
-          dosageForm: 'Regular',
-          manufacturerName: brand,
-          strength: 'Standard',
-          stockUnit: 'Piece',
-          packagingType: 'SIMPLE',
-          boxSalePrice: '500.00',
-          packSalePrice: '500.00',
-          tabletSalePrice: '500.00',
-          boxPurchasePrice: '400.00',
-          packPurchasePrice: '400.00',
-          tabletPurchasePrice: '400.00'
-        };
-      }
-    }
-  } catch (e) {
-    // ignore online lookup timeout/failure
-  }
-
+  // Instant offline fallback: return null immediately for unknown barcodes
   return null;
 }

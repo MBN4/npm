@@ -89,6 +89,129 @@ export const SettingsView: React.FC = () => {
   const [importResult, setImportResult] = useState<{ insertedCount?: number; errorCount?: number; message?: string } | null>(null);
   const [directPrinting, setDirectPrinting] = useState(false);
 
+  // Speed-X Thermal Label Printer state
+  const [installedPrinters, setInstalledPrinters] = useState<Array<{ name: string; driver: string; port: string; isDefault: boolean; status: string }>>([]);
+  const [labelPrinterName, setLabelPrinterName] = useState<string>('Speed-X 400UL');
+  const [labelDriverName, setLabelDriverName] = useState<string>('');
+  const [labelPortName, setLabelPortName] = useState<string>('');
+  const [labelPrinterStatus, setLabelPrinterStatus] = useState<string>('READY');
+  const [labelPaperWidth, setLabelPaperWidth] = useState<number>(38);
+  const [labelPaperHeight, setLabelPaperHeight] = useState<number>(28);
+  const [labelDpi, setLabelDpi] = useState<number>(203);
+  const [labelSpeed, setLabelSpeed] = useState<number>(5);
+  const [labelDensity, setLabelDensity] = useState<number>(9);
+  const [labelMediaType, setLabelMediaType] = useState<string>('GAP');
+  const [labelGapHeight, setLabelGapHeight] = useState<number>(2.0);
+  const [labelHOffset, setLabelHOffset] = useState<number>(0.0);
+  const [labelVOffset, setLabelVOffset] = useState<number>(0.0);
+  const [labelTesting, setLabelTesting] = useState(false);
+
+  const fetchInstalledPrinters = async () => {
+    try {
+      const res = await fetch('/api/integrations/printers', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        const pList = data.printers || [];
+        setInstalledPrinters(pList);
+        if (pList.length > 0) {
+          const found = pList.find((p: any) => p.name.toLowerCase() === labelPrinterName.toLowerCase());
+          if (found) {
+            setLabelPortName(found.port);
+            setLabelDriverName(found.driver);
+            setLabelPrinterStatus(found.status);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchLabelPrinterSettings = async () => {
+    try {
+      const res = await fetch('/api/integrations/label-printer-settings', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const s = await res.json();
+        if (s.printer_name) setLabelPrinterName(s.printer_name);
+        if (s.driver_name) setLabelDriverName(s.driver_name);
+        if (s.port_name) setLabelPortName(s.port_name);
+        if (s.paper_width_mm) setLabelPaperWidth(s.paper_width_mm);
+        if (s.paper_height_mm) setLabelPaperHeight(s.paper_height_mm);
+        if (s.dpi) setLabelDpi(s.dpi);
+        if (s.print_speed) setLabelSpeed(s.print_speed);
+        if (s.density) setLabelDensity(s.density);
+        if (s.media_type) setLabelMediaType(s.media_type);
+        if (s.gap_height_mm !== undefined) setLabelGapHeight(s.gap_height_mm);
+        if (s.horizontal_offset_mm !== undefined) setLabelHOffset(s.horizontal_offset_mm);
+        if (s.vertical_offset_mm !== undefined) setLabelVOffset(s.vertical_offset_mm);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSaveLabelPrinterConfig = async () => {
+    setIsLoading(true);
+    setStatusMessage(null);
+    try {
+      const res = await fetch('/api/integrations/label-printer-settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          printer_name: labelPrinterName,
+          driver_name: labelDriverName,
+          port_name: labelPortName,
+          paper_width_mm: labelPaperWidth,
+          paper_height_mm: labelPaperHeight,
+          dpi: labelDpi,
+          print_speed: labelSpeed,
+          density: labelDensity,
+          media_type: labelMediaType,
+          gap_height_mm: labelGapHeight,
+          horizontal_offset_mm: labelHOffset,
+          vertical_offset_mm: labelVOffset
+        })
+      });
+      if (res.ok) {
+        setStatusMessage({ text: '✅ Speed-X 38x28mm Label Printer settings saved successfully!', type: 'success' });
+      } else {
+        setStatusMessage({ text: 'Failed to save label printer settings', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Error saving label printer settings', type: 'error' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleTestPrintLabelSticker = async () => {
+    setLabelTesting(true);
+    setStatusMessage(null);
+    try {
+      const res = await fetch('/api/integrations/print-test-label', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ printerName: labelPrinterName })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatusMessage({ text: data.message || `Test label sticker (38x28mm) printed on ${labelPrinterName}!`, type: 'success' });
+      } else {
+        setStatusMessage({ text: data.message || data.error || 'Test label print failed', type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Network error on test print label', type: 'error' });
+    } finally {
+      setLabelTesting(false);
+    }
+  };
+
   const handleDirectTestPrint = async () => {
     setDirectPrinting(true);
     setStatusMessage(null);
@@ -225,6 +348,10 @@ export const SettingsView: React.FC = () => {
 
   useEffect(() => {
     fetchSettings();
+    if (activeTab === 'hardware') {
+      fetchInstalledPrinters();
+      fetchLabelPrinterSettings();
+    }
     if (activeTab === 'backup' && user?.roleName === 'Admin') {
       fetchBackups();
       fetchSyncStatus();
@@ -621,6 +748,169 @@ export const SettingsView: React.FC = () => {
       {/* TAB 2: HARDWARE & THERMAL PRINTER */}
       {activeTab === 'hardware' && (
         <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          {/* SPEED-X THERMAL LABEL PRINTER CONFIGURATION & DISCOVERY */}
+          <div className="card" style={{ borderLeft: '4px solid var(--primary)', padding: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                  <Barcode size={20} style={{ color: 'var(--primary)' }} />
+                  <span>Speed-X SP-690UB Thermal Label Printer (38x28mm)</span>
+                </h3>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '0.2rem 0 0' }}>
+                  Configure thermal sticker label dimensions, driver ports, density, calibration offsets, and status.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={fetchInstalledPrinters}
+                  className="btn btn-secondary btn-sm"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700 }}
+                >
+                  <RefreshCw size={14} />
+                  <span>Detect Printers</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleTestPrintLabelSticker}
+                  disabled={labelTesting}
+                  className="btn btn-primary btn-sm"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700 }}
+                >
+                  <Printer size={14} />
+                  <span>{labelTesting ? 'Printing Test Sticker...' : 'Print Test Label (38x28)'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>
+                  Select Installed Windows Printer
+                </label>
+                <select
+                  className="input"
+                  value={labelPrinterName}
+                  onChange={e => {
+                    const name = e.target.value;
+                    setLabelPrinterName(name);
+                    const found = installedPrinters.find(p => p.name === name);
+                    if (found) {
+                      setLabelPortName(found.port);
+                      setLabelDriverName(found.driver);
+                      setLabelPrinterStatus(found.status);
+                    }
+                  }}
+                >
+                  {labelPrinterName && !installedPrinters.some(p => p.name.toLowerCase() === labelPrinterName.toLowerCase()) && (
+                    <option value={labelPrinterName}>{labelPrinterName} (Configured Target)</option>
+                  )}
+                  {installedPrinters.map(p => (
+                    <option key={p.name} value={p.name}>
+                      {p.name} ({p.status})
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  className="input"
+                  style={{ marginTop: '0.35rem', fontSize: '0.78rem' }}
+                  placeholder="Or type exact label printer name..."
+                  value={labelPrinterName}
+                  onChange={e => setLabelPrinterName(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Hardware Status</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', height: '38px', padding: '0 0.75rem', backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+                  <span
+                    style={{
+                      width: '10px',
+                      height: '10px',
+                      borderRadius: '50%',
+                      backgroundColor: labelPrinterStatus === 'READY' ? '#10b981' : labelPrinterStatus === 'OFFLINE' ? '#ef4444' : '#f59e0b'
+                    }}
+                  />
+                  <strong style={{ fontSize: '0.85rem' }}>{labelPrinterStatus}</strong>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Port / Interface</label>
+                <input className="input" readOnly value={labelPortName || 'USB001'} style={{ backgroundColor: 'var(--bg-app)' }} />
+              </div>
+            </div>
+
+            {labelPortName === 'COM1' && (
+              <div style={{ padding: '0.75rem 1rem', backgroundColor: 'var(--warning-light)', color: 'var(--warning-text)', borderRadius: 'var(--radius-md)', marginBottom: '1.25rem', fontSize: '0.82rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <AlertTriangle size={16} />
+                <span>Notice: Printer settings show port <strong>COM1</strong>. If using a USB thermal printer, ensure Windows printer port matches actual device.</span>
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>Label Width (mm)</label>
+                <input type="number" className="input" value={labelPaperWidth} onChange={e => setLabelPaperWidth(Number(e.target.value))} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>Label Height (mm)</label>
+                <input type="number" className="input" value={labelPaperHeight} onChange={e => setLabelPaperHeight(Number(e.target.value))} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>Gap Height (mm)</label>
+                <input type="number" step="0.5" className="input" value={labelGapHeight} onChange={e => setLabelGapHeight(Number(e.target.value))} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>DPI Resolution</label>
+                <select className="input" value={labelDpi} onChange={e => setLabelDpi(Number(e.target.value))}>
+                  <option value={203}>203 DPI (8 dots/mm - Speed-X Standard)</option>
+                  <option value={300}>300 DPI (12 dots/mm High Res)</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>Print Speed (inch/sec)</label>
+                <select className="input" value={labelSpeed} onChange={e => setLabelSpeed(Number(e.target.value))}>
+                  <option value={2}>2 ips (Slow / Sharp)</option>
+                  <option value={3}>3 ips</option>
+                  <option value={4}>4 ips</option>
+                  <option value={5}>5 ips (Recommended)</option>
+                  <option value={6}>6 ips (Fast)</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>Print Density (Darkness)</label>
+                <input type="number" min={1} max={15} className="input" value={labelDensity} onChange={e => setLabelDensity(Number(e.target.value))} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>Horizontal Offset (mm)</label>
+                <input type="number" step="0.5" className="input" value={labelHOffset} onChange={e => setLabelHOffset(Number(e.target.value))} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.25rem' }}>Vertical Offset (mm)</label>
+                <input type="number" step="0.5" className="input" value={labelVOffset} onChange={e => setLabelVOffset(Number(e.target.value))} />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={handleSaveLabelPrinterConfig}
+                disabled={isLoading}
+                className="btn btn-primary"
+                style={{ padding: '0.6rem 1.2rem', fontWeight: 700 }}
+              >
+                <Save size={15} />
+                <span>Save Label Printer Configuration</span>
+              </button>
+            </div>
+          </div>
           <div className="card">
             <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Printer size={18} style={{ color: 'var(--primary)' }} />

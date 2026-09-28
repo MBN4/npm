@@ -11,6 +11,7 @@ import { InventoryView } from './views/InventoryView.js';
 import { SuppliersView } from './views/SuppliersView.js';
 import { PurchasesView } from './views/PurchasesView.js';
 import { PosView } from './views/PosView.js';
+import { CashMemoView } from './views/CashMemoView.js';
 import { PatientsView } from './views/PatientsView.js';
 import { PrescriptionsView } from './views/PrescriptionsView.js';
 import { ExpiryView } from './views/ExpiryView.js';
@@ -49,6 +50,8 @@ export const AppContent: React.FC = () => {
         return <DashboardView onNavigate={setCurrentView} />;
       case 'pos':
         return <PosView />;
+      case 'cash-memo':
+        return <CashMemoView />;
       case 'medicines':
         return <MedicinesView />;
       case 'inventory':

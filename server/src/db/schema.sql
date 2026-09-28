@@ -770,6 +770,60 @@ CREATE INDEX IF NOT EXISTS idx_udhaar_cust_status ON udhaar_customers(status);
 CREATE INDEX IF NOT EXISTS idx_udhaar_trx_cust ON udhaar_transactions(customer_id);
 CREATE INDEX IF NOT EXISTS idx_udhaar_trx_date ON udhaar_transactions(date_time);
 
+-- 15. Hardware Thermal Label Printer Configuration & Audit Log
+CREATE TABLE IF NOT EXISTS printer_settings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  branch_id INTEGER DEFAULT 1,
+  counter_id INTEGER DEFAULT 1,
+  printer_role TEXT NOT NULL DEFAULT 'LABEL', -- 'LABEL', 'RECEIPT', 'A4', 'BARCODE'
+  printer_name TEXT NOT NULL DEFAULT 'Speed-X 400UL',
+  connection_type TEXT DEFAULT 'USB',
+  driver_name TEXT,
+  port_name TEXT,
+  paper_width_mm REAL DEFAULT 38.0,
+  paper_height_mm REAL DEFAULT 28.0,
+  orientation TEXT DEFAULT 'portrait',
+  dpi INTEGER DEFAULT 203,
+  print_speed INTEGER DEFAULT 5,
+  density INTEGER DEFAULT 9,
+  media_type TEXT DEFAULT 'GAP', -- 'GAP', 'BLACK_MARK', 'CONTINUOUS'
+  gap_height_mm REAL DEFAULT 2.0,
+  horizontal_offset_mm REAL DEFAULT 0.0,
+  vertical_offset_mm REAL DEFAULT 0.0,
+  copies INTEGER DEFAULT 1,
+  auto_print INTEGER DEFAULT 0,
+  is_default INTEGER DEFAULT 1,
+  enabled INTEGER DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_by INTEGER,
+  FOREIGN KEY (updated_by) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS label_print_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  printer_name TEXT NOT NULL,
+  medicine_id INTEGER,
+  batch_id INTEGER,
+  barcode TEXT,
+  quantity INTEGER DEFAULT 1,
+  status TEXT DEFAULT 'COMPLETED', -- QUEUED, PRINTING, COMPLETED, FAILED, CANCELLED
+  requested_by INTEGER,
+  requested_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  completed_at DATETIME,
+  error_code TEXT,
+  error_message TEXT,
+  reprint_reason TEXT,
+  original_job_id INTEGER,
+  FOREIGN KEY (medicine_id) REFERENCES medicines(id),
+  FOREIGN KEY (batch_id) REFERENCES batches(id),
+  FOREIGN KEY (requested_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_label_jobs_created ON label_print_jobs(requested_at);
+CREATE INDEX IF NOT EXISTS idx_label_jobs_barcode ON label_print_jobs(barcode);
+
+
 
 
 

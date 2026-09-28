@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
-import { printToWindowsPrinter } from '../services/printerService.js';
+import { printToWindowsPrinter, printRawToPrinter, getWindowsPrinters, printThermalLabelRaw } from '../services/printerService.js';
 import { registerSseClient, broadcastPaymentEvent, getRecentQrPayments, parseSmsNotification, QrPaymentEvent } from '../services/qrPaymentService.js';
 import fs from 'fs';
 import path from 'path';
@@ -138,8 +138,6 @@ integrationRouter.get('/receipt-escpos/:invoiceNumber', authenticateToken, (req:
     res.status(500).json({ error: 'Failed to generate ESC/POS receipt', details: err.message });
   }
 });
-
-import { printRawToPrinter } from '../services/printerService.js';
 
 function padBetween(left: string, right: string, width: number = 42): string {
   const l = left.trim();
@@ -505,6 +503,276 @@ integrationRouter.get('/barcode-labels', authenticateToken, (req: Request, res: 
     res.status(500).json({ error: 'Failed to generate barcode labels', details: err.message });
   }
 });
+
+// ==========================================
+// 2.1 WINDOWS PRINTER DISCOVERY & SETTINGS
+// ==========================================
+integrationRouter.get('/printers', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const printers = await getWindowsPrinters();
+    res.json({ printers });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to discover Windows printers', details: err.message });
+  }
+});
+
+integrationRouter.get('/label-printer-settings', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const row = db.prepare("SELECT * FROM printer_settings WHERE printer_role = 'LABEL' ORDER BY id DESC LIMIT 1").get();
+    if (!row) {
+      return res.json({
+        printer_role: 'LABEL',
+        printer_name: 'Speed-X 400UL',
+        connection_type: 'USB',
+        paper_width_mm: 38.0,
+        paper_height_mm: 28.0,
+        dpi: 203,
+        print_speed: 5,
+        density: 9,
+        media_type: 'GAP',
+        gap_height_mm: 2.0,
+        horizontal_offset_mm: 0.0,
+        vertical_offset_mm: 0.0,
+        copies: 1,
+        enabled: 1
+      });
+    }
+    res.json(row);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to load label printer settings', details: err.message });
+  }
+});
+
+integrationRouter.post('/label-printer-settings', authenticateToken, requireRole(['Admin', 'Pharmacist']), (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const {
+      printer_name,
+      connection_type,
+      driver_name,
+      port_name,
+      paper_width_mm,
+      paper_height_mm,
+      dpi,
+      print_speed,
+      density,
+      media_type,
+      gap_height_mm,
+      horizontal_offset_mm,
+      vertical_offset_mm,
+      copies
+    } = req.body;
+
+    const existing = db.prepare("SELECT id FROM printer_settings WHERE printer_role = 'LABEL' LIMIT 1").get() as { id: number } | undefined;
+
+    if (existing) {
+      db.prepare(`
+        UPDATE printer_settings SET
+          printer_name = ?,
+          connection_type = ?,
+          driver_name = ?,
+          port_name = ?,
+          paper_width_mm = ?,
+          paper_height_mm = ?,
+          dpi = ?,
+          print_speed = ?,
+          density = ?,
+          media_type = ?,
+          gap_height_mm = ?,
+          horizontal_offset_mm = ?,
+          vertical_offset_mm = ?,
+          copies = ?,
+          updated_at = CURRENT_TIMESTAMP,
+          updated_by = ?
+        WHERE id = ?
+      `).run(
+        printer_name || 'Speed-X 400UL',
+        connection_type || 'USB',
+        driver_name || null,
+        port_name || null,
+        paper_width_mm || 38.0,
+        paper_height_mm || 28.0,
+        dpi || 203,
+        print_speed || 5,
+        density || 9,
+        media_type || 'GAP',
+        gap_height_mm || 2.0,
+        horizontal_offset_mm || 0.0,
+        vertical_offset_mm || 0.0,
+        copies || 1,
+        userId,
+        existing.id
+      );
+    } else {
+      db.prepare(`
+        INSERT INTO printer_settings (
+          printer_role, printer_name, connection_type, driver_name, port_name,
+          paper_width_mm, paper_height_mm, dpi, print_speed, density,
+          media_type, gap_height_mm, horizontal_offset_mm, vertical_offset_mm, copies, updated_by
+        ) VALUES (
+          'LABEL', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        )
+      `).run(
+        printer_name || 'Speed-X 400UL',
+        connection_type || 'USB',
+        driver_name || null,
+        port_name || null,
+        paper_width_mm || 38.0,
+        paper_height_mm || 28.0,
+        dpi || 203,
+        print_speed || 5,
+        density || 9,
+        media_type || 'GAP',
+        gap_height_mm || 2.0,
+        horizontal_offset_mm || 0.0,
+        vertical_offset_mm || 0.0,
+        copies || 1,
+        userId
+      );
+    }
+
+    logAudit({
+      userId,
+      action: 'LABEL_PRINTER_CONFIG_UPDATED',
+      entity: 'printer_settings',
+      entityId: 'LABEL',
+      newValues: req.body,
+      ipAddress: req.ip
+    });
+
+    res.json({ message: 'Speed-X label printer configuration updated successfully' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update label printer settings', details: err.message });
+  }
+});
+
+// Direct Thermal Label Printing
+integrationRouter.post('/print-label', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const {
+      printerName,
+      medicineId,
+      batchId,
+      barcode,
+      quantity,
+      labelData,
+      config
+    } = req.body;
+
+    const qty = Math.max(1, parseInt(String(quantity || 1), 10));
+    const savedSettings = db.prepare("SELECT * FROM printer_settings WHERE printer_role = 'LABEL' LIMIT 1").get() as any;
+    const targetPrinter = printerName || savedSettings?.printer_name || 'Speed-X SP-690UB';
+
+    const finalConfig = {
+      paperWidthMm: config?.paperWidthMm || savedSettings?.paper_width_mm || 38,
+      paperHeightMm: config?.paperHeightMm || savedSettings?.paper_height_mm || 28,
+      gapHeightMm: config?.gapHeightMm || savedSettings?.gap_height_mm || 2,
+      horizontalOffsetMm: config?.horizontalOffsetMm !== undefined ? config.horizontalOffsetMm : (savedSettings?.horizontal_offset_mm || 0),
+      verticalOffsetMm: config?.verticalOffsetMm !== undefined ? config.verticalOffsetMm : (savedSettings?.vertical_offset_mm || 0),
+      printSpeed: config?.printSpeed || savedSettings?.print_speed || 5,
+      density: config?.density || savedSettings?.density || 9
+    };
+
+    const payload = {
+      pharmacyHeader: labelData?.pharmacyHeader || 'NAVEED MEDICAL PHARMACY',
+      brandName: labelData?.brandName || 'Panadol Extra',
+      strength: labelData?.strength || '500mg',
+      dosageForm: labelData?.dosageForm || 'Tablet',
+      barcode: labelData?.barcode || barcode || 'NMP-2026-08492',
+      batchNumber: labelData?.batchNumber || 'BN-2026-99',
+      expiryDate: labelData?.expiryDate || '12/2028',
+      salePrice: labelData?.salePrice !== undefined ? labelData.salePrice : 45.00
+    };
+
+    const printResult = await printThermalLabelRaw(payload, finalConfig, qty, targetPrinter);
+
+    const jobRes = db.prepare(`
+      INSERT INTO label_print_jobs (
+        printer_name, medicine_id, batch_id, barcode, quantity, status, requested_by, completed_at, error_code, error_message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      targetPrinter,
+      medicineId || null,
+      batchId || null,
+      payload.barcode,
+      qty,
+      printResult.success ? 'COMPLETED' : 'FAILED',
+      userId,
+      printResult.success ? new Date().toISOString() : null,
+      printResult.success ? null : 'PRINT_ERR',
+      printResult.success ? null : (printResult.reason || 'Hardware failure')
+    );
+
+    res.json({
+      success: printResult.success,
+      jobId: jobRes.lastInsertRowid,
+      printerName: printResult.printerName || targetPrinter,
+      message: printResult.success
+        ? `Sent ${qty} x (38x28mm) label stickers to ${printResult.printerName || targetPrinter}`
+        : (printResult.reason || 'Thermal label print failed')
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to process thermal label print job', details: err.message });
+  }
+});
+
+// Dedicated 38x28mm Test Label Print
+integrationRouter.post('/print-test-label', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const { printerName } = req.body || {};
+    const savedSettings = db.prepare("SELECT * FROM printer_settings WHERE printer_role = 'LABEL' LIMIT 1").get() as any;
+    const targetPrinter = printerName || savedSettings?.printer_name || 'Speed-X SP-690UB';
+
+    const testConfig = {
+      paperWidthMm: savedSettings?.paper_width_mm || 38,
+      paperHeightMm: savedSettings?.paper_height_mm || 28,
+      gapHeightMm: savedSettings?.gap_height_mm || 2,
+      horizontalOffsetMm: savedSettings?.horizontal_offset_mm || 0,
+      verticalOffsetMm: savedSettings?.vertical_offset_mm || 0,
+      printSpeed: savedSettings?.print_speed || 5,
+      density: savedSettings?.density || 9
+    };
+
+    const testData = {
+      pharmacyHeader: 'NAVEED MEDICAL',
+      brandName: 'PRINTER TEST',
+      strength: '38 x 28 mm',
+      barcode: 'NMP-TEST-001',
+      batchNumber: 'BN-TEST',
+      expiryDate: new Date().toLocaleDateString('en-GB'),
+      salePrice: '0'
+    };
+
+    const printResult = await printThermalLabelRaw(testData, testConfig, 1, targetPrinter);
+
+    db.prepare(`
+      INSERT INTO label_print_jobs (
+        printer_name, barcode, quantity, status, requested_by, completed_at, error_code, error_message
+      ) VALUES (?, ?, 1, ?, ?, ?, ?, ?)
+    `).run(
+      targetPrinter,
+      'NMP-TEST-001',
+      printResult.success ? 'COMPLETED' : 'FAILED',
+      userId,
+      printResult.success ? new Date().toISOString() : null,
+      printResult.success ? null : 'TEST_ERR',
+      printResult.success ? null : printResult.reason
+    );
+
+    res.json({
+      success: printResult.success,
+      printerName: printResult.printerName || targetPrinter,
+      message: printResult.success
+        ? `Test label (38x28mm) printed successfully on ${printResult.printerName || targetPrinter}!`
+        : (printResult.reason || 'Test print failed')
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to execute test print label', details: err.message });
+  }
+});
+
 
 // ==========================================
 // 3. BULK CSV IMPORT ENGINE (MEDICINES)

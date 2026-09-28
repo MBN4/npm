@@ -281,6 +281,73 @@ export function initDatabase() {
     // ignore
   }
 
+  // Auto-migrate printer_settings & label_print_jobs tables
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS printer_settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        branch_id INTEGER DEFAULT 1,
+        counter_id INTEGER DEFAULT 1,
+        printer_role TEXT NOT NULL DEFAULT 'LABEL',
+        printer_name TEXT NOT NULL DEFAULT 'Speed-X 400UL',
+        connection_type TEXT DEFAULT 'USB',
+        driver_name TEXT,
+        port_name TEXT,
+        paper_width_mm REAL DEFAULT 38.0,
+        paper_height_mm REAL DEFAULT 28.0,
+        orientation TEXT DEFAULT 'portrait',
+        dpi INTEGER DEFAULT 203,
+        print_speed INTEGER DEFAULT 5,
+        density INTEGER DEFAULT 9,
+        media_type TEXT DEFAULT 'GAP',
+        gap_height_mm REAL DEFAULT 2.0,
+        horizontal_offset_mm REAL DEFAULT 0.0,
+        vertical_offset_mm REAL DEFAULT 0.0,
+        copies INTEGER DEFAULT 1,
+        auto_print INTEGER DEFAULT 0,
+        is_default INTEGER DEFAULT 1,
+        enabled INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_by INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS label_print_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        printer_name TEXT NOT NULL,
+        medicine_id INTEGER,
+        batch_id INTEGER,
+        barcode TEXT,
+        quantity INTEGER DEFAULT 1,
+        status TEXT DEFAULT 'COMPLETED',
+        requested_by INTEGER,
+        requested_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        completed_at DATETIME,
+        error_code TEXT,
+        error_message TEXT,
+        reprint_reason TEXT,
+        original_job_id INTEGER
+      );
+    `);
+
+    // Seed default LABEL printer settings row if none exists
+    const labelConfigCount = (db.prepare("SELECT COUNT(*) as count FROM printer_settings WHERE printer_role = 'LABEL'").get() as { count: number }).count;
+    if (labelConfigCount === 0) {
+      db.prepare(`
+        INSERT INTO printer_settings (
+          printer_role, printer_name, connection_type, paper_width_mm, paper_height_mm,
+          dpi, print_speed, density, media_type, gap_height_mm, horizontal_offset_mm, vertical_offset_mm
+        ) VALUES (
+          'LABEL', 'Speed-X SP-690UB', 'USB', 38.0, 28.0,
+          203, 5, 9, 'GAP', 2.0, 0.0, 0.0
+        )
+      `).run();
+    }
+  } catch (e) {
+    // ignore
+  }
+
+
   const salesColumns = new Set((db.pragma('table_info(sales)') as Array<{ name: string }>).map(column => column.name));
   if (salesColumns.size && !salesColumns.has('billing_person_id')) {
     db.exec('ALTER TABLE sales ADD COLUMN billing_person_id INTEGER REFERENCES billing_persons(id)');
