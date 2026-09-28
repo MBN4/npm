@@ -16,7 +16,10 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
   const exactMatch = db.prepare(`
     SELECT 
       m.id, m.brand_name, m.strength, m.dosage_form, m.pack_size,
-      COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
+      CASE 
+        WHEN m.packaging_type = 'SIMPLE' OR LOWER(m.dosage_form) LIKE '%syrup%' OR LOWER(m.dosage_form) LIKE '%suspension%' OR LOWER(m.dosage_form) LIKE '%liquid%' OR LOWER(m.dosage_form) LIKE '%bottle%' OR LOWER(m.dosage_form) LIKE '%drop%' OR LOWER(m.dosage_form) LIKE '%injection%' THEN 1 
+        ELSE COALESCE(m.tablets_per_pack, 10) 
+      END as tablets_per_pack,
       m.stock_unit, m.packaging_type,
       m.barcode, m.custom_barcode,
       m.rack_location, m.is_prescription_required,
@@ -63,7 +66,10 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
   const medicines = db.prepare(`
     SELECT 
       m.id, m.brand_name, m.strength, m.dosage_form, m.pack_size,
-      COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
+      CASE 
+        WHEN m.packaging_type = 'SIMPLE' OR LOWER(m.dosage_form) LIKE '%syrup%' OR LOWER(m.dosage_form) LIKE '%suspension%' OR LOWER(m.dosage_form) LIKE '%liquid%' OR LOWER(m.dosage_form) LIKE '%bottle%' OR LOWER(m.dosage_form) LIKE '%drop%' OR LOWER(m.dosage_form) LIKE '%injection%' THEN 1 
+        ELSE COALESCE(m.tablets_per_pack, 10) 
+      END as tablets_per_pack,
       m.stock_unit, m.packaging_type,
       m.barcode, m.custom_barcode,
       m.rack_location, m.is_prescription_required,

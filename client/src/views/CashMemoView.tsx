@@ -27,6 +27,7 @@ import {
 import { CashOutModal } from '../components/CashOutModal.js';
 import { NewUdhaarModal } from '../components/NewUdhaarModal.js';
 import { CashMemoModal, CashMemoInvoiceData } from '../components/CashMemoModal';
+import { getProductPackaging } from '../utils/productPackaging.js';
 
 export interface CartItem {
   medicineId: number;
@@ -70,65 +71,7 @@ export const CashMemoView: React.FC = () => {
   const [chipCategory, setChipCategory] = useState<string>('ALL');
 
   // Cart State
-  const [cart, setCart] = useState<CartItem[]>([
-    {
-      medicineId: 1,
-      brandName: 'Panadol 500mg Tablet',
-      strength: '500mg',
-      dosageForm: 'Tablet',
-      packType: 'Strip',
-      packTaken: 2,
-      unitOfPack: 10,
-      unitsTaken: 23,
-      batchId: 101,
-      batchNumber: 'B-PAN-01',
-      expiryDate: '2026-12-31',
-      daysToExpiry: 450,
-      unitPrice: 12.00,
-      availableStock: 500,
-      quantity: 23,
-      discount: 0,
-      lineTotal: 276.00
-    },
-    {
-      medicineId: 2,
-      brandName: 'Augmentin 625mg Tablet',
-      strength: '625mg',
-      dosageForm: 'Tablet',
-      packType: 'Strip',
-      packTaken: 1,
-      unitOfPack: 7,
-      unitsTaken: 7,
-      batchId: 102,
-      batchNumber: 'B-AUG-02',
-      expiryDate: '2026-11-30',
-      daysToExpiry: 420,
-      unitPrice: 20.00,
-      availableStock: 200,
-      quantity: 7,
-      discount: 0,
-      lineTotal: 140.00
-    },
-    {
-      medicineId: 3,
-      brandName: 'Crocin 500mg Tablet',
-      strength: '500mg',
-      dosageForm: 'Tablet',
-      packType: 'Strip',
-      packTaken: 0,
-      unitOfPack: 10,
-      unitsTaken: 3,
-      batchId: 103,
-      batchNumber: 'B-CRO-03',
-      expiryDate: '2027-01-15',
-      daysToExpiry: 480,
-      unitPrice: 12.00,
-      availableStock: 350,
-      quantity: 3,
-      discount: 0,
-      lineTotal: 36.00
-    }
-  ]);
+  const [cart, setCart] = useState<CartItem[]>([]);
 
   // Customer & Cashier Metadata State
   const [customers, setCustomers] = useState<{ id: number; name: string; mobile?: string; current_balance: number }[]>([]);
@@ -147,20 +90,16 @@ export const CashMemoView: React.FC = () => {
   const [paidAmount] = useState<string>('');
 
   // Active Dispensing Panel Stepper State
-  const [activeDispenseProduct, setActiveDispenseProduct] = useState<any>({
-    brandName: 'Panadol 500mg Tablet',
-    packType: 'Strip',
-    unitsInPack: 10,
-    unitPrice: 12.00,
-    allowLooseSale: true
-  });
+  const [activeDispenseProduct, setActiveDispenseProduct] = useState<any>(null);
   const [calcPackType, setCalcPackType] = useState<string>('Strip');
   const [calcUnitsInPack, setCalcUnitsInPack] = useState<number>(10);
   const [calcFullPacks, setCalcFullPacks] = useState<number>(1);
-  const [calcLooseUnits, setCalcLooseUnits] = useState<number>(3);
+  const [calcLooseUnits, setCalcLooseUnits] = useState<number>(0);
   const [calcUnitPrice, setCalcUnitPrice] = useState<number>(12.00);
 
-  const unitsTakenComputed = (calcFullPacks * calcUnitsInPack) + calcLooseUnits;
+  const unitsTakenComputed = activeDispenseProduct && !activeDispenseProduct.allowLooseSale
+    ? calcFullPacks
+    : (calcFullPacks * calcUnitsInPack) + calcLooseUnits;
   const totalComputed = unitsTakenComputed * calcUnitPrice;
 
   // Modal Control States for Action Bar Tabs
@@ -417,24 +356,36 @@ export const CashMemoView: React.FC = () => {
       customerPhone: customerPhoneInput || lastInvoice.customer?.mobile || '-',
       customerId: customerIdInput || (lastInvoice.customer?.id ? String(lastInvoice.customer.id) : '-'),
       customerAddress: customerAddressInput || '-',
-      items: (lastInvoice.items || []).map((it: any, idx: number) => ({
-        sNo: idx + 1,
-        brandName: it.brandName || it.brand_name || 'Medicine',
-        strength: it.strength || '',
-        dosageForm: it.dosageForm || it.dosage_form || '',
-        packType: it.packType || 'Strip',
-        packTaken: it.packTaken !== undefined ? it.packTaken : Math.floor((it.quantity || 1) / (it.unitOfPack || 10)),
-        unitOfPack: it.unitOfPack || 10,
-        unitsTaken: it.unitsTaken || it.quantity || 1,
-        unitPrice: Number(it.unitPrice || it.unit_price) || 0,
-        total: Number(it.lineTotal || it.line_total || ((it.quantity || 1) * (it.unitPrice || 0))) || 0
-      })),
+      items: (lastInvoice.items || []).map((it: any, idx: number) => {
+        const dosage = it.dosageForm || it.dosage_form || '';
+        const category = it.categoryName || it.category_name || '';
+        const packaging = getProductPackaging(dosage, it.stockUnit, category);
+        const isSimple = packaging.packagingType === 'SIMPLE' || (it.unitOfPack === 1);
+
+        const packType = it.packType || (isSimple ? packaging.unit : (packaging.middle || 'Strip'));
+        const unitOfPack = Number(it.unitOfPack) > 0 ? Number(it.unitOfPack) : (isSimple ? 1 : 10);
+        const unitsTaken = Number(it.unitsTaken || it.quantity) || 1;
+        const packTaken = it.packTaken !== undefined ? it.packTaken : (isSimple ? unitsTaken : Math.ceil(unitsTaken / unitOfPack));
+
+        return {
+          sNo: idx + 1,
+          brandName: it.brandName || it.brand_name || 'Medicine',
+          strength: it.strength || '',
+          dosageForm: dosage,
+          packType,
+          packTaken,
+          unitOfPack,
+          unitsTaken,
+          unitPrice: Number(it.unitPrice || it.unit_price) || 0,
+          total: Number(it.lineTotal || it.line_total || (unitsTaken * (Number(it.unitPrice || it.unit_price) || 0))) || 0
+        };
+      }),
       paymentMethod: lastInvoice.paymentMethod || 'Cash',
-      subtotal: lastInvoice.subtotal || 452.00,
+      subtotal: lastInvoice.subtotal || 0,
       salesTax: lastInvoice.tax || 0.00,
-      grandTotal: lastInvoice.totalAmount || 452.00,
-      paidAmount: lastInvoice.paidAmount !== undefined ? lastInvoice.paidAmount : (lastInvoice.totalAmount || 452.00),
-      balance: Math.max(0, (lastInvoice.totalAmount || 452.00) - (lastInvoice.paidAmount || 452.00))
+      grandTotal: lastInvoice.totalAmount || 0,
+      paidAmount: lastInvoice.paidAmount !== undefined ? lastInvoice.paidAmount : (lastInvoice.totalAmount || 0),
+      balance: Math.max(0, (lastInvoice.totalAmount || 0) - (lastInvoice.paidAmount || 0))
     };
   };
 
@@ -518,37 +469,52 @@ export const CashMemoView: React.FC = () => {
 
   // Fast Medicine Quick Addition Chip Click
   const handleAddQuickChip = (chip: any) => {
+    const isSyrupOrBottle = chip.packType === 'Bottle' || chip.category === 'SYRUP' || chip.category === 'GI';
+    const dosage = isSyrupOrBottle ? 'Syrup' : 'Tablet';
+    const packaging = getProductPackaging(dosage, null, chip.category);
+    const isSimple = packaging.packagingType === 'SIMPLE' || chip.packType === 'Bottle';
+    const unitPrice = Number(chip.price) || 0;
+    const unitsInPack = isSimple ? 1 : (chip.unitOfPack || 10);
+    const initialQty = isSimple ? 1 : unitsInPack;
+
     const newItem: CartItem = {
       medicineId: Date.now() + Math.floor(Math.random() * 1000),
       brandName: chip.name,
       strength: '',
-      dosageForm: chip.packType === 'Bottle' ? 'Syrup' : 'Tablet',
-      packType: chip.packType,
+      dosageForm: dosage,
+      packType: chip.packType || packaging.unit,
       packTaken: 1,
-      unitOfPack: chip.unitOfPack,
-      unitsTaken: chip.unitOfPack,
+      unitOfPack: unitsInPack,
+      unitsTaken: initialQty,
       batchId: 900 + Math.floor(Math.random() * 100),
       batchNumber: 'B-QUICK-01',
       expiryDate: '2026-12-31',
       daysToExpiry: 450,
-      unitPrice: chip.price,
+      unitPrice: unitPrice,
       availableStock: 500,
-      quantity: chip.unitOfPack,
+      quantity: initialQty,
       discount: 0,
-      lineTotal: chip.price * chip.unitOfPack,
+      lineTotal: initialQty * unitPrice,
       availableBatches: []
     };
 
     setActiveDispenseProduct({
       brandName: chip.name,
-      packType: chip.packType,
-      unitsInPack: chip.unitOfPack,
-      unitPrice: chip.price,
-      allowLooseSale: true
+      strength: '',
+      dosageForm: dosage,
+      stockUnit: packaging.unit,
+      categoryName: chip.category || 'General',
+      packType: chip.packType || packaging.unit,
+      unitsInPack,
+      unitPrice,
+      allowLooseSale: !isSimple
     });
-    setCalcUnitsInPack(chip.unitOfPack);
-    setCalcUnitPrice(chip.price);
-    setCalcPackType(chip.packType);
+
+    setCalcPackType(chip.packType || packaging.unit);
+    setCalcUnitsInPack(unitsInPack);
+    setCalcFullPacks(1);
+    setCalcLooseUnits(0);
+    setCalcUnitPrice(unitPrice);
 
     setCart(prev => [newItem, ...prev]);
     setInfoMessage(`Added "${chip.name}" to bill.`);
@@ -558,70 +524,104 @@ export const CashMemoView: React.FC = () => {
   const handleMultiAddFromSearch = (product: any, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
 
-    const batch = product.fefo_batch || { batch_id: 999, batch_number: 'B-NEW-01', expiry_date: '2026-12-31', sale_price: 12.00, quantity: 1000 };
-    const packSize = Number(product.pack_size) > 0 ? Number(product.pack_size) : 100;
-    const tabletsPerPack = Number(product.tablets_per_pack) > 0 ? Number(product.tablets_per_pack) : ((packSize >= 10 && packSize % 10 === 0) ? packSize / 10 : (packSize > 1 ? 10 : 1));
+    const dosage = product.dosage_form || product.dosageForm || 'Tablet';
+    const category = product.category_name || product.categoryName || 'General';
+    const packaging = getProductPackaging(dosage, product.stock_unit, category);
+    const isSimple = packaging.packagingType === 'SIMPLE' || product.packaging_type === 'SIMPLE';
+
+    const batch = product.fefo_batch || (product.available_batches && product.available_batches[0]) || { batch_id: 999, batch_number: 'B-NEW-01', expiry_date: '2026-12-31', sale_price: 12.00, quantity: 1000 };
+    const packSize = Number(product.pack_size) > 0 ? Number(product.pack_size) : (isSimple ? 1 : 100);
+    const unitsInPack = isSimple ? 1 : (Number(product.tablets_per_pack) > 0 ? Number(product.tablets_per_pack) : 10);
+    const unitPrice = Number(batch.sale_price) || 12.00;
+    const initialQty = isSimple ? 1 : unitsInPack;
 
     const newItem: CartItem = {
       medicineId: product.id || Date.now() + Math.floor(Math.random() * 1000),
-      brandName: product.brand_name || product.brandName || 'Panadol 500mg Tablet',
-      strength: product.strength || '500mg',
-      dosageForm: product.dosage_form || product.dosageForm || 'Tablet',
-      packType: 'Strip',
+      brandName: product.brand_name || product.brandName || 'Medicine',
+      strength: product.strength || '',
+      dosageForm: dosage,
+      packType: isSimple ? packaging.unit : (packaging.middle || 'Strip'),
       packTaken: 1,
-      unitOfPack: tabletsPerPack,
-      unitsTaken: tabletsPerPack,
+      unitOfPack: unitsInPack,
+      unitsTaken: initialQty,
       packSize,
-      tabletsPerPack,
-      stockUnit: product.stock_unit || 'Tablet',
-      packagingType: product.packaging_type || 'MULTI_TIER',
-      categoryName: product.category_name || 'General',
+      tabletsPerPack: unitsInPack,
+      stockUnit: packaging.unit,
+      packagingType: packaging.packagingType,
+      categoryName: category,
+      batchId: batch.batch_id || 999,
+      batchNumber: batch.batch_number || 'B-01',
+      expiryDate: batch.expiry_date || '2026-12-31',
+      daysToExpiry: 400,
+      unitPrice: unitPrice,
+      availableStock: batch.quantity || 500,
+      quantity: initialQty,
+      discount: 0,
+      lineTotal: initialQty * unitPrice,
+      availableBatches: product.available_batches || []
+    };
+
+    setActiveDispenseProduct({
+      medicineId: product.id,
+      brandName: product.brand_name || product.brandName,
+      strength: product.strength || '',
+      dosageForm: dosage,
+      stockUnit: packaging.unit,
+      categoryName: category,
+      packType: isSimple ? packaging.unit : (packaging.middle || 'Strip'),
+      unitsInPack,
+      unitPrice,
+      allowLooseSale: !isSimple,
       batchId: batch.batch_id,
       batchNumber: batch.batch_number,
       expiryDate: batch.expiry_date,
-      daysToExpiry: 400,
-      unitPrice: Number(batch.sale_price) || 12.00,
       availableStock: batch.quantity || 500,
-      quantity: tabletsPerPack,
-      discount: 0,
-      lineTotal: tabletsPerPack * (Number(batch.sale_price) || 12.00),
       availableBatches: product.available_batches
-    };
+    });
+
+    setCalcPackType(isSimple ? packaging.unit : (packaging.middle || 'Strip'));
+    setCalcUnitsInPack(unitsInPack);
+    setCalcFullPacks(1);
+    setCalcLooseUnits(0);
+    setCalcUnitPrice(unitPrice);
 
     setCart(prev => [newItem, ...prev]);
-    setAddedItemNotice(`Added "${product.brand_name}" (${tabletsPerPack} units) to bill.`);
+    setAddedItemNotice(`Added "${product.brand_name}" (${initialQty} ${packaging.unitPlural.toLowerCase()}) to bill.`);
     setTimeout(() => setAddedItemNotice(null), 2500);
   };
 
   const handleAddActiveCalculatedItem = () => {
+    if (!activeDispenseProduct) return;
+    const packaging = getProductPackaging(activeDispenseProduct.dosageForm, activeDispenseProduct.stockUnit, activeDispenseProduct.categoryName);
+
     const newItem: CartItem = {
-      medicineId: Date.now() + Math.floor(Math.random() * 1000),
+      medicineId: activeDispenseProduct.medicineId || Date.now() + Math.floor(Math.random() * 1000),
       brandName: activeDispenseProduct.brandName,
-      strength: '500mg',
-      dosageForm: 'Tablet',
+      strength: activeDispenseProduct.strength || '',
+      dosageForm: activeDispenseProduct.dosageForm || 'Tablet',
       packType: calcPackType,
       packTaken: calcFullPacks,
       unitOfPack: calcUnitsInPack,
       unitsTaken: unitsTakenComputed,
-      packSize: calcUnitsInPack * 10,
+      packSize: calcUnitsInPack,
       tabletsPerPack: calcUnitsInPack,
-      stockUnit: 'Tablet',
-      packagingType: 'MULTI_TIER',
-      categoryName: 'Analgesic',
-      batchId: 101,
-      batchNumber: 'B-PAN-01',
-      expiryDate: '2026-12-31',
+      stockUnit: packaging.unit,
+      packagingType: packaging.packagingType,
+      categoryName: activeDispenseProduct.categoryName || 'General',
+      batchId: activeDispenseProduct.batchId || 101,
+      batchNumber: activeDispenseProduct.batchNumber || 'B-PAN-01',
+      expiryDate: activeDispenseProduct.expiryDate || '2026-12-31',
       daysToExpiry: 450,
       unitPrice: calcUnitPrice,
-      availableStock: 500,
+      availableStock: activeDispenseProduct.availableStock || 500,
       quantity: unitsTakenComputed,
       discount: 0,
       lineTotal: totalComputed,
-      availableBatches: []
+      availableBatches: activeDispenseProduct.availableBatches || []
     };
 
     setCart(prev => [newItem, ...prev]);
-    setInfoMessage(`Added ${unitsTakenComputed} units of "${activeDispenseProduct.brandName}" to cart.`);
+    setInfoMessage(`Added ${unitsTakenComputed} ${packaging.unitPlural.toLowerCase()} of "${activeDispenseProduct.brandName}" to cart.`);
   };
 
   // Direct Quantity Editing in Cart Table
@@ -1314,99 +1314,116 @@ export const CashMemoView: React.FC = () => {
           </div>
         </div>
 
-        {/* 5. ACTIVE PRODUCT SELECTION & DISPENSING STEPPER BOX (RESPONSIVE & GUARANTEED NO OVERFLOW) */}
-        <div style={{ backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', padding: '12px 16px', color: 'var(--text-primary)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {/* Header row: Product Title & Loose Sale Badge */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{ width: '36px', height: '36px', backgroundColor: 'var(--bg-app)', borderRadius: '6px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2px' }}>
-                <img src="/logo.jpeg" alt="Medicine" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+        {/* 5. ACTIVE PRODUCT SELECTION & DISPENSING STEPPER BOX */}
+        {activeDispenseProduct ? (
+          <div style={{ backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', padding: '12px 16px', color: 'var(--text-primary)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {/* Header row: Product Title & Loose Sale Badge */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', backgroundColor: 'var(--bg-app)', borderRadius: '6px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2px' }}>
+                  <img src="/logo.jpeg" alt="Medicine" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                </div>
+                <div>
+                  <span style={{ fontWeight: 900, fontSize: '0.98rem', color: 'var(--text-primary)' }}>
+                    {activeDispenseProduct.brandName}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '10px' }}>
+                    Pack Type: <strong style={{ color: 'var(--text-primary)' }}>{calcPackType}</strong> • Units in Pack: <strong style={{ color: 'var(--text-primary)' }}>{calcUnitsInPack}</strong> • Unit Price: <strong style={{ color: 'var(--primary)' }}>Rs. {calcUnitPrice.toFixed(2)}</strong>
+                  </span>
+                </div>
               </div>
               <div>
-                <span style={{ fontWeight: 900, fontSize: '0.98rem', color: 'var(--text-primary)' }}>
-                  {activeDispenseProduct.brandName}
-                </span>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '10px' }}>
-                  Pack Type: <strong style={{ color: 'var(--text-primary)' }}>{activeDispenseProduct.packType}</strong> • Units in Pack: <strong style={{ color: 'var(--text-primary)' }}>{calcUnitsInPack}</strong> • Unit Price: <strong style={{ color: 'var(--primary)' }}>Rs. {calcUnitPrice.toFixed(2)}</strong>
+                <span style={{
+                  backgroundColor: activeDispenseProduct.allowLooseSale ? 'var(--success-light)' : 'var(--warning-light)',
+                  color: activeDispenseProduct.allowLooseSale ? 'var(--success-text)' : 'var(--warning-text)',
+                  fontSize: '0.68rem', padding: '3px 8px', borderRadius: '4px', fontWeight: 800,
+                  border: activeDispenseProduct.allowLooseSale ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(245, 158, 11, 0.3)'
+                }}>
+                  Allow Loose Sale: {activeDispenseProduct.allowLooseSale ? 'YES' : 'NO (UNIT / BOTTLE SALE)'}
                 </span>
               </div>
             </div>
-            <div>
-              <span style={{ backgroundColor: 'var(--success-light)', color: 'var(--success-text)', fontSize: '0.68rem', padding: '3px 8px', borderRadius: '4px', fontWeight: 800, border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                Allow Loose Sale: YES
-              </span>
+
+            {/* Calculator Controls & Add Item Button Row */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: 1 }}>
+                <div style={{ minWidth: '85px' }}>
+                  <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '2px' }}>Pack Type</label>
+                  <select className="input input-sm" value={calcPackType} onChange={e => setCalcPackType(e.target.value)} style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
+                    <option value={calcPackType}>{calcPackType}</option>
+                    <option value="Bottle">Bottle</option>
+                    <option value="Strip">Strip</option>
+                    <option value="Box">Box</option>
+                    <option value="Pack">Pack</option>
+                  </select>
+                </div>
+
+                <div style={{ width: '75px' }}>
+                  <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '2px' }}>Units/Pack</label>
+                  <input type="number" className="input input-sm" value={calcUnitsInPack} readOnly style={{ backgroundColor: 'var(--bg-app)', color: 'var(--text-primary)', fontWeight: 700, textAlign: 'center' }} />
+                </div>
+
+                <div style={{ width: '95px' }}>
+                  <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '2px', textAlign: 'center' }}>
+                    {activeDispenseProduct.allowLooseSale ? 'Full Packs' : 'Quantity'}
+                  </label>
+                  <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: '4px', overflow: 'hidden', backgroundColor: 'var(--bg-surface)', height: '32px', alignItems: 'center' }}>
+                    <button type="button" onClick={() => setCalcFullPacks(Math.max(1, calcFullPacks - 1))} style={{ border: 'none', background: 'var(--bg-app)', color: 'var(--text-primary)', padding: '0 8px', fontWeight: 800, cursor: 'pointer', height: '100%' }}>-</button>
+                    <span style={{ flex: 1, textAlign: 'center', fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-primary)' }}>{calcFullPacks}</span>
+                    <button type="button" onClick={() => setCalcFullPacks(calcFullPacks + 1)} style={{ border: 'none', background: 'var(--bg-app)', color: 'var(--text-primary)', padding: '0 8px', fontWeight: 800, cursor: 'pointer', height: '100%' }}>+</button>
+                  </div>
+                </div>
+
+                {activeDispenseProduct.allowLooseSale && (
+                  <div style={{ width: '95px' }}>
+                    <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '2px', textAlign: 'center' }}>Loose Units</label>
+                    <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: '4px', overflow: 'hidden', backgroundColor: 'var(--bg-surface)', height: '32px', alignItems: 'center' }}>
+                      <button type="button" onClick={() => setCalcLooseUnits(Math.max(0, calcLooseUnits - 1))} style={{ border: 'none', background: 'var(--bg-app)', color: 'var(--text-primary)', padding: '0 8px', fontWeight: 800, cursor: 'pointer', height: '100%' }}>-</button>
+                      <span style={{ flex: 1, textAlign: 'center', fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-primary)' }}>{calcLooseUnits}</span>
+                      <button type="button" onClick={() => setCalcLooseUnits(calcLooseUnits + 1)} style={{ border: 'none', background: 'var(--bg-app)', color: 'var(--text-primary)', padding: '0 8px', fontWeight: 800, cursor: 'pointer', height: '100%' }}>+</button>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ width: '85px' }}>
+                  <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '2px', textAlign: 'center' }}>Units Taken</label>
+                  <div style={{ backgroundColor: 'var(--primary-light)', border: '1px solid var(--primary-border)', color: 'var(--primary)', textAlign: 'center', fontWeight: 900, fontSize: '0.92rem', height: '32px', lineHeight: '30px', borderRadius: '4px' }}>
+                    {unitsTakenComputed}
+                  </div>
+                </div>
+
+                <div style={{ width: '95px' }}>
+                  <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '2px' }}>Unit Price (Rs.)</label>
+                  <input type="number" className="input input-sm" value={calcUnitPrice} onChange={e => setCalcUnitPrice(Number(e.target.value))} style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)', fontWeight: 700 }} />
+                </div>
+
+                <div style={{ width: '105px' }}>
+                  <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--success-text)', marginBottom: '2px', textAlign: 'center' }}>TOTAL (Rs.)</label>
+                  <div style={{ backgroundColor: 'var(--success-light)', border: '1px solid var(--success)', color: 'var(--success-text)', textAlign: 'center', fontWeight: 900, fontSize: '0.95rem', height: '32px', lineHeight: '30px', borderRadius: '4px' }}>
+                    {totalComputed.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ minWidth: '130px' }}>
+                <button
+                  type="button"
+                  onClick={handleAddActiveCalculatedItem}
+                  className="btn"
+                  style={{ backgroundColor: 'var(--primary)', color: '#ffffff', fontWeight: 800, height: '36px', width: '100%', padding: '0 1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '6px', border: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}
+                >
+                  <ShoppingCart size={16} />
+                  <span>Add Item</span>
+                </button>
+              </div>
             </div>
           </div>
-
-          {/* Calculator Controls & Add Item Button Row */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: 1 }}>
-              <div style={{ minWidth: '85px' }}>
-                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '2px' }}>Pack Type</label>
-                <select className="input input-sm" value={calcPackType} onChange={e => setCalcPackType(e.target.value)} style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
-                  <option value="Strip">Strip</option>
-                  <option value="Box">Box</option>
-                  <option value="Bottle">Bottle</option>
-                </select>
-              </div>
-
-              <div style={{ width: '75px' }}>
-                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '2px' }}>Units/Pack</label>
-                <input type="number" className="input input-sm" value={calcUnitsInPack} readOnly style={{ backgroundColor: 'var(--bg-app)', color: 'var(--text-primary)', fontWeight: 700, textAlign: 'center' }} />
-              </div>
-
-              <div style={{ width: '95px' }}>
-                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '2px', textAlign: 'center' }}>Full Packs</label>
-                <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: '4px', overflow: 'hidden', backgroundColor: 'var(--bg-surface)', height: '32px', alignItems: 'center' }}>
-                  <button type="button" onClick={() => setCalcFullPacks(Math.max(0, calcFullPacks - 1))} style={{ border: 'none', background: 'var(--bg-app)', color: 'var(--text-primary)', padding: '0 8px', fontWeight: 800, cursor: 'pointer', height: '100%' }}>-</button>
-                  <span style={{ flex: 1, textAlign: 'center', fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-primary)' }}>{calcFullPacks}</span>
-                  <button type="button" onClick={() => setCalcFullPacks(calcFullPacks + 1)} style={{ border: 'none', background: 'var(--bg-app)', color: 'var(--text-primary)', padding: '0 8px', fontWeight: 800, cursor: 'pointer', height: '100%' }}>+</button>
-                </div>
-              </div>
-
-              <div style={{ width: '95px' }}>
-                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '2px', textAlign: 'center' }}>Loose Units</label>
-                <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: '4px', overflow: 'hidden', backgroundColor: 'var(--bg-surface)', height: '32px', alignItems: 'center' }}>
-                  <button type="button" onClick={() => setCalcLooseUnits(Math.max(0, calcLooseUnits - 1))} style={{ border: 'none', background: 'var(--bg-app)', color: 'var(--text-primary)', padding: '0 8px', fontWeight: 800, cursor: 'pointer', height: '100%' }}>-</button>
-                  <span style={{ flex: 1, textAlign: 'center', fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-primary)' }}>{calcLooseUnits}</span>
-                  <button type="button" onClick={() => setCalcLooseUnits(calcLooseUnits + 1)} style={{ border: 'none', background: 'var(--bg-app)', color: 'var(--text-primary)', padding: '0 8px', fontWeight: 800, cursor: 'pointer', height: '100%' }}>+</button>
-                </div>
-              </div>
-
-              <div style={{ width: '85px' }}>
-                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '2px', textAlign: 'center' }}>Units Taken</label>
-                <div style={{ backgroundColor: 'var(--primary-light)', border: '1px solid var(--primary-border)', color: 'var(--primary)', textAlign: 'center', fontWeight: 900, fontSize: '0.92rem', height: '32px', lineHeight: '30px', borderRadius: '4px' }}>
-                  {unitsTakenComputed}
-                </div>
-              </div>
-
-              <div style={{ width: '95px' }}>
-                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '2px' }}>Unit Price (Rs.)</label>
-                <input type="number" className="input input-sm" value={calcUnitPrice} onChange={e => setCalcUnitPrice(Number(e.target.value))} style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)', fontWeight: 700 }} />
-              </div>
-
-              <div style={{ width: '105px' }}>
-                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: 'var(--success-text)', marginBottom: '2px', textAlign: 'center' }}>TOTAL (Rs.)</label>
-                <div style={{ backgroundColor: 'var(--success-light)', border: '1px solid var(--success)', color: 'var(--success-text)', textAlign: 'center', fontWeight: 900, fontSize: '0.95rem', height: '32px', lineHeight: '30px', borderRadius: '4px' }}>
-                  {totalComputed.toFixed(2)}
-                </div>
-              </div>
-            </div>
-
-            {/* Right Add Item Button */}
-            <div style={{ minWidth: '130px' }}>
-              <button
-                type="button"
-                onClick={handleAddActiveCalculatedItem}
-                className="btn"
-                style={{ backgroundColor: 'var(--primary)', color: '#ffffff', fontWeight: 800, height: '36px', width: '100%', padding: '0 1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '6px', border: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}
-              >
-                <ShoppingCart size={16} />
-                <span>Add Item</span>
-              </button>
-            </div>
+        ) : (
+          <div style={{ backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', padding: '16px', color: 'var(--text-muted)', textAlign: 'center', fontSize: '0.85rem', fontWeight: 600 }}>
+            🔍 Search or select a product above to configure dispensing quantity & unit prices.
           </div>
-        </div>
+        )}
+
 
         {/* 6. CART ITEM TABLE WITH FAST STEPPERS & MULTI-MED CONTROLS */}
         <div style={{ backgroundColor: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', overflow: 'hidden' }}>
