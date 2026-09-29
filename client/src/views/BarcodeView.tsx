@@ -15,7 +15,9 @@ import {
   Minus,
   RefreshCw,
   ShieldCheck,
-  Sparkles
+  Sparkles,
+  Save,
+  X
 } from 'lucide-react';
 
 /** Canonical store-barcode format used everywhere in the app (matches server auto-generation). */
@@ -136,6 +138,13 @@ export const BarcodeView: React.FC = () => {
   const [customBarcode, setCustomBarcode] = useState('NMP-208492');
   const [barcodeSource, setBarcodeSource] = useState<'manufacturer' | 'store' | 'missing' | 'custom'>('custom');
   const [barcodeSaveStatus, setBarcodeSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  // Live Medicine Search & Catalog Edit state
+  const [medSearchQuery, setMedSearchQuery] = useState('');
+  const [medSearchResults, setMedSearchResults] = useState<Medicine[]>([]);
+  const [isSearchingMeds, setIsSearchingMeds] = useState(false);
+  const [showMedResults, setShowMedResults] = useState(false);
+  const [isSavingMed, setIsSavingMed] = useState(false);
 
   const [labelCount, setLabelCount] = useState<number>(12);
 
@@ -326,19 +335,69 @@ export const BarcodeView: React.FC = () => {
     }
   };
 
-  const handleSelectMed = (medIdStr: string) => {
+  // Debounced search for existing medicines
+  useEffect(() => {
+    if (!medSearchQuery.trim()) {
+      setMedSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearchingMeds(true);
+      try {
+        const res = await fetch(`/api/medicines?search=${encodeURIComponent(medSearchQuery.trim())}&limit=30`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setMedSearchResults(data.medicines || []);
+        }
+      } catch (err) {
+        console.error('Error searching medicines:', err);
+      } finally {
+        setIsSearchingMeds(false);
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [medSearchQuery, token]);
+
+  const handleSelectMed = async (medArg: string | Medicine) => {
+    let m: any = null;
+    let medIdStr = '';
+
+    if (typeof medArg === 'object' && medArg !== null) {
+      m = medArg;
+      medIdStr = String(m.id);
+    } else {
+      medIdStr = String(medArg || '');
+      if (!medIdStr) {
+        setSelectedMedId('');
+        setSelectedBatchId('');
+        setMedicineBatches([]);
+        setBarcodeSaveStatus('idle');
+        setBarcodeSource('custom');
+        setMedSearchQuery('');
+        return;
+      }
+      m = medicines.find(item => item.id === Number(medIdStr));
+      if (!m) {
+        try {
+          const res = await fetch(`/api/medicines/${medIdStr}`, { headers: { Authorization: `Bearer ${token}` } });
+          if (res.ok) {
+            const data = await res.json();
+            m = data.medicine || data;
+          }
+        } catch {}
+      }
+    }
+
     setSelectedMedId(medIdStr);
     setSelectedBatchId('');
     setMedicineBatches([]);
     setBarcodeSaveStatus('idle');
-    if (!medIdStr) {
-      setBarcodeSource('custom');
-      return;
-    }
 
-    const m = medicines.find(item => item.id === Number(medIdStr));
     if (m) {
-      setCustomBrand(m.brand_name);
+      setMedSearchQuery(`${m.brand_name || ''} ${m.strength || ''}`.trim());
+      setCustomBrand(m.brand_name || '');
       setCustomStrength(m.strength || '');
 
       const existingBarcode = m.barcode || m.custom_barcode;
@@ -346,9 +405,6 @@ export const BarcodeView: React.FC = () => {
         setCustomBarcode(existingBarcode);
         setBarcodeSource(m.barcode ? 'manufacturer' : 'store');
       } else {
-        // No barcode of any kind on this product yet (syrup, tablet, capsule, custom item —
-        // any product type). Don't fabricate a fake unsaved code; make the gap explicit
-        // and let the user generate+save a real one via the banner below.
         setCustomBarcode('');
         setBarcodeSource('missing');
       }
@@ -370,6 +426,85 @@ export const BarcodeView: React.FC = () => {
           }
         })
         .catch(() => {});
+    }
+  };
+
+  const handleSaveMedicineToCatalog = async () => {
+    if (!selectedMedId) return;
+    setIsSavingMed(true);
+    try {
+      const res = await fetch(`/api/medicines/${selectedMedId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          brandName: customBrand.trim(),
+          strength: customStrength.trim(),
+          customBarcode: customBarcode.trim() || null
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setStatusNotice({ text: `✓ Updated "${customBrand}" in medicine catalog!`, type: 'success' });
+        setBarcodeSaveStatus('saved');
+        setBarcodeSource(customBarcode.trim() ? 'store' : 'custom');
+        setMedicines(prev => prev.map(m => m.id === Number(selectedMedId) ? {
+          ...m,
+          brand_name: customBrand.trim(),
+          strength: customStrength.trim(),
+          custom_barcode: customBarcode.trim()
+        } : m));
+      } else {
+        setStatusNotice({ text: `❌ Could not update: ${data.error || 'Server error'}`, type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusNotice({ text: `❌ Network error updating medicine: ${err.message}`, type: 'error' });
+    } finally {
+      setIsSavingMed(false);
+    }
+  };
+
+  const handleCreateNewMedicine = async () => {
+    if (!customBrand.trim()) {
+      setStatusNotice({ text: '❌ Brand name is required to add a new medicine.', type: 'error' });
+      return;
+    }
+    setIsSavingMed(true);
+    try {
+      const res = await fetch('/api/medicines', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          brandName: customBrand.trim(),
+          strength: customStrength.trim() || undefined,
+          dosageForm: 'Tablet',
+          packSize: 1,
+          customBarcode: customBarcode.trim() || undefined
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.medicineId) {
+        const newId = String(data.medicineId);
+        setSelectedMedId(newId);
+        setStatusNotice({ text: `✓ Added new medicine "${customBrand}" to catalog! (ID #${newId})`, type: 'success' });
+        setBarcodeSaveStatus('saved');
+        setBarcodeSource('store');
+        setMedicines(prev => [{
+          id: data.medicineId,
+          brand_name: customBrand.trim(),
+          strength: customStrength.trim(),
+          dosage_form: 'Tablet',
+          pack_size: 1,
+          barcode: '',
+          custom_barcode: customBarcode.trim(),
+          rack_location: ''
+        }, ...prev]);
+      } else {
+        setStatusNotice({ text: `❌ Could not create: ${data.error || 'Server error'}`, type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusNotice({ text: `❌ Network error adding medicine: ${err.message}`, type: 'error' });
+    } finally {
+      setIsSavingMed(false);
     }
   };
 
@@ -827,23 +962,115 @@ export const BarcodeView: React.FC = () => {
                 </select>
               </div>
 
-              {/* Pre-fill from Medicine Master */}
-              <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                  Auto-fill from Medicine Catalog
-                </label>
-                <select
-                  className="input"
-                  value={selectedMedId}
-                  onChange={e => handleSelectMed(e.target.value)}
-                >
-                  <option value="">-- Choose Medicine or Custom --</option>
-                  {medicines.map(m => (
-                    <option key={m.id} value={m.id}>
-                      {m.brand_name} {m.strength} ({m.dosage_form})
-                    </option>
-                  ))}
-                </select>
+              {/* Search or Pick from Medicine Catalog */}
+              <div style={{ position: 'relative' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                    Search Existing Medicine
+                  </label>
+                  {selectedMedId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleSelectMed('');
+                        setMedSearchQuery('');
+                      }}
+                      style={{ border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.7rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px', fontWeight: 600 }}
+                    >
+                      <X size={12} /> Clear Selection
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ position: 'relative' }}>
+                  <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    className="input"
+                    value={medSearchQuery}
+                    onChange={e => {
+                      setMedSearchQuery(e.target.value);
+                      setShowMedResults(true);
+                    }}
+                    onFocus={() => { if (medSearchQuery.trim()) setShowMedResults(true); }}
+                    placeholder="Type brand, formula, barcode, or rack..."
+                    style={{ paddingLeft: '32px', fontSize: '0.82rem' }}
+                  />
+                  {isSearchingMeds && (
+                    <RefreshCw size={14} className="animate-spin" style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--primary)' }} />
+                  )}
+                </div>
+
+                {/* Live Autocomplete Results Dropdown */}
+                {showMedResults && medSearchResults.length > 0 && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      zIndex: 60,
+                      background: 'var(--bg-surface-elevated, #1f2937)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-md)',
+                      boxShadow: 'var(--shadow-lg)',
+                      maxHeight: '220px',
+                      overflowY: 'auto',
+                      marginTop: '4px'
+                    }}
+                  >
+                    {medSearchResults.map(m => (
+                      <div
+                        key={m.id}
+                        onClick={() => {
+                          handleSelectMed(m);
+                          setShowMedResults(false);
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          cursor: 'pointer',
+                          borderBottom: '1px solid var(--border)',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          fontSize: '0.8rem'
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {m.brand_name} {m.strength && <span style={{ fontWeight: 400, opacity: 0.8 }}>({m.strength})</span>}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                            {m.generic_name || m.dosage_form || 'Medicine'}
+                            {m.rack_location ? ` • Rack: ${m.rack_location}` : ''}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right', fontSize: '0.72rem' }}>
+                          <span style={{ fontFamily: "'JetBrains Mono', monospace", color: (m.barcode || m.custom_barcode) ? 'var(--primary)' : 'var(--text-muted)', fontWeight: 600 }}>
+                            {m.barcode || m.custom_barcode || 'No Code'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Fallback Dropdown Select */}
+                <div style={{ marginTop: '0.4rem' }}>
+                  <select
+                    className="input"
+                    value={selectedMedId}
+                    onChange={e => handleSelectMed(e.target.value)}
+                    style={{ fontSize: '0.78rem' }}
+                  >
+                    <option value="">-- Or Choose From Recent 150 Catalog Meds --</option>
+                    {medicines.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.brand_name} {m.strength} ({m.dosage_form})
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {medicineBatches.length > 0 && (
@@ -967,6 +1194,35 @@ export const BarcodeView: React.FC = () => {
                     )}
                   </div>
                 )}
+
+                {/* Catalog Update / Add Buttons */}
+                <div style={{ marginTop: '0.5rem' }}>
+                  {selectedMedId ? (
+                    <button
+                      type="button"
+                      onClick={handleSaveMedicineToCatalog}
+                      disabled={isSavingMed}
+                      className="btn btn-primary btn-sm"
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontWeight: 700 }}
+                      title="Update medicine details and barcode in database catalog"
+                    >
+                      <Save size={14} />
+                      <span>{isSavingMed ? 'Saving...' : '💾 Update Medicine & Barcode in Catalog'}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleCreateNewMedicine}
+                      disabled={isSavingMed || !customBrand.trim()}
+                      className="btn btn-secondary btn-sm"
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontWeight: 700, borderColor: 'var(--primary)' }}
+                      title="Save as a new product in database catalog"
+                    >
+                      <Plus size={14} />
+                      <span>{isSavingMed ? 'Creating...' : '➕ Save as New Medicine in Catalog'}</span>
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Print Quantity Stepper & Presets */}

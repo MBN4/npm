@@ -13,6 +13,8 @@ medicineRouter.get('/', authenticateToken, (req: AuthenticatedRequest, res: Resp
   const genericId = req.query.genericId ? Number(req.query.genericId) : undefined;
   const lowStockOnly = req.query.lowStock === 'true';
 
+  const limit = req.query.limit ? Number(req.query.limit) : undefined;
+
   let query = `
     SELECT
       m.id, m.brand_name, m.strength, m.dosage_form, m.pack_size,
@@ -35,16 +37,30 @@ medicineRouter.get('/', authenticateToken, (req: AuthenticatedRequest, res: Resp
   `;
   const params: any[] = [];
 
-  if (search && search.trim()) {
-    const s = `%${search.trim()}%`;
-    query += ` AND (
-      m.brand_name LIKE ? OR 
-      g.name LIKE ? OR 
-      m.barcode LIKE ? OR 
-      m.custom_barcode LIKE ? OR 
-      m.rack_location LIKE ?
-    )`;
-    params.push(s, s, s, s, s);
+  const rawSearch = (search || '').trim();
+  if (rawSearch) {
+    const startsWith = `${rawSearch}%`;
+    const contains = `%${rawSearch}%`;
+
+    if (rawSearch.length <= 2) {
+      // For short queries (1 or 2 characters like "p"), strictly match brand or generic starting with query or exact barcode
+      query += ` AND (
+        m.brand_name LIKE ? OR 
+        m.barcode = ? OR 
+        m.custom_barcode = ? OR 
+        g.name LIKE ?
+      )`;
+      params.push(startsWith, rawSearch, rawSearch, startsWith);
+    } else {
+      query += ` AND (
+        m.brand_name LIKE ? OR 
+        g.name LIKE ? OR 
+        m.barcode LIKE ? OR 
+        m.custom_barcode LIKE ? OR 
+        m.rack_location LIKE ?
+      )`;
+      params.push(contains, contains, contains, contains, contains);
+    }
   }
 
   if (categoryId) {
@@ -68,7 +84,29 @@ medicineRouter.get('/', authenticateToken, (req: AuthenticatedRequest, res: Resp
     query += ` HAVING available_stock <= m.reorder_level`;
   }
 
-  query += ` ORDER BY m.brand_name ASC`;
+  if (rawSearch) {
+    const startsWith = `${rawSearch}%`;
+    const contains = `%${rawSearch}%`;
+    query += ` ORDER BY 
+      CASE 
+        WHEN m.barcode = ? OR m.custom_barcode = ? THEN 0
+        WHEN m.brand_name LIKE ? THEN 1
+        WHEN g.name LIKE ? THEN 2
+        WHEN m.brand_name LIKE ? THEN 3
+        WHEN g.name LIKE ? THEN 4
+        ELSE 5
+      END ASC,
+      m.brand_name ASC
+    `;
+    params.push(rawSearch, rawSearch, startsWith, startsWith, contains, contains);
+  } else {
+    query += ` ORDER BY m.brand_name ASC`;
+  }
+
+  if (limit && limit > 0) {
+    query += ` LIMIT ?`;
+    params.push(limit);
+  }
 
   const medicines = db.prepare(query).all(...params);
   res.json({ medicines });
