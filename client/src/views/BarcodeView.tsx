@@ -13,8 +13,72 @@ import {
   Sliders,
   Plus,
   Minus,
-  RefreshCw
+  RefreshCw,
+  ShieldCheck,
+  Sparkles
 } from 'lucide-react';
+
+/** Canonical store-barcode format used everywhere in the app (matches server auto-generation). */
+function generateStoreBarcode(): string {
+  return `NMP-${Math.floor(100000 + Math.random() * 900000)}`;
+}
+
+/**
+ * The Speed-X SP-690UB's calibrated "true center" isn't at raw offset (0,0) — it's at
+ * (-6mm, 1.5mm). Rather than showing that calibration number in the UI (confusing —
+ * looks like something's still off), the stepper below shows an ADJUSTMENT relative to
+ * this baseline, starting at 0 = "already correctly calibrated". The real absolute value
+ * sent to the printer / saved to settings is always BASE + the displayed adjustment.
+ */
+const BARCODE_BASE_OFFSET_X_MM = -6;
+const BARCODE_BASE_OFFSET_Y_MM = 1.5;
+
+/** Every vertical gap in the label layout, fully customizable from the UI (all in mm). */
+export interface LabelLayoutMm {
+  labelTopMarginMm: number;
+  gapHeaderBrandMm: number;
+  gapBrandStrengthMm: number;
+  gapStrengthBarcodeMm: number;
+  gapBrandBarcodeMm: number;
+  gapBarcodeToTextMm: number;
+  gapTextToBottomMm: number;
+  gapBottomToPriceMm: number;
+}
+
+const DEFAULT_LABEL_LAYOUT_MM: LabelLayoutMm = {
+  labelTopMarginMm: 2.1,
+  gapHeaderBrandMm: 3.5,
+  gapBrandStrengthMm: 3.4,
+  gapStrengthBarcodeMm: 2.25,
+  gapBrandBarcodeMm: 3.9,
+  gapBarcodeToTextMm: 4.9,
+  gapTextToBottomMm: 4.75,
+  gapBottomToPriceMm: 3.1
+};
+
+function labelLayoutToApiPayload(layout: LabelLayoutMm) {
+  return {
+    label_top_margin_mm: layout.labelTopMarginMm,
+    gap_header_brand_mm: layout.gapHeaderBrandMm,
+    gap_brand_strength_mm: layout.gapBrandStrengthMm,
+    gap_strength_barcode_mm: layout.gapStrengthBarcodeMm,
+    gap_brand_barcode_mm: layout.gapBrandBarcodeMm,
+    gap_barcode_text_mm: layout.gapBarcodeToTextMm,
+    gap_text_bottom_mm: layout.gapTextToBottomMm,
+    gap_bottom_price_mm: layout.gapBottomToPriceMm
+  };
+}
+
+const LABEL_LAYOUT_FIELDS: { key: keyof LabelLayoutMm; label: string; hint: string }[] = [
+  { key: 'labelTopMarginMm', label: 'Top Margin', hint: 'Label edge to pharmacy header' },
+  { key: 'gapHeaderBrandMm', label: 'Header → Brand', hint: 'Pharmacy name to product name' },
+  { key: 'gapBrandStrengthMm', label: 'Brand → Strength', hint: 'Only used when strength is shown' },
+  { key: 'gapStrengthBarcodeMm', label: 'Strength → Barcode', hint: 'Only used when strength is shown' },
+  { key: 'gapBrandBarcodeMm', label: 'Brand → Barcode', hint: 'Used when there\'s no strength row' },
+  { key: 'gapBarcodeToTextMm', label: 'Barcode → Its Number', hint: 'Bars to the readable code below them' },
+  { key: 'gapTextToBottomMm', label: 'Number → Batch/Expiry', hint: 'Barcode number to batch/expiry line' },
+  { key: 'gapBottomToPriceMm', label: 'Batch/Expiry → Price', hint: 'Last line before the price' }
+];
 
 interface Medicine {
   id: number;
@@ -69,7 +133,9 @@ export const BarcodeView: React.FC = () => {
   const [customPrice, setCustomPrice] = useState('45.00');
   const [customBatch, setCustomBatch] = useState('BN-2026-99');
   const [customExpiry, setCustomExpiry] = useState('2028-12-31');
-  const [customBarcode, setCustomBarcode] = useState('NMP-2026-08492');
+  const [customBarcode, setCustomBarcode] = useState('NMP-208492');
+  const [barcodeSource, setBarcodeSource] = useState<'manufacturer' | 'store' | 'missing' | 'custom'>('custom');
+  const [barcodeSaveStatus, setBarcodeSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   const [labelCount, setLabelCount] = useState<number>(12);
 
@@ -82,6 +148,16 @@ export const BarcodeView: React.FC = () => {
   const [printDensity, setPrintDensity] = useState<number>(9);
   const [mediaType, setMediaType] = useState<'GAP' | 'BLACK_MARK' | 'CONTINUOUS'>('GAP');
   const [gapHeightMm, setGapHeightMm] = useState<number>(2.0);
+  // These hold the DISPLAYED adjustment (0 = baseline-calibrated), not the raw mm sent to the
+  // printer — see BARCODE_BASE_OFFSET_X_MM / _Y_MM above.
+  const [barcodeOffsetXMm, setBarcodeOffsetXMm] = useState<number>(0);
+  const [barcodeOffsetYMm, setBarcodeOffsetYMm] = useState<number>(0);
+  const [isSavingBarcodeOffset, setIsSavingBarcodeOffset] = useState(false);
+
+  // Full vertical-rhythm customization: every gap between consecutive label rows, in mm.
+  const [labelLayout, setLabelLayout] = useState<LabelLayoutMm>(DEFAULT_LABEL_LAYOUT_MM);
+  const [isSavingLayout, setIsSavingLayout] = useState(false);
+  const [showLayoutEditor, setShowLayoutEditor] = useState(false);
 
   const [isSubmittingJob, setIsSubmittingJob] = useState(false);
   const [statusNotice, setStatusNotice] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -105,6 +181,18 @@ export const BarcodeView: React.FC = () => {
         if (sData.density) setPrintDensity(sData.density);
         if (sData.media_type) setMediaType(sData.media_type);
         if (sData.gap_height_mm) setGapHeightMm(sData.gap_height_mm);
+        if (sData.barcode_offset_x_mm !== undefined) setBarcodeOffsetXMm(Number((sData.barcode_offset_x_mm - BARCODE_BASE_OFFSET_X_MM).toFixed(1)));
+        if (sData.barcode_offset_y_mm !== undefined) setBarcodeOffsetYMm(Number((sData.barcode_offset_y_mm - BARCODE_BASE_OFFSET_Y_MM).toFixed(1)));
+        setLabelLayout({
+          labelTopMarginMm: sData.label_top_margin_mm ?? DEFAULT_LABEL_LAYOUT_MM.labelTopMarginMm,
+          gapHeaderBrandMm: sData.gap_header_brand_mm ?? DEFAULT_LABEL_LAYOUT_MM.gapHeaderBrandMm,
+          gapBrandStrengthMm: sData.gap_brand_strength_mm ?? DEFAULT_LABEL_LAYOUT_MM.gapBrandStrengthMm,
+          gapStrengthBarcodeMm: sData.gap_strength_barcode_mm ?? DEFAULT_LABEL_LAYOUT_MM.gapStrengthBarcodeMm,
+          gapBrandBarcodeMm: sData.gap_brand_barcode_mm ?? DEFAULT_LABEL_LAYOUT_MM.gapBrandBarcodeMm,
+          gapBarcodeToTextMm: sData.gap_barcode_text_mm ?? DEFAULT_LABEL_LAYOUT_MM.gapBarcodeToTextMm,
+          gapTextToBottomMm: sData.gap_text_bottom_mm ?? DEFAULT_LABEL_LAYOUT_MM.gapTextToBottomMm,
+          gapBottomToPriceMm: sData.gap_bottom_price_mm ?? DEFAULT_LABEL_LAYOUT_MM.gapBottomToPriceMm
+        });
       }
 
       if (printersRes.ok) {
@@ -201,23 +289,69 @@ export const BarcodeView: React.FC = () => {
     }
   };
 
-  const generateNewNmpBarcode = () => {
-    const randomNum = Math.floor(10000 + Math.random() * 90000);
-    const yr = new Date().getFullYear();
-    setCustomBarcode(`NMP-${yr}-${randomNum}`);
+  /**
+   * Generates a new store barcode. If a catalog medicine is selected, this PERSISTS the
+   * barcode to that medicine record (PUT /api/medicines/:id) so it's actually scannable
+   * later at POS/Inventory — not just a label-only value that disappears after printing.
+   */
+  const generateAndAssignBarcode = async () => {
+    const code = generateStoreBarcode();
+    setCustomBarcode(code);
+
+    if (!selectedMedId) {
+      setBarcodeSource('custom');
+      setBarcodeSaveStatus('idle');
+      return;
+    }
+
+    setBarcodeSaveStatus('saving');
+    try {
+      const res = await fetch(`/api/medicines/${selectedMedId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ customBarcode: code })
+      });
+      if (res.ok) {
+        setBarcodeSaveStatus('saved');
+        setBarcodeSource('store');
+        setMedicines(prev => prev.map(m => m.id === Number(selectedMedId) ? { ...m, custom_barcode: code } : m));
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setStatusNotice({ text: `❌ Could not save barcode: ${data.error || 'Server error'}`, type: 'error' });
+        setBarcodeSaveStatus('error');
+      }
+    } catch (err: any) {
+      setStatusNotice({ text: `❌ Network error saving barcode: ${err.message}`, type: 'error' });
+      setBarcodeSaveStatus('error');
+    }
   };
 
   const handleSelectMed = (medIdStr: string) => {
     setSelectedMedId(medIdStr);
     setSelectedBatchId('');
     setMedicineBatches([]);
-    if (!medIdStr) return;
+    setBarcodeSaveStatus('idle');
+    if (!medIdStr) {
+      setBarcodeSource('custom');
+      return;
+    }
 
     const m = medicines.find(item => item.id === Number(medIdStr));
     if (m) {
       setCustomBrand(m.brand_name);
       setCustomStrength(m.strength || '');
-      setCustomBarcode(m.barcode || m.custom_barcode || `NMP-2026-${m.id.toString().padStart(5, '0')}`);
+
+      const existingBarcode = m.barcode || m.custom_barcode;
+      if (existingBarcode) {
+        setCustomBarcode(existingBarcode);
+        setBarcodeSource(m.barcode ? 'manufacturer' : 'store');
+      } else {
+        // No barcode of any kind on this product yet (syrup, tablet, capsule, custom item —
+        // any product type). Don't fabricate a fake unsaved code; make the gap explicit
+        // and let the user generate+save a real one via the banner below.
+        setCustomBarcode('');
+        setBarcodeSource('missing');
+      }
 
       // Fetch batch data for medicine
       fetch(`/api/medicines/${m.id}`, {
@@ -284,7 +418,17 @@ export const BarcodeView: React.FC = () => {
             horizontalOffsetMm,
             verticalOffsetMm,
             printSpeed,
-            density: printDensity
+            density: printDensity,
+            barcodeOffsetXMm: BARCODE_BASE_OFFSET_X_MM + barcodeOffsetXMm,
+            barcodeOffsetYMm: BARCODE_BASE_OFFSET_Y_MM + barcodeOffsetYMm,
+            labelTopMarginMm: labelLayout.labelTopMarginMm,
+            gapHeaderBrandMm: labelLayout.gapHeaderBrandMm,
+            gapBrandStrengthMm: labelLayout.gapBrandStrengthMm,
+            gapStrengthBarcodeMm: labelLayout.gapStrengthBarcodeMm,
+            gapBrandBarcodeMm: labelLayout.gapBrandBarcodeMm,
+            gapBarcodeToTextMm: labelLayout.gapBarcodeToTextMm,
+            gapTextToBottomMm: labelLayout.gapTextToBottomMm,
+            gapBottomToPriceMm: labelLayout.gapBottomToPriceMm
           }
         })
       });
@@ -335,6 +479,120 @@ export const BarcodeView: React.FC = () => {
           text: `❌ Test Print Error: ${data.message || data.error || 'Test label failed.'}`,
           type: 'error'
         });
+      }
+    } catch (err: any) {
+      setStatusNotice({ text: `❌ Network error: ${err.message}`, type: 'error' });
+    } finally {
+      setIsSubmittingJob(false);
+    }
+  };
+
+  // Persists the current barcode-only offset (and the rest of the label config) so it's
+  // remembered next time, instead of only applying for this session's print jobs.
+  const handleSaveBarcodeOffset = async () => {
+    if (isSavingBarcodeOffset) return;
+    setIsSavingBarcodeOffset(true);
+    setStatusNotice(null);
+
+    try {
+      const res = await fetch('/api/integrations/label-printer-settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          printer_name: selectedPrinter,
+          paper_width_mm: paperPreset === 'Custom' ? customWidthMm : getPresetDimensions(paperPreset).width,
+          paper_height_mm: paperPreset === 'Custom' ? customHeightMm : getPresetDimensions(paperPreset).height,
+          gap_height_mm: gapHeightMm,
+          horizontal_offset_mm: horizontalOffsetMm,
+          vertical_offset_mm: verticalOffsetMm,
+          print_speed: printSpeed,
+          density: printDensity,
+          media_type: mediaType,
+          barcode_offset_x_mm: BARCODE_BASE_OFFSET_X_MM + barcodeOffsetXMm,
+          barcode_offset_y_mm: BARCODE_BASE_OFFSET_Y_MM + barcodeOffsetYMm,
+          ...labelLayoutToApiPayload(labelLayout)
+        })
+      });
+
+      if (res.ok) {
+        setStatusNotice({ text: '✅ Barcode position saved as default for future prints.', type: 'success' });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setStatusNotice({ text: `❌ Could not save: ${data.error || 'Server error'}`, type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusNotice({ text: `❌ Network error: ${err.message}`, type: 'error' });
+    } finally {
+      setIsSavingBarcodeOffset(false);
+    }
+  };
+
+  const handleSaveLabelLayout = async () => {
+    if (isSavingLayout) return;
+    setIsSavingLayout(true);
+    setStatusNotice(null);
+
+    try {
+      const res = await fetch('/api/integrations/label-printer-settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          printer_name: selectedPrinter,
+          paper_width_mm: paperPreset === 'Custom' ? customWidthMm : getPresetDimensions(paperPreset).width,
+          paper_height_mm: paperPreset === 'Custom' ? customHeightMm : getPresetDimensions(paperPreset).height,
+          gap_height_mm: gapHeightMm,
+          horizontal_offset_mm: horizontalOffsetMm,
+          vertical_offset_mm: verticalOffsetMm,
+          print_speed: printSpeed,
+          density: printDensity,
+          media_type: mediaType,
+          barcode_offset_x_mm: BARCODE_BASE_OFFSET_X_MM + barcodeOffsetXMm,
+          barcode_offset_y_mm: BARCODE_BASE_OFFSET_Y_MM + barcodeOffsetYMm,
+          ...labelLayoutToApiPayload(labelLayout)
+        })
+      });
+
+      if (res.ok) {
+        setStatusNotice({ text: '✅ Label layout saved as default for future prints.', type: 'success' });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setStatusNotice({ text: `❌ Could not save: ${data.error || 'Server error'}`, type: 'error' });
+      }
+    } catch (err: any) {
+      setStatusNotice({ text: `❌ Network error: ${err.message}`, type: 'error' });
+    } finally {
+      setIsSavingLayout(false);
+    }
+  };
+
+  // Re-calibrates the printer's gap sensor. Run this after loading new label stock, or if
+  // print jobs start overlapping / drifting instead of landing on a fresh label each time.
+  const handleCalibrateSensor = async () => {
+    if (isSubmittingJob) return;
+    setIsSubmittingJob(true);
+    setStatusNotice(null);
+
+    try {
+      const res = await fetch('/api/integrations/calibrate-label-printer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ printerName: selectedPrinter })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatusNotice({ text: `⚙️ ${data.message}`, type: 'success' });
+      } else {
+        setStatusNotice({ text: `❌ Calibration Error: ${data.message || data.error || 'Failed.'}`, type: 'error' });
       }
     } catch (err: any) {
       setStatusNotice({ text: `❌ Network error: ${err.message}`, type: 'error' });
@@ -642,13 +900,73 @@ export const BarcodeView: React.FC = () => {
                   <label style={{ fontSize: '0.72rem', fontWeight: 600 }}>Barcode Code 128</label>
                   <button
                     type="button"
-                    onClick={generateNewNmpBarcode}
+                    onClick={generateAndAssignBarcode}
+                    disabled={barcodeSaveStatus === 'saving'}
                     style={{ border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 600 }}
                   >
-                    Generate Barcode
+                    {barcodeSaveStatus === 'saving' ? 'Saving...' : 'Generate New'}
                   </button>
                 </div>
-                <input type="text" className="input" value={customBarcode} onChange={e => setCustomBarcode(e.target.value)} />
+
+                {barcodeSource === 'missing' && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      padding: '0.6rem 0.7rem',
+                      marginBottom: '0.4rem',
+                      background: 'var(--warning-light)',
+                      color: 'var(--warning-text)',
+                      border: '1px solid rgba(245, 158, 11, 0.4)',
+                      borderRadius: 'var(--radius-md)',
+                      fontSize: '0.75rem'
+                    }}
+                  >
+                    <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                    <span style={{ flex: 1 }}>
+                      This product has no barcode yet — works for any type (syrup, tablet, capsule, custom item). Generate one and it'll be saved to the catalog so it scans correctly at POS.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={generateAndAssignBarcode}
+                      disabled={barcodeSaveStatus === 'saving'}
+                      className="btn btn-primary btn-sm"
+                      style={{ flexShrink: 0, fontSize: '0.72rem', padding: '0.3rem 0.6rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+                    >
+                      <Sparkles size={13} />
+                      <span>{barcodeSaveStatus === 'saving' ? 'Saving...' : 'Generate & Save'}</span>
+                    </button>
+                  </div>
+                )}
+
+                <input
+                  type="text"
+                  className="input"
+                  value={customBarcode}
+                  onChange={e => { setCustomBarcode(e.target.value); setBarcodeSource('custom'); setBarcodeSaveStatus('idle'); }}
+                  placeholder="No barcode — generate one above"
+                />
+
+                {barcodeSource !== 'missing' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.3rem', fontSize: '0.68rem' }}>
+                    {barcodeSource === 'manufacturer' && (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--success-text)' }}>
+                        <ShieldCheck size={12} /> Manufacturer barcode (EAN)
+                      </span>
+                    )}
+                    {barcodeSource === 'store' && (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: barcodeSaveStatus === 'saved' ? 'var(--success-text)' : 'var(--text-muted)' }}>
+                        <CheckCircle2 size={12} /> {barcodeSaveStatus === 'saved' ? 'Store barcode — saved to catalog' : 'Store-generated barcode'}
+                      </span>
+                    )}
+                    {barcodeSource === 'custom' && (
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        {selectedMedId ? 'Custom value — not yet saved to catalog' : 'Ad-hoc value (no catalog product selected)'}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Print Quantity Stepper & Presets */}
@@ -749,17 +1067,143 @@ export const BarcodeView: React.FC = () => {
                 </div>
               </div>
 
+              {/* Barcode-Only Position Nudge — shifts ONLY the barcode + its readable text,
+                  independent of everything else on the label. Use this if the barcode itself
+                  looks off-center/off-position even though the text lines look fine. */}
+              <div style={{ padding: '0.6rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>
+                    Barcode-Only Position (mm)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSaveBarcodeOffset}
+                    disabled={isSavingBarcodeOffset}
+                    style={{ border: 'none', background: 'none', color: 'var(--primary)', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    {isSavingBarcodeOffset ? 'Saving...' : 'Save as Default'}
+                  </button>
+                </div>
+                <p style={{ fontSize: '0.68rem', color: 'var(--text-muted)', margin: '0 0 0.4rem' }}>
+                  Nudges only the barcode graphic + its number, leaving all other text where it is.
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Barcode Horizontal</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => setBarcodeOffsetXMm(prev => Number((prev - 0.5).toFixed(1)))}
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '0.1rem 0.3rem' }}
+                      >-</button>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 700, width: '45px', textAlign: 'center' }}>
+                        {barcodeOffsetXMm} mm
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setBarcodeOffsetXMm(prev => Number((prev + 0.5).toFixed(1)))}
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '0.1rem 0.3rem' }}
+                      >+</button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Barcode Vertical</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => setBarcodeOffsetYMm(prev => Number((prev - 0.5).toFixed(1)))}
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '0.1rem 0.3rem' }}
+                      >-</button>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 700, width: '45px', textAlign: 'center' }}>
+                        {barcodeOffsetYMm} mm
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setBarcodeOffsetYMm(prev => Number((prev + 0.5).toFixed(1)))}
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '0.1rem 0.3rem' }}
+                      >+</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Full Label Layout Customization — every vertical gap on the label, editable. */}
+              <div style={{ padding: '0.6rem', backgroundColor: 'var(--bg-app)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowLayoutEditor(prev => !prev)}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
+                >
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>
+                    Customize Full Label Layout (mm)
+                  </span>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 600 }}>
+                    {showLayoutEditor ? 'Hide ▲' : 'Show ▼'}
+                  </span>
+                </button>
+
+                {showLayoutEditor && (
+                  <div style={{ marginTop: '0.6rem' }}>
+                    <p style={{ fontSize: '0.68rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>
+                      Every vertical gap between rows on the label, in millimetres. Adjust any value, print a test label, repeat.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                      {LABEL_LAYOUT_FIELDS.map(field => (
+                        <div key={field.key}>
+                          <label style={{ fontSize: '0.68rem', fontWeight: 600, display: 'block' }} title={field.hint}>
+                            {field.label}
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            className="input input-sm"
+                            style={{ fontSize: '0.76rem', padding: '0.2rem 0.4rem', height: '28px' }}
+                            value={labelLayout[field.key]}
+                            onChange={e => setLabelLayout(prev => ({ ...prev, [field.key]: Number(e.target.value) }))}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem' }}>
+                      <button
+                        type="button"
+                        onClick={handleSaveLabelLayout}
+                        disabled={isSavingLayout}
+                        className="btn btn-primary btn-sm"
+                        style={{ flex: 1, fontSize: '0.75rem', fontWeight: 700 }}
+                      >
+                        {isSavingLayout ? 'Saving...' : 'Save as Default'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLabelLayout(DEFAULT_LABEL_LAYOUT_MM)}
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: '0.75rem' }}
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Action Buttons */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
                 <button
                   type="button"
                   onClick={handlePrintThermalDirect}
-                  disabled={isSubmittingJob}
+                  disabled={isSubmittingJob || !customBarcode.trim()}
                   className="btn btn-primary"
                   style={{ padding: '0.75rem', fontWeight: 800, fontSize: '0.95rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+                  title={!customBarcode.trim() ? 'Generate a barcode first' : undefined}
                 >
                   <Printer size={18} />
-                  <span>{isSubmittingJob ? 'Sending to Speed-X...' : `PRINT LABELS (${labelCount} Copies)`}</span>
+                  <span>{isSubmittingJob ? 'Sending to Speed-X...' : !customBarcode.trim() ? 'Generate a barcode first' : `PRINT LABELS (${labelCount} Copies)`}</span>
                 </button>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
@@ -782,6 +1226,18 @@ export const BarcodeView: React.FC = () => {
                     Browser Print
                   </button>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={handleCalibrateSensor}
+                  disabled={isSubmittingJob}
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontWeight: 700, padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                  title="Run this after loading new label stock, or if prints overlap/drift between labels"
+                >
+                  <Sliders size={14} />
+                  <span>Calibrate Gap Sensor</span>
+                </button>
               </div>
             </div>
           </div>

@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
-import { printToWindowsPrinter, printRawToPrinter, getWindowsPrinters, printThermalLabelRaw } from '../services/printerService.js';
+import { printToWindowsPrinter, printRawToPrinter, getWindowsPrinters, printThermalLabelRaw, calibrateLabelGapSensor } from '../services/printerService.js';
 import { renderLogoRaster, renderQrRaster, renderBarcodeRaster, paperWidthDots } from '../services/receiptGraphics.js';
 import { registerSseClient, broadcastPaymentEvent, getRecentQrPayments, parseSmsNotification, QrPaymentEvent } from '../services/qrPaymentService.js';
 import fs from 'fs';
@@ -564,6 +564,16 @@ integrationRouter.get('/label-printer-settings', authenticateToken, (req: Reques
         gap_height_mm: 2.0,
         horizontal_offset_mm: 0.0,
         vertical_offset_mm: 0.0,
+        barcode_offset_x_mm: -6.0,
+        barcode_offset_y_mm: 1.5,
+        label_top_margin_mm: 2.1,
+        gap_header_brand_mm: 3.5,
+        gap_brand_strength_mm: 3.4,
+        gap_strength_barcode_mm: 2.25,
+        gap_brand_barcode_mm: 3.9,
+        gap_barcode_text_mm: 4.9,
+        gap_text_bottom_mm: 4.75,
+        gap_bottom_price_mm: 3.1,
         copies: 1,
         enabled: 1
       });
@@ -591,8 +601,20 @@ integrationRouter.post('/label-printer-settings', authenticateToken, requireRole
       gap_height_mm,
       horizontal_offset_mm,
       vertical_offset_mm,
+      barcode_offset_x_mm,
+      barcode_offset_y_mm,
+      label_top_margin_mm,
+      gap_header_brand_mm,
+      gap_brand_strength_mm,
+      gap_strength_barcode_mm,
+      gap_brand_barcode_mm,
+      gap_barcode_text_mm,
+      gap_text_bottom_mm,
+      gap_bottom_price_mm,
       copies
     } = req.body;
+
+    const num = (v: any, def: number) => (v !== undefined && v !== null && v !== '' ? Number(v) : def);
 
     const existing = db.prepare("SELECT id FROM printer_settings WHERE printer_role = 'LABEL' LIMIT 1").get() as { id: number } | undefined;
 
@@ -612,6 +634,16 @@ integrationRouter.post('/label-printer-settings', authenticateToken, requireRole
           gap_height_mm = ?,
           horizontal_offset_mm = ?,
           vertical_offset_mm = ?,
+          barcode_offset_x_mm = ?,
+          barcode_offset_y_mm = ?,
+          label_top_margin_mm = ?,
+          gap_header_brand_mm = ?,
+          gap_brand_strength_mm = ?,
+          gap_strength_barcode_mm = ?,
+          gap_brand_barcode_mm = ?,
+          gap_barcode_text_mm = ?,
+          gap_text_bottom_mm = ?,
+          gap_bottom_price_mm = ?,
           copies = ?,
           updated_at = CURRENT_TIMESTAMP,
           updated_by = ?
@@ -630,6 +662,16 @@ integrationRouter.post('/label-printer-settings', authenticateToken, requireRole
         gap_height_mm || 2.0,
         horizontal_offset_mm || 0.0,
         vertical_offset_mm || 0.0,
+        num(barcode_offset_x_mm, -6.0),
+        num(barcode_offset_y_mm, 1.5),
+        num(label_top_margin_mm, 2.1),
+        num(gap_header_brand_mm, 3.5),
+        num(gap_brand_strength_mm, 3.4),
+        num(gap_strength_barcode_mm, 2.25),
+        num(gap_brand_barcode_mm, 3.9),
+        num(gap_barcode_text_mm, 4.9),
+        num(gap_text_bottom_mm, 4.75),
+        num(gap_bottom_price_mm, 3.1),
         copies || 1,
         userId,
         existing.id
@@ -639,9 +681,13 @@ integrationRouter.post('/label-printer-settings', authenticateToken, requireRole
         INSERT INTO printer_settings (
           printer_role, printer_name, connection_type, driver_name, port_name,
           paper_width_mm, paper_height_mm, dpi, print_speed, density,
-          media_type, gap_height_mm, horizontal_offset_mm, vertical_offset_mm, copies, updated_by
+          media_type, gap_height_mm, horizontal_offset_mm, vertical_offset_mm,
+          barcode_offset_x_mm, barcode_offset_y_mm,
+          label_top_margin_mm, gap_header_brand_mm, gap_brand_strength_mm, gap_strength_barcode_mm,
+          gap_brand_barcode_mm, gap_barcode_text_mm, gap_text_bottom_mm, gap_bottom_price_mm,
+          copies, updated_by
         ) VALUES (
-          'LABEL', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          'LABEL', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )
       `).run(
         printer_name || 'Speed-X 400UL',
@@ -657,6 +703,16 @@ integrationRouter.post('/label-printer-settings', authenticateToken, requireRole
         gap_height_mm || 2.0,
         horizontal_offset_mm || 0.0,
         vertical_offset_mm || 0.0,
+        num(barcode_offset_x_mm, -6.0),
+        num(barcode_offset_y_mm, 1.5),
+        num(label_top_margin_mm, 2.1),
+        num(gap_header_brand_mm, 3.5),
+        num(gap_brand_strength_mm, 3.4),
+        num(gap_strength_barcode_mm, 2.25),
+        num(gap_brand_barcode_mm, 3.9),
+        num(gap_barcode_text_mm, 4.9),
+        num(gap_text_bottom_mm, 4.75),
+        num(gap_bottom_price_mm, 3.1),
         copies || 1,
         userId
       );
@@ -702,7 +758,18 @@ integrationRouter.post('/print-label', authenticateToken, async (req: Request, r
       horizontalOffsetMm: config?.horizontalOffsetMm !== undefined ? config.horizontalOffsetMm : (savedSettings?.horizontal_offset_mm || 0),
       verticalOffsetMm: config?.verticalOffsetMm !== undefined ? config.verticalOffsetMm : (savedSettings?.vertical_offset_mm || 0),
       printSpeed: config?.printSpeed || savedSettings?.print_speed || 5,
-      density: config?.density || savedSettings?.density || 9
+      density: config?.density || savedSettings?.density || 9,
+      dpi: config?.dpi || savedSettings?.dpi || 203,
+      barcodeOffsetXMm: config?.barcodeOffsetXMm !== undefined ? config.barcodeOffsetXMm : (savedSettings?.barcode_offset_x_mm !== undefined ? savedSettings.barcode_offset_x_mm : -6),
+      barcodeOffsetYMm: config?.barcodeOffsetYMm !== undefined ? config.barcodeOffsetYMm : (savedSettings?.barcode_offset_y_mm !== undefined ? savedSettings.barcode_offset_y_mm : 1.5),
+      labelTopMarginMm: config?.labelTopMarginMm ?? savedSettings?.label_top_margin_mm,
+      gapHeaderBrandMm: config?.gapHeaderBrandMm ?? savedSettings?.gap_header_brand_mm,
+      gapBrandStrengthMm: config?.gapBrandStrengthMm ?? savedSettings?.gap_brand_strength_mm,
+      gapStrengthBarcodeMm: config?.gapStrengthBarcodeMm ?? savedSettings?.gap_strength_barcode_mm,
+      gapBrandBarcodeMm: config?.gapBrandBarcodeMm ?? savedSettings?.gap_brand_barcode_mm,
+      gapBarcodeToTextMm: config?.gapBarcodeToTextMm ?? savedSettings?.gap_barcode_text_mm,
+      gapTextToBottomMm: config?.gapTextToBottomMm ?? savedSettings?.gap_text_bottom_mm,
+      gapBottomToPriceMm: config?.gapBottomToPriceMm ?? savedSettings?.gap_bottom_price_mm
     };
 
     const payload = {
@@ -763,7 +830,18 @@ integrationRouter.post('/print-test-label', authenticateToken, async (req: Reque
       horizontalOffsetMm: savedSettings?.horizontal_offset_mm || 0,
       verticalOffsetMm: savedSettings?.vertical_offset_mm || 0,
       printSpeed: savedSettings?.print_speed || 5,
-      density: savedSettings?.density || 9
+      density: savedSettings?.density || 9,
+      dpi: savedSettings?.dpi || 203,
+      barcodeOffsetXMm: savedSettings?.barcode_offset_x_mm !== undefined ? savedSettings.barcode_offset_x_mm : -6,
+      barcodeOffsetYMm: savedSettings?.barcode_offset_y_mm !== undefined ? savedSettings.barcode_offset_y_mm : 1.5,
+      labelTopMarginMm: savedSettings?.label_top_margin_mm,
+      gapHeaderBrandMm: savedSettings?.gap_header_brand_mm,
+      gapBrandStrengthMm: savedSettings?.gap_brand_strength_mm,
+      gapStrengthBarcodeMm: savedSettings?.gap_strength_barcode_mm,
+      gapBrandBarcodeMm: savedSettings?.gap_brand_barcode_mm,
+      gapBarcodeToTextMm: savedSettings?.gap_barcode_text_mm,
+      gapTextToBottomMm: savedSettings?.gap_text_bottom_mm,
+      gapBottomToPriceMm: savedSettings?.gap_bottom_price_mm
     };
 
     const testData = {
@@ -801,6 +879,33 @@ integrationRouter.post('/print-test-label', authenticateToken, async (req: Reque
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: 'Failed to execute test print label', details: err.message });
+  }
+});
+
+// Runs the label printer's built-in gap-sensor auto-calibration. Run this whenever label
+// stock is changed/reloaded, or if prints start overlapping/drifting between jobs.
+integrationRouter.post('/calibrate-label-printer', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { printerName } = req.body || {};
+    const savedSettings = db.prepare("SELECT * FROM printer_settings WHERE printer_role = 'LABEL' LIMIT 1").get() as any;
+    const targetPrinter = printerName || savedSettings?.printer_name || 'Speed-X SP-690UB';
+
+    const calibrateConfig = {
+      paperWidthMm: savedSettings?.paper_width_mm || 38,
+      paperHeightMm: savedSettings?.paper_height_mm || 28,
+      gapHeightMm: savedSettings?.gap_height_mm || 2
+    };
+
+    const result = await calibrateLabelGapSensor(calibrateConfig, targetPrinter);
+    res.json({
+      success: result.success,
+      printerName: result.printerName || targetPrinter,
+      message: result.success
+        ? `Gap sensor calibration sent to ${result.printerName || targetPrinter}. Watch the printer feed a few labels while it re-measures label boundaries.`
+        : (result.reason || 'Calibration failed')
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to run gap sensor calibration', details: err.message });
   }
 });
 

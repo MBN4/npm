@@ -303,6 +303,16 @@ export function initDatabase() {
         gap_height_mm REAL DEFAULT 2.0,
         horizontal_offset_mm REAL DEFAULT 0.0,
         vertical_offset_mm REAL DEFAULT 0.0,
+        barcode_offset_x_mm REAL DEFAULT -6.0,
+        barcode_offset_y_mm REAL DEFAULT 1.5,
+        label_top_margin_mm REAL DEFAULT 2.1,
+        gap_header_brand_mm REAL DEFAULT 3.5,
+        gap_brand_strength_mm REAL DEFAULT 3.4,
+        gap_strength_barcode_mm REAL DEFAULT 2.25,
+        gap_brand_barcode_mm REAL DEFAULT 3.9,
+        gap_barcode_text_mm REAL DEFAULT 4.9,
+        gap_text_bottom_mm REAL DEFAULT 4.75,
+        gap_bottom_price_mm REAL DEFAULT 3.1,
         copies INTEGER DEFAULT 1,
         auto_print INTEGER DEFAULT 0,
         is_default INTEGER DEFAULT 1,
@@ -336,10 +346,12 @@ export function initDatabase() {
       db.prepare(`
         INSERT INTO printer_settings (
           printer_role, printer_name, connection_type, paper_width_mm, paper_height_mm,
-          dpi, print_speed, density, media_type, gap_height_mm, horizontal_offset_mm, vertical_offset_mm
+          dpi, print_speed, density, media_type, gap_height_mm, horizontal_offset_mm, vertical_offset_mm,
+          barcode_offset_x_mm, barcode_offset_y_mm
         ) VALUES (
           'LABEL', 'Speed-X SP-690UB', 'USB', 38.0, 28.0,
-          203, 5, 9, 'GAP', 2.0, 0.0, 0.0
+          203, 5, 9, 'GAP', 2.0, 0.0, 0.0,
+          -6.0, 1.5
         )
       `).run();
     }
@@ -347,6 +359,31 @@ export function initDatabase() {
     // ignore
   }
 
+  const printerSettingsColumns = new Set((db.pragma('table_info(printer_settings)') as Array<{ name: string }>).map(column => column.name));
+  if (printerSettingsColumns.size && !printerSettingsColumns.has('barcode_offset_x_mm')) {
+    db.exec('ALTER TABLE printer_settings ADD COLUMN barcode_offset_x_mm REAL DEFAULT -6.0');
+    db.exec("UPDATE printer_settings SET barcode_offset_x_mm = -6.0 WHERE printer_role = 'LABEL'");
+  }
+  if (printerSettingsColumns.size && !printerSettingsColumns.has('barcode_offset_y_mm')) {
+    db.exec('ALTER TABLE printer_settings ADD COLUMN barcode_offset_y_mm REAL DEFAULT 1.5');
+    db.exec("UPDATE printer_settings SET barcode_offset_y_mm = 1.5 WHERE printer_role = 'LABEL'");
+  }
+  const labelLayoutDefaults: Record<string, number> = {
+    label_top_margin_mm: 2.1,
+    gap_header_brand_mm: 3.5,
+    gap_brand_strength_mm: 3.4,
+    gap_strength_barcode_mm: 2.25,
+    gap_brand_barcode_mm: 3.9,
+    gap_barcode_text_mm: 4.9,
+    gap_text_bottom_mm: 4.75,
+    gap_bottom_price_mm: 3.1
+  };
+  for (const [col, def] of Object.entries(labelLayoutDefaults)) {
+    if (printerSettingsColumns.size && !printerSettingsColumns.has(col)) {
+      db.exec(`ALTER TABLE printer_settings ADD COLUMN ${col} REAL DEFAULT ${def}`);
+      db.exec(`UPDATE printer_settings SET ${col} = ${def} WHERE printer_role = 'LABEL'`);
+    }
+  }
 
   const salesColumns = new Set((db.pragma('table_info(sales)') as Array<{ name: string }>).map(column => column.name));
   if (salesColumns.size && !salesColumns.has('billing_person_id')) {
