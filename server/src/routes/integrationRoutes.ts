@@ -3,6 +3,7 @@ import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
 import { printToWindowsPrinter, printRawToPrinter, getWindowsPrinters, printThermalLabelRaw } from '../services/printerService.js';
+import { renderLogoRaster, renderQrRaster, renderBarcodeRaster, paperWidthDots } from '../services/receiptGraphics.js';
 import { registerSseClient, broadcastPaymentEvent, getRecentQrPayments, parseSmsNotification, QrPaymentEvent } from '../services/qrPaymentService.js';
 import fs from 'fs';
 import path from 'path';
@@ -206,15 +207,18 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     const targetPrinter = printerName || 'Speed-X 400UL';
 
     let invNo = invoiceNumber;
+    let posNo = '01';
     let cashierName = 'Ali Raza';
     let customerName = 'WALK-IN CUSTOMER';
     let customerMobile = '';
     let customerRowId = '';
     let customerBalance = 0;
     let paymentMethod = 'CASH';
-    let createdAtStr = new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    let dateStr = new Date().toLocaleDateString();
+    let timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     let subtotalAmt = 0;
     let discountAmt = 0;
+    let taxAmt = 0;
     let totalAmt = 0;
     let paidAmt = 0;
     let changeAmt = 0;
@@ -223,18 +227,19 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
 
     if (invoiceData && Array.isArray(invoiceData.items) && invoiceData.items.length > 0) {
       invNo = invoiceData.invoiceNumber || invoiceNumber || 'NMP-2025-000123';
+      posNo = invoiceData.posNo || '01';
       cashierName = invoiceData.cashierName || 'Ali Raza';
       customerName = invoiceData.customerName || 'WALK-IN CUSTOMER';
       customerMobile = invoiceData.customerPhone || '';
       customerRowId = invoiceData.customerId || '';
       paymentMethod = invoiceData.paymentMethod || 'CASH';
       subtotalAmt = Number(invoiceData.subtotal) || 0;
+      taxAmt = Number(invoiceData.salesTax) || 0;
       totalAmt = Number(invoiceData.grandTotal) || subtotalAmt;
       paidAmt = invoiceData.paidAmount !== undefined ? Number(invoiceData.paidAmount) : totalAmt;
       remainingAmt = invoiceData.balance !== undefined ? Number(invoiceData.balance) : Math.max(0, totalAmt - paidAmt);
-      if (invoiceData.date && invoiceData.time) {
-        createdAtStr = `${invoiceData.date} ${invoiceData.time}`;
-      }
+      if (invoiceData.date) dateStr = invoiceData.date;
+      if (invoiceData.time) timeStr = invoiceData.time;
       itemsList = invoiceData.items.map((it: any) => ({
         brand_name: it.brandName,
         strength: it.strength || '',
@@ -262,12 +267,14 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
         paymentMethod = sale.payment_method || 'CASH';
         subtotalAmt = Number(sale.subtotal) || 0;
         discountAmt = Number(sale.discount) || 0;
+        taxAmt = Number(sale.tax) || 0;
         totalAmt = Number(sale.total_amount) || 0;
         paidAmt = Number(sale.paid_amount) || 0;
         changeAmt = Number(sale.change_amount) || 0;
         remainingAmt = Number(sale.remaining_amount) || 0;
         const d = new Date(sale.created_at || Date.now());
-        createdAtStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        dateStr = d.toLocaleDateString();
+        timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
         itemsList = db.prepare(`
           SELECT si.*, m.brand_name, m.strength, m.dosage_form, b.batch_number, b.expiry_date
@@ -288,37 +295,45 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     const settingsMap: Record<string, string> = {};
     settingsRows.forEach(r => { settingsMap[r.key] = r.value; });
 
-    const pharmacyName = settingsMap['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY (NMP)';
+    const pharmacyName = settingsMap['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY';
     const phone = settingsMap['pharmacy_phone'] || '0318-0425090';
+    const paperDots = paperWidthDots(settingsMap['printer_paper_width']);
+    const lineWidth = paperDots === 384 ? 32 : 42;
 
     const chunks: Buffer[] = [
       Buffer.from([0x1B, 0x40]), // ESC @ - Initialize
-      Buffer.from([0x1B, 0x61, 0x01]), // ESC a 1 - Center
-      Buffer.from([0x1B, 0x45, 0x01]), // ESC E 1 - Bold On
-      Buffer.from(`${pharmacyName}\n`, 'utf8'),
-      Buffer.from([0x1B, 0x45, 0x00]), // ESC E 0 - Bold Off
-      Buffer.from('Shop #31-32, Chowk Chohan Park,\n', 'utf8'),
-      Buffer.from('Islampura, Lahore - 54000\n', 'utf8'),
-      Buffer.from(`Phone: ${phone}\n`, 'utf8')
     ];
 
+    const logoRaster = await renderLogoRaster(Math.round(paperDots * 0.28), paperDots);
+    if (logoRaster) chunks.push(logoRaster);
+
+    chunks.push(Buffer.from([0x1B, 0x61, 0x01])); // ESC a 1 - Center
+    chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // ESC E 1 - Bold On
+    chunks.push(Buffer.from(`${pharmacyName}\n`, 'utf8'));
+    chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // ESC E 0 - Bold Off
+    chunks.push(Buffer.from('SINCE 1992\n', 'utf8'));
+    chunks.push(Buffer.from(`${settingsMap['pharmacy_address'] || 'Shop #31-32, Chowk Chohan Park, Islampura, Lahore'}\n`, 'utf8'));
+    chunks.push(Buffer.from(`Ph: ${phone}\n`, 'utf8'));
     if (settingsMap['license_number']) {
       chunks.push(Buffer.from(`DSL: ${settingsMap['license_number']}\n`, 'utf8'));
     }
+    chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
+    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from('SPEED-X 400UL CASH MEMO / RECEIPT\n', 'utf8'));
+    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
 
     chunks.push(Buffer.from([0x1B, 0x61, 0x00])); // ESC a 0 - Left align
-    chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
-
-    chunks.push(Buffer.from(padBetween(`Invoice #: ${invNo}`, `POS: 01`, 42) + '\n', 'utf8'));
-    chunks.push(Buffer.from(padBetween(`Cashier: ${cashierName}`, `${createdAtStr}`, 42) + '\n', 'utf8'));
-    chunks.push(Buffer.from(`Mode of Payment: ${paymentMethod}\n`, 'utf8'));
+    chunks.push(Buffer.from(padBetween(`Inv #: ${invNo}`, `POS: ${posNo}`, lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween(`Date: ${dateStr}`, `Time: ${timeStr}`, lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from(`Cashier: ${cashierName}\n`, 'utf8'));
     chunks.push(Buffer.from(`Customer: ${customerName}\n`, 'utf8'));
     if (customerMobile) chunks.push(Buffer.from(`Mobile: ${customerMobile}\n`, 'utf8'));
     if (customerBalance > 0) chunks.push(Buffer.from(`Udhaar Balance: Rs. ${customerBalance.toFixed(2)}\n`, 'utf8'));
 
-    chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
-    chunks.push(Buffer.from(padBetween('#  Description', 'Qty   Price     Total', 42) + '\n', 'utf8'));
-    chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
+    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('Item Description', 'Qty  Price   Total', lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
 
     let totalUnits = 0;
     itemsList.forEach((it, idx) => {
@@ -329,40 +344,56 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
       if (strength && !brand.toLowerCase().includes(strength.toLowerCase())) {
         brand += ` ${strength}`;
       }
-      const itemTitle = `${idx + 1}  ${brand}`.slice(0, 42);
+      const itemTitle = `${idx + 1}. ${brand}`.slice(0, lineWidth);
+      chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
       chunks.push(Buffer.from(`${itemTitle}\n`, 'utf8'));
+      chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
 
       const unitP = Number(it.unit_price || it.unitPrice) || 0;
       const lineTot = Number(it.line_total || it.total) || (q * unitP);
-      const qtyPrice = `     ${q} x ${unitP.toFixed(2)}`;
+      const qtyPrice = `   ${q} x ${unitP.toFixed(2)}`;
       const lineTotalStr = `${lineTot.toFixed(2)}`;
-      chunks.push(Buffer.from(padBetween(qtyPrice, lineTotalStr, 42) + '\n', 'utf8'));
+      chunks.push(Buffer.from(padBetween(qtyPrice, lineTotalStr, lineWidth) + '\n', 'utf8'));
     });
 
-    chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
-    chunks.push(Buffer.from(padBetween(`Total Qty: ${totalUnits}`, `Subtotal: Rs. ${subtotalAmt.toFixed(2)}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('Sub Total:', `Rs. ${subtotalAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('Sales Tax:', `Rs. ${taxAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
     if (discountAmt > 0) {
-      chunks.push(Buffer.from(padBetween('', `Discount: -Rs. ${discountAmt.toFixed(2)}`, 42) + '\n', 'utf8'));
+      chunks.push(Buffer.from(padBetween('Discount:', `-Rs. ${discountAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
     }
 
     chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
-    chunks.push(Buffer.from(padBetween('Payable Net:', `Rs. ${totalAmt.toFixed(2)}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('GRAND TOTAL:', `Rs. ${totalAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
     chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
 
-    chunks.push(Buffer.from(padBetween('Cash Paid:', `Rs. ${paidAmt.toFixed(2)}`, 42) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('Amount Paid:', `Rs. ${paidAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
     if (changeAmt > 0) {
-      chunks.push(Buffer.from(padBetween('Change Return:', `Rs. ${changeAmt.toFixed(2)}`, 42) + '\n', 'utf8'));
+      chunks.push(Buffer.from(padBetween('Change Return:', `Rs. ${changeAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
     }
-    if (remainingAmt > 0) {
-      chunks.push(Buffer.from(padBetween('Balance Due:', `Rs. ${remainingAmt.toFixed(2)}`, 42) + '\n', 'utf8'));
-    }
-    chunks.push(Buffer.from('------------------------------------------\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('Balance Due:', `Rs. ${remainingAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from(`Payment Method: ${paymentMethod}\n`, 'utf8'));
+
+    // Barcode & QR Code section
+    chunks.push(Buffer.from([0x1B, 0x61, 0x01])); // Center
+    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
+
+    const qrRaster = await renderQrRaster(invNo, Math.round(paperDots * 0.3), paperDots);
+    if (qrRaster) chunks.push(qrRaster);
+    chunks.push(Buffer.from('Scan QR Code for Verification\n', 'utf8'));
+
+    const barcodeRaster = await renderBarcodeRaster(invNo, Math.round(paperDots * 0.72), 70, paperDots);
+    if (barcodeRaster) chunks.push(barcodeRaster);
+
+    // Feed a few dot-rows so the footer text doesn't crowd the barcode's own embedded text
+    chunks.push(Buffer.from([0x1B, 0x64, 0x02]));
 
     // Footer
-    chunks.push(Buffer.from([0x1B, 0x61, 0x01])); // Center
-    chunks.push(Buffer.from('Thank you for choosing NMP. Get well soon!\n', 'utf8'));
-    chunks.push(Buffer.from('Your Health Our Priority 🍃\n', 'utf8'));
-    chunks.push(Buffer.from('*** NAVEED MEDICAL PHARMACY ***\n\n', 'utf8'));
+    chunks.push(Buffer.from('Thank you for choosing NMP!\n', 'utf8'));
+    chunks.push(Buffer.from('Your Health Our Priority\n', 'utf8'));
+    chunks.push(Buffer.from('Proprietor: Naveed Ahmed Khan\n\n', 'utf8'));
 
     // Feed 6 lines & partial cut & drawer kick pulse
     chunks.push(Buffer.from([0x1B, 0x64, 0x06]));

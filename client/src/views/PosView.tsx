@@ -21,6 +21,7 @@ import { printThermalElement } from '../utils/thermalPrinter.js';
 import { CustomerSelect } from '../components/CustomerSelect.js';
 import { getProductPackaging } from '../utils/productPackaging.js';
 import { CashOutModal } from '../components/CashOutModal.js';
+import { Barcode128, SimpleQRCodeSVG } from '../utils/barcodeGenerator.js';
 
 export interface CartItem {
   medicineId: number;
@@ -1643,129 +1644,134 @@ export const PosView: React.FC = () => {
               id="nmp-pos-receipt"
               className={`printable-receipt ${settings['printer_paper_width'] === '58mm' ? 'receipt-58mm' : ''}`}
               style={{
-                padding: '1.25rem',
-                fontFamily: "'JetBrains Mono', 'Courier New', Courier, monospace",
-                fontSize: '0.78rem',
-                lineHeight: 1.35,
-                background: '#ffffff',
+                backgroundColor: '#ffffff',
                 color: '#000000',
-                margin: '0 auto'
+                width: '76mm',
+                maxWidth: '80mm',
+                margin: '0 auto',
+                padding: '10px 8px',
+                fontFamily: "'Arial', 'Helvetica', sans-serif",
+                fontSize: '11px',
+                boxSizing: 'border-box'
               }}
             >
-              <div style={{ textAlign: 'center', marginBottom: '0.5rem' }}>
+              {/* Header */}
+              <div style={{ textAlign: 'center', marginBottom: '8px' }}>
                 <img
                   src="/logo.jpeg"
                   alt="Pharmacy Logo"
-                  style={{ width: '46px', height: '46px', margin: '0 auto 0.35rem', display: 'block', objectFit: 'contain', borderRadius: '50%' }}
+                  style={{ width: '44px', height: '44px', objectFit: 'contain', borderRadius: '50%', marginBottom: '4px' }}
                 />
-                <div style={{ fontSize: '1.05rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY (NMP)'}
+                <div style={{ fontWeight: 900, fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.2px' }}>
+                  {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY'}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: '#333' }}>
-                  {settings['pharmacy_address'] || '31 32 Chowk Chohan Road Outfall, Islampura, Lahore'}
+                <div style={{ fontSize: '9.5px', fontWeight: 700, color: '#15803d' }}>SINCE 1992</div>
+                <div style={{ fontSize: '9px', margin: '2px 0', color: '#111' }}>
+                  {settings['pharmacy_address'] || 'Shop #31-32, Chowk Chohan Park, Islampura, Lahore'}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: '#333' }}>
-                  Ph: {settings['pharmacy_phone'] || '03454142863'}
+                <div style={{ fontSize: '9px', color: '#111' }}>
+                  Ph: {settings['pharmacy_phone'] || '0318-0425090'}
                   {settings['license_number'] ? ` | DSL: ${settings['license_number']}` : ''}
                 </div>
-                <div style={{ fontSize: '0.75rem', marginTop: '0.2rem', letterSpacing: '-1px' }}>
-                  ------------------------------------------
+                <div style={{ fontWeight: 800, borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '4px 0', margin: '6px 0', fontSize: '11px' }}>
+                  SPEED-X 400UL CASH MEMO / RECEIPT
                 </div>
               </div>
 
-              <div style={{ fontSize: '0.75rem', marginBottom: '0.4rem', lineHeight: 1.4 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Invoice #: <strong>{lastInvoice.invoiceNumber}</strong></span>
-                  <span>POS No.: 01</span>
+              {/* Metadata */}
+              <div style={{ fontSize: '10px', borderBottom: '1px dashed #000', paddingBottom: '6px', marginBottom: '6px', color: '#000' }}>
+                {lastInvoice.isOffline && (
+                  <div style={{ textAlign: 'center', fontWeight: 800, marginBottom: '3px' }}>*** OFFLINE QUEUED ***</div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                  <span>Inv #: <strong>{lastInvoice.invoiceNumber}</strong></span>
+                  <span>POS: <strong>01</strong></span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Cashier: {lastInvoice.cashierName}</span>
-                  <span>{new Date(lastInvoice.createdAt).toLocaleDateString()} {new Date(lastInvoice.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                  <span>Date: {new Date(lastInvoice.createdAt).toLocaleDateString()}</span>
+                  <span>Time: {new Date(lastInvoice.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Mode of Payment: {lastInvoice.paymentMethod || paymentMethod}</span>
-                </div>
-                <div style={{ borderTop: '1px dotted #ccc', marginTop: '0.2rem', paddingTop: '0.2rem' }}>
+                <div>Cashier: <strong>{lastInvoice.cashierName}</strong></div>
+                <div>
                   Customer: <strong>{lastInvoice.customSlipName ? lastInvoice.customSlipName : (lastInvoice.customer ? lastInvoice.customer.name : 'WALK-IN CUSTOMER')}</strong>
-                  {lastInvoice.customer?.mobile && !lastInvoice.customSlipName && (
-                    <div>Mobile: {lastInvoice.customer.mobile}</div>
-                  )}
                 </div>
+                {lastInvoice.customer?.mobile && !lastInvoice.customSlipName && (
+                  <div>Mobile: {lastInvoice.customer.mobile}</div>
+                )}
+                <div>Payment Method: {lastInvoice.paymentMethod || paymentMethod}</div>
               </div>
 
-              <div style={{ borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '0.35rem 0', marginBottom: '0.5rem' }}>
-                <table style={{ width: '100%', fontSize: '0.72rem', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid #000' }}>
-                      <th style={{ textAlign: 'left', background: 'transparent', padding: '0.15rem 0' }}># Item Description</th>
-                      <th style={{ textAlign: 'center', background: 'transparent', padding: '0.15rem 0' }}>Qty / Pack</th>
-                      <th style={{ textAlign: 'right', background: 'transparent', padding: '0.15rem 0' }}>Rate</th>
-                      <th style={{ textAlign: 'right', background: 'transparent', padding: '0.15rem 0' }}>Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lastInvoice.items.map((it: any, i: number) => {
-                      const packSize = Number(it.packSize) || 100;
-                      const tabletsPerPack = Number(it.tabletsPerPack) || 10;
-                      const breakdown = formatPackagingBreakdown(it.quantity || 1, packSize, tabletsPerPack, it.dosageForm, it.stockUnit, it.categoryName);
+              {/* Items Table */}
+              <table style={{ width: '100%', fontSize: '10px', borderCollapse: 'collapse', marginBottom: '6px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px dashed #000', textAlign: 'left' }}>
+                    <th style={{ paddingBottom: '4px', textAlign: 'left', width: '46%' }}>Item Description</th>
+                    <th style={{ paddingBottom: '4px', textAlign: 'center', width: '16%' }}>Qty</th>
+                    <th style={{ paddingBottom: '4px', textAlign: 'right', width: '18%' }}>Price</th>
+                    <th style={{ paddingBottom: '4px', textAlign: 'right', width: '20%' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lastInvoice.items.map((it: any, i: number) => {
+                    const packSize = Number(it.packSize) || 100;
+                    const tabletsPerPack = Number(it.tabletsPerPack) || 10;
+                    const breakdown = formatPackagingBreakdown(it.quantity || 1, packSize, tabletsPerPack, it.dosageForm, it.stockUnit, it.categoryName);
 
-                      return (
-                        <tr key={i} style={{ borderBottom: i < lastInvoice.items.length - 1 ? '1px dotted #e0e0e0' : 'none' }}>
-                          <td style={{ padding: '0.3rem 0', verticalAlign: 'top' }}>
-                            <div style={{ fontWeight: 800 }}>
-                              {i + 1}. {it.brandName}
-                            </div>
-                            <div style={{ fontSize: '0.65rem', color: '#555' }}>
-                              [{breakdown}]
-                            </div>
-                          </td>
-                          <td style={{ textAlign: 'center', padding: '0.3rem 0', verticalAlign: 'top', fontWeight: 700 }}>
-                            {it.quantity}
-                          </td>
-                          <td style={{ textAlign: 'right', padding: '0.3rem 0', verticalAlign: 'top' }}>
-                            {(it.unitPrice || (it.lineTotal / (it.quantity || 1)))?.toFixed(2)}
-                          </td>
-                          <td style={{ textAlign: 'right', padding: '0.3rem 0', verticalAlign: 'top', fontWeight: 800 }}>
-                            {it.lineTotal.toFixed(2)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px dotted #bbb' }}>
+                        <td style={{ padding: '3px 0', textAlign: 'left', verticalAlign: 'top' }}>
+                          <strong style={{ display: 'block', fontSize: '10px', color: '#000' }}>{i + 1}. {it.brandName}</strong>
+                          <span style={{ fontSize: '8.5px', color: '#444' }}>{breakdown}</span>
+                        </td>
+                        <td style={{ textAlign: 'center', verticalAlign: 'top', padding: '3px 0', fontWeight: 700 }}>
+                          {it.quantity}
+                        </td>
+                        <td style={{ textAlign: 'right', verticalAlign: 'top', padding: '3px 0' }}>
+                          {(it.unitPrice || (it.lineTotal / (it.quantity || 1)))?.toFixed(2)}
+                        </td>
+                        <td style={{ textAlign: 'right', verticalAlign: 'top', padding: '3px 0', fontWeight: 800 }}>
+                          {it.lineTotal.toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
 
-              <div style={{ fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>
+              {/* Totals */}
+              <div style={{ borderTop: '1px dashed #000', paddingTop: '6px', fontSize: '10.5px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                   <span>Total Units: {lastInvoice.items.reduce((sum: number, it: any) => sum + (it.quantity || 0), 0)}</span>
-                  <span>Items Count: {lastInvoice.items.length}</span>
+                  <span>Items: {lastInvoice.items.length}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>
-                  <span>Gross Subtotal:</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                  <span>Sub Total:</span>
                   <span>Rs. {lastInvoice.subtotal.toFixed(2)}</span>
                 </div>
                 {lastInvoice.discount > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#000' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                     <span>Special Discount:</span>
                     <span>-Rs. {lastInvoice.discount.toFixed(2)}</span>
                   </div>
                 )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#555', fontSize: '0.7rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                   <span>POS Receipt Fee:</span>
                   <span>Rs. {(lastInvoice.tax || 2.00).toFixed(2)}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '0.95rem', borderTop: '1px solid #000', paddingTop: '0.25rem', marginTop: '0.1rem' }}>
-                  <span>Net Payable:</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: '12px', borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '4px 0', margin: '4px 0' }}>
+                  <span>GRAND TOTAL:</span>
                   <span>Rs. {lastInvoice.totalAmount.toFixed(2)}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Cash Tendered:</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                  <span>Amount Paid:</span>
                   <span>Rs. {lastInvoice.paidAmount.toFixed(2)}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-                  <span>Change Return:</span>
-                  <span>Rs. {(lastInvoice.changeAmount || 0).toFixed(2)}</span>
-                </div>
+                {(lastInvoice.changeAmount || 0) > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px', fontWeight: 700 }}>
+                    <span>Change Return:</span>
+                    <span>Rs. {(lastInvoice.changeAmount || 0).toFixed(2)}</span>
+                  </div>
+                )}
                 {lastInvoice.totalAmount > lastInvoice.paidAmount && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: '#b91c1c' }}>
                     <span>Balance Due (Udhar):</span>
@@ -1774,12 +1780,23 @@ export const PosView: React.FC = () => {
                 )}
               </div>
 
-              <div style={{ textAlign: 'center', marginTop: '0.85rem', fontSize: '0.68rem', borderTop: '1px dashed #000', paddingTop: '0.4rem', lineHeight: 1.3 }}>
-                <div>{settings['receipt_footer'] || 'Thank you for choosing NMP. Get well soon!'}</div>
-                <div style={{ fontSize: '0.62rem', color: '#555', marginTop: '0.2rem' }}>Keep all medicines stored below 30°C in dry place.</div>
-                <div style={{ fontWeight: 800, marginTop: '0.35rem', letterSpacing: '0.5px' }}>
-                  *** {settings['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY (NMP)'} ***
+              {/* Barcode & QR Code Section */}
+              <div style={{ textAlign: 'center', marginTop: '10px', paddingTop: '6px', borderTop: '1px dashed #000' }}>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4px' }}>
+                  <SimpleQRCodeSVG value={lastInvoice.invoiceNumber} size={54} />
                 </div>
+                <div style={{ fontSize: '8.5px', fontWeight: 700 }}>Scan QR Code for Verification</div>
+                <div style={{ marginTop: '6px', display: 'flex', justifyContent: 'center' }}>
+                  <Barcode128 value={lastInvoice.invoiceNumber} width={1.2} height={26} fontSize={9} />
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '9.5px', fontWeight: 700 }}>
+                <div>{settings['receipt_footer'] || 'Thank you for choosing NMP!'}</div>
+                <div style={{ fontStyle: 'italic', marginTop: '2px', color: '#15803d' }}>Your Health Our Priority 🍃</div>
+                <div style={{ fontSize: '8px', marginTop: '2px', fontWeight: 400, color: '#555' }}>Keep all medicines stored below 30°C in dry place.</div>
+                <div style={{ fontSize: '8px', marginTop: '4px', fontWeight: 400 }}>Proprietor: Naveed Ahmed Khan</div>
               </div>
             </div>
 

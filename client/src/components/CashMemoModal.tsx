@@ -446,7 +446,7 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '100px 1fr 180px',
+                  gridTemplateColumns: '132px 1fr 180px',
                   gap: '12px',
                   alignItems: 'center',
                   paddingBottom: '12px',
@@ -459,11 +459,11 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
                     src="/logo.jpeg"
                     alt="NMP Logo"
                     style={{
-                      width: '88px',
-                      height: '88px',
+                      width: '116px',
+                      height: '116px',
                       objectFit: 'contain',
                       borderRadius: '50%',
-                      border: '1px solid #cbd5e1'
+                      border: '2px solid #cbd5e1'
                     }}
                   />
                 </div>
@@ -607,20 +607,21 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
               </div>
 
               {/* 3. ITEMS TABLE WITH WATERMARK OVERLAY */}
-              <div style={{ position: 'relative', marginTop: '12px', minHeight: '220px' }}>
+              <div style={{ position: 'relative', marginTop: '12px', minHeight: '220px', overflow: 'hidden' }}>
                 {/* Centered Faint Watermark Logo */}
                 <div
                   style={{
                     position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    transform: 'translate(-50%, -50%)',
-                    opacity: 0.12,
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: 0.1,
                     pointerEvents: 'none',
                     zIndex: 0
                   }}
                 >
-                  <img src="/logo.jpeg" alt="Watermark" style={{ width: '250px', height: '250px', objectFit: 'contain', borderRadius: '50%' }} />
+                  <img src="/logo.jpeg" alt="Watermark" style={{ width: '240px', height: '240px', objectFit: 'contain', borderRadius: '50%' }} />
                 </div>
 
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', position: 'relative', zIndex: 1 }}>
