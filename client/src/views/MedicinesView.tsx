@@ -407,7 +407,7 @@ export const MedicinesView: React.FC = () => {
                     value={newMed.categoryId}
                     onChange={categoryId => {
                       const categoryName = categories.find(category => String(category.id) === categoryId)?.name || '';
-                      setNewMed({ ...newMed, categoryId, dosageForm: getSubcategories(categoryName)[0] || '' });
+                      setNewMed(prev => ({ ...prev, categoryId, dosageForm: getSubcategories(categoryName)[0] || '' }));
                     }}
                     placeholder="Select Main Category"
                     options={PRODUCT_CATEGORIES.flatMap(definition => {
@@ -421,7 +421,7 @@ export const MedicinesView: React.FC = () => {
                   <select
                     className="select"
                     value={newMed.dosageForm}
-                    onChange={e => setNewMed({ ...newMed, dosageForm: e.target.value })}
+                    onChange={e => setNewMed(prev => ({ ...prev, dosageForm: e.target.value }))}
                     disabled={!newMed.categoryId}
                     required
                   >
@@ -437,7 +437,7 @@ export const MedicinesView: React.FC = () => {
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>Therapeutic Class</label>
                 <TherapeuticCategorySelect
                   value={newMed.therapeuticClass}
-                  onChange={therapeuticClass => setNewMed({ ...newMed, therapeuticClass })}
+                  onChange={therapeuticClass => setNewMed(prev => ({ ...prev, therapeuticClass }))}
                   placeholder="e.g. Analgesic/Antipyretic, Antibiotic, NSAID"
                 />
               </div>
@@ -449,7 +449,7 @@ export const MedicinesView: React.FC = () => {
                     className="input"
                     placeholder="e.g. Panadol Extra"
                     value={newMed.brandName}
-                    onChange={e => setNewMed({ ...newMed, brandName: e.target.value })}
+                    onChange={e => setNewMed(prev => ({ ...prev, brandName: e.target.value }))}
                     required
                   />
                 </div>
@@ -459,7 +459,7 @@ export const MedicinesView: React.FC = () => {
                     className="input"
                     placeholder="e.g. 500mg, 10mg"
                     value={newMed.strength}
-                    onChange={e => setNewMed({ ...newMed, strength: e.target.value })}
+                    onChange={e => setNewMed(prev => ({ ...prev, strength: e.target.value }))}
                   />
                 </div>
               </div>
@@ -470,7 +470,7 @@ export const MedicinesView: React.FC = () => {
                   <select
                     className="select"
                     value={newMed.genericId}
-                    onChange={e => setNewMed({ ...newMed, genericId: e.target.value })}
+                    onChange={e => setNewMed(prev => ({ ...prev, genericId: e.target.value }))}
                   >
                     <option value="">Select Generic Salt</option>
                     {generics.map(g => (
@@ -483,7 +483,7 @@ export const MedicinesView: React.FC = () => {
                   <select
                     className="select"
                     value={newMed.manufacturerId}
-                    onChange={e => setNewMed({ ...newMed, manufacturerId: e.target.value })}
+                    onChange={e => setNewMed(prev => ({ ...prev, manufacturerId: e.target.value }))}
                   >
                     <option value="">Select Manufacturer</option>
                     {manufacturers.map(m => (
@@ -502,7 +502,12 @@ export const MedicinesView: React.FC = () => {
                     className="input"
                     placeholder="Scan or enter box barcode"
                     value={newMed.barcode}
-                    onChange={e => setNewMed({ ...newMed, barcode: e.target.value })}
+                    onChange={e => setNewMed(prev => ({ ...prev, barcode: e.target.value }))}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                      }
+                    }}
                   />
                 </div>
                 <div>
@@ -512,7 +517,7 @@ export const MedicinesView: React.FC = () => {
                       type="button"
                       onClick={() => {
                         const code = `NMP-${Math.floor(100000 + Math.random() * 900000)}`;
-                        setNewMed({ ...newMed, customBarcode: code });
+                        setNewMed(prev => ({ ...prev, customBarcode: code }));
                       }}
                       className="btn btn-secondary btn-sm"
                       style={{ padding: '0.1rem 0.4rem', fontSize: '0.68rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
@@ -526,7 +531,12 @@ export const MedicinesView: React.FC = () => {
                     className="input"
                     placeholder="e.g. NMP-849201"
                     value={newMed.customBarcode}
-                    onChange={e => setNewMed({ ...newMed, customBarcode: e.target.value })}
+                    onChange={e => setNewMed(prev => ({ ...prev, customBarcode: e.target.value }))}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                      }
+                    }}
                   />
                 </div>
               </div>
@@ -538,7 +548,7 @@ export const MedicinesView: React.FC = () => {
                     className="input"
                     placeholder="e.g. Shelf A-2"
                     value={newMed.rackLocation}
-                    onChange={e => setNewMed({ ...newMed, rackLocation: e.target.value })}
+                    onChange={e => setNewMed(prev => ({ ...prev, rackLocation: e.target.value }))}
                   />
                 </div>
                 <div>
@@ -547,7 +557,7 @@ export const MedicinesView: React.FC = () => {
                     type="number"
                     className="input"
                     value={newMed.minStockLevel}
-                    onChange={e => setNewMed({ ...newMed, minStockLevel: e.target.value })}
+                    onChange={e => setNewMed(prev => ({ ...prev, minStockLevel: e.target.value }))}
                   />
                 </div>
                 <div>
@@ -556,7 +566,7 @@ export const MedicinesView: React.FC = () => {
                     type="number"
                     className="input"
                     value={newMed.reorderLevel}
-                    onChange={e => setNewMed({ ...newMed, reorderLevel: e.target.value })}
+                    onChange={e => setNewMed(prev => ({ ...prev, reorderLevel: e.target.value }))}
                   />
                 </div>
               </div>
@@ -566,7 +576,7 @@ export const MedicinesView: React.FC = () => {
                   type="checkbox"
                   id="rxReq"
                   checked={newMed.isPrescriptionRequired}
-                  onChange={e => setNewMed({ ...newMed, isPrescriptionRequired: e.target.checked })}
+                  onChange={e => setNewMed(prev => ({ ...prev, isPrescriptionRequired: e.target.checked }))}
                 />
                 <label htmlFor="rxReq" style={{ fontSize: '0.85rem', fontWeight: 600 }}>
                   Prescription (Rx) Required for Dispensing

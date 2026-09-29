@@ -269,6 +269,10 @@ CREATE TABLE IF NOT EXISTS sales (
   subtotal REAL NOT NULL,
   discount REAL DEFAULT 0.0,
   tax REAL DEFAULT 0.0,
+  percentage_charge_label TEXT DEFAULT '',
+  percentage_charge_rate REAL DEFAULT 0,
+  percentage_charge_amount REAL DEFAULT 0,
+  fixed_charge_amount REAL DEFAULT 0,
   total_amount REAL NOT NULL,
   paid_amount REAL NOT NULL,
   remaining_amount REAL DEFAULT 0.0,
@@ -292,6 +296,12 @@ CREATE TABLE IF NOT EXISTS sale_items (
   discount REAL DEFAULT 0.0,
   line_total REAL NOT NULL,
   purchase_price_snapshot REAL NOT NULL,
+  description_snapshot TEXT,
+  category_snapshot TEXT,
+  pack_type_snapshot TEXT,
+  units_per_pack_snapshot INTEGER,
+  packs_snapshot INTEGER,
+  loose_units_snapshot INTEGER,
   FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
   FOREIGN KEY (medicine_id) REFERENCES medicines(id),
   FOREIGN KEY (batch_id) REFERENCES batches(id)
@@ -527,6 +537,7 @@ CREATE TABLE IF NOT EXISTS daily_closings (
 -- Indices for performance
 CREATE INDEX IF NOT EXISTS idx_medicines_brand ON medicines(brand_name);
 CREATE INDEX IF NOT EXISTS idx_medicines_barcode ON medicines(barcode);
+CREATE INDEX IF NOT EXISTS idx_medicines_custom_barcode ON medicines(custom_barcode);
 CREATE INDEX IF NOT EXISTS idx_batches_expiry ON batches(expiry_date);
 CREATE INDEX IF NOT EXISTS idx_batches_medicine ON batches(medicine_id);
 CREATE INDEX IF NOT EXISTS idx_sales_invoice ON sales(invoice_number);

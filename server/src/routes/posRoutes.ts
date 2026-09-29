@@ -5,6 +5,11 @@ import { logAudit } from '../services/auditService.js';
 
 export const posRouter = Router();
 
+function buildDescriptionSnapshot(brandName: string, strength?: string | null): string {
+  if (!strength) return brandName;
+  return brandName.toLowerCase().includes(strength.toLowerCase()) ? brandName : `${brandName} ${strength}`;
+}
+
 posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const query = (req.query.q as string || '').trim();
   if (!query) {
@@ -168,7 +173,11 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
     paymentMethod,
     notes,
     billingPersonId,
-    customSlipName
+    customSlipName,
+    percentageChargeLabel,
+    percentageChargeRate,
+    percentageChargeAmount,
+    fixedChargeAmount
   } = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
@@ -181,6 +190,10 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
   const billDiscount = Number(discount) || 0;
   const billTax = Number(tax) || 0;
   const billSubtotal = Number(subtotal) || billTotal;
+  const billPercentLabel = percentageChargeLabel ? String(percentageChargeLabel).trim() : '';
+  const billPercentRate = Number(percentageChargeRate) || 0;
+  const billPercentAmount = Number(percentageChargeAmount) || 0;
+  const billFixedCharge = Number(fixedChargeAmount) || 0;
   const remaining = Math.max(0, billTotal - billPaid);
   const change = Math.max(0, billPaid - billTotal);
 
@@ -258,7 +271,13 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
           unitPrice,
           discount: itemDiscount,
           lineTotal,
-          purchasePriceSnapshot: batch.purchase_price
+          purchasePriceSnapshot: batch.purchase_price,
+          descriptionSnapshot: item.descriptionOverride ? String(item.descriptionOverride).trim() : buildDescriptionSnapshot(batch.brand_name, batch.strength),
+          categorySnapshot: item.category ? String(item.category).trim() : null,
+          packTypeSnapshot: item.packType ? String(item.packType).trim() : null,
+          unitsPerPackSnapshot: item.unitsPerPack !== undefined ? Number(item.unitsPerPack) : null,
+          packsSnapshot: item.packs !== undefined ? Number(item.packs) : null,
+          looseUnitsSnapshot: item.looseUnits !== undefined ? Number(item.looseUnits) : null
         });
       }
 
@@ -266,9 +285,10 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         INSERT INTO sales (
           invoice_number, customer_id, cashier_id, billing_person_id, custom_slip_name,
           subtotal, discount, tax,
+          percentage_charge_label, percentage_charge_rate, percentage_charge_amount, fixed_charge_amount,
           total_amount, paid_amount, remaining_amount, change_amount, payment_method,
           status, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)
       `);
 
       const saleResult = insertSale.run(
@@ -280,6 +300,10 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         billSubtotal,
         billDiscount,
         billTax,
+        billPercentLabel,
+        billPercentRate,
+        billPercentAmount,
+        billFixedCharge,
         billTotal,
         billPaid,
         remaining,
@@ -293,8 +317,10 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
       const insertSaleItem = db.prepare(`
         INSERT INTO sale_items (
           sale_id, medicine_id, batch_id, quantity, unit_price,
-          discount, line_total, purchase_price_snapshot
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          discount, line_total, purchase_price_snapshot,
+          description_snapshot, category_snapshot, pack_type_snapshot,
+          units_per_pack_snapshot, packs_snapshot, loose_units_snapshot
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const it of processedItems) {
@@ -306,7 +332,13 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
           it.unitPrice,
           it.discount,
           it.lineTotal,
-          it.purchasePriceSnapshot
+          it.purchasePriceSnapshot,
+          it.descriptionSnapshot,
+          it.categorySnapshot,
+          it.packTypeSnapshot,
+          it.unitsPerPackSnapshot,
+          it.packsSnapshot,
+          it.looseUnitsSnapshot
         );
       }
 
@@ -368,6 +400,10 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         subtotal: billSubtotal,
         discount: billDiscount,
         tax: billTax,
+        percentageChargeLabel: billPercentLabel,
+        percentageChargeRate: billPercentRate,
+        percentageChargeAmount: billPercentAmount,
+        fixedChargeAmount: billFixedCharge,
         totalAmount: billTotal,
         paidAmount: billPaid,
         changeAmount: change,
@@ -484,7 +520,11 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
           notes,
           timestamp,
           billingPersonId,
-          customSlipName
+          customSlipName,
+          percentageChargeLabel,
+          percentageChargeRate,
+          percentageChargeAmount,
+          fixedChargeAmount
         } = rawSale;
 
         const billTotal = Number(totalAmount) || 0;
@@ -492,6 +532,10 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
         const billDiscount = Number(discount) || 0;
         const billTax = Number(tax) || 0;
         const billSubtotal = Number(subtotal) || billTotal;
+        const billPercentLabel = percentageChargeLabel ? String(percentageChargeLabel).trim() : '';
+        const billPercentRate = Number(percentageChargeRate) || 0;
+        const billPercentAmount = Number(percentageChargeAmount) || 0;
+        const billFixedCharge = Number(fixedChargeAmount) || 0;
         const remaining = Math.max(0, billTotal - billPaid);
         const change = Math.max(0, billPaid - billTotal);
 
@@ -549,7 +593,13 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
             unitPrice,
             discount: itemDiscount,
             lineTotal,
-            purchasePriceSnapshot: batch.purchase_price
+            purchasePriceSnapshot: batch.purchase_price,
+            descriptionSnapshot: item.descriptionOverride ? String(item.descriptionOverride).trim() : buildDescriptionSnapshot(batch.brand_name, batch.strength),
+            categorySnapshot: item.category ? String(item.category).trim() : null,
+            packTypeSnapshot: item.packType ? String(item.packType).trim() : null,
+            unitsPerPackSnapshot: item.unitsPerPack !== undefined ? Number(item.unitsPerPack) : null,
+            packsSnapshot: item.packs !== undefined ? Number(item.packs) : null,
+            looseUnitsSnapshot: item.looseUnits !== undefined ? Number(item.looseUnits) : null
           });
         }
 
@@ -557,9 +607,10 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
           INSERT INTO sales (
             invoice_number, customer_id, cashier_id, billing_person_id, custom_slip_name,
             subtotal, discount, tax,
+            percentage_charge_label, percentage_charge_rate, percentage_charge_amount, fixed_charge_amount,
             total_amount, paid_amount, remaining_amount, change_amount, payment_method,
             status, notes, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)
         `).run(
           invoiceNumber,
           customerId || null,
@@ -569,6 +620,10 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
           billSubtotal,
           billDiscount,
           billTax,
+          billPercentLabel,
+          billPercentRate,
+          billPercentAmount,
+          billFixedCharge,
           billTotal,
           billPaid,
           remaining,
@@ -583,8 +638,10 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
         const insertSaleItem = db.prepare(`
           INSERT INTO sale_items (
             sale_id, medicine_id, batch_id, quantity, unit_price,
-            discount, line_total, purchase_price_snapshot
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            discount, line_total, purchase_price_snapshot,
+            description_snapshot, category_snapshot, pack_type_snapshot,
+            units_per_pack_snapshot, packs_snapshot, loose_units_snapshot
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const it of processedItems) {
@@ -596,7 +653,13 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
             it.unitPrice,
             it.discount,
             it.lineTotal,
-            it.purchasePriceSnapshot
+            it.purchasePriceSnapshot,
+            it.descriptionSnapshot,
+            it.categorySnapshot,
+            it.packTypeSnapshot,
+            it.unitsPerPackSnapshot,
+            it.packsSnapshot,
+            it.looseUnitsSnapshot
           );
         }
 

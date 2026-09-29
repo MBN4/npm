@@ -355,6 +355,39 @@ export function initDatabase() {
   if (salesColumns.size && !salesColumns.has('custom_slip_name')) {
     db.exec('ALTER TABLE sales ADD COLUMN custom_slip_name TEXT');
   }
+  // Configurable charge snapshots (percentage charge e.g. "Sales Tax 13%", and a fixed per-bill POS charge)
+  if (salesColumns.size && !salesColumns.has('percentage_charge_label')) {
+    db.exec("ALTER TABLE sales ADD COLUMN percentage_charge_label TEXT DEFAULT ''");
+  }
+  if (salesColumns.size && !salesColumns.has('percentage_charge_rate')) {
+    db.exec('ALTER TABLE sales ADD COLUMN percentage_charge_rate REAL DEFAULT 0');
+  }
+  if (salesColumns.size && !salesColumns.has('percentage_charge_amount')) {
+    db.exec('ALTER TABLE sales ADD COLUMN percentage_charge_amount REAL DEFAULT 0');
+  }
+  if (salesColumns.size && !salesColumns.has('fixed_charge_amount')) {
+    db.exec('ALTER TABLE sales ADD COLUMN fixed_charge_amount REAL DEFAULT 0');
+  }
+
+  const saleItemsColumns = new Set((db.pragma('table_info(sale_items)') as Array<{ name: string }>).map(column => column.name));
+  if (saleItemsColumns.size && !saleItemsColumns.has('description_snapshot')) {
+    db.exec('ALTER TABLE sale_items ADD COLUMN description_snapshot TEXT');
+  }
+  if (saleItemsColumns.size && !saleItemsColumns.has('category_snapshot')) {
+    db.exec('ALTER TABLE sale_items ADD COLUMN category_snapshot TEXT');
+  }
+  if (saleItemsColumns.size && !saleItemsColumns.has('pack_type_snapshot')) {
+    db.exec('ALTER TABLE sale_items ADD COLUMN pack_type_snapshot TEXT');
+  }
+  if (saleItemsColumns.size && !saleItemsColumns.has('units_per_pack_snapshot')) {
+    db.exec('ALTER TABLE sale_items ADD COLUMN units_per_pack_snapshot INTEGER');
+  }
+  if (saleItemsColumns.size && !saleItemsColumns.has('packs_snapshot')) {
+    db.exec('ALTER TABLE sale_items ADD COLUMN packs_snapshot INTEGER');
+  }
+  if (saleItemsColumns.size && !saleItemsColumns.has('loose_units_snapshot')) {
+    db.exec('ALTER TABLE sale_items ADD COLUMN loose_units_snapshot INTEGER');
+  }
 
   // Seed default Udhaar customers if missing
   try {

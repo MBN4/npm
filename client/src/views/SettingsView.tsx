@@ -913,6 +913,82 @@ export const SettingsView: React.FC = () => {
           </div>
           <div className="card">
             <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Receipt size={18} style={{ color: 'var(--primary)' }} />
+              <span>Bill Charges</span>
+            </h3>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.85rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>Percentage Charge</label>
+                  <select
+                    className="input"
+                    style={{ width: 'auto', padding: '0.3rem 0.6rem' }}
+                    value={settings['charge_percent_enabled'] === 'true' ? 'true' : 'false'}
+                    onChange={e => handleChange('charge_percent_enabled', e.target.value)}
+                  >
+                    <option value="false">OFF</option>
+                    <option value="true">ON</option>
+                  </select>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: '0.5rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.25rem' }}>Label</label>
+                    <input
+                      className="input"
+                      placeholder="e.g. Sales Tax"
+                      value={settings['charge_percent_label'] || 'Sales Tax'}
+                      onChange={e => handleChange('charge_percent_label', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.25rem' }}>Rate (%)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="input"
+                      value={settings['charge_percent_rate'] || '13'}
+                      onChange={e => handleChange('charge_percent_rate', e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                  Applied to bill subtotal, e.g. Rs. 1,419 × 13% = Rs. 184.47
+                </div>
+              </div>
+
+              <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.85rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>Fixed POS Charge</label>
+                  <select
+                    className="input"
+                    style={{ width: 'auto', padding: '0.3rem 0.6rem' }}
+                    value={settings['charge_fixed_enabled'] === 'true' ? 'true' : 'false'}
+                    onChange={e => handleChange('charge_fixed_enabled', e.target.value)}
+                  >
+                    <option value="false">OFF</option>
+                    <option value="true">ON</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.25rem' }}>Amount (Rs. per bill)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="input"
+                    value={settings['charge_fixed_amount'] || '2'}
+                    onChange={e => handleChange('charge_fixed_amount', e.target.value)}
+                  />
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                  A flat amount added once per invoice, regardless of item count — not a percentage.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Printer size={18} style={{ color: 'var(--primary)' }} />
               <span>ESC/POS Thermal Receipt Hardware</span>
             </h3>

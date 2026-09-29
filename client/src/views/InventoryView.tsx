@@ -26,7 +26,8 @@ import {
   Zap,
   Edit,
   Trash2,
-  QrCode
+  QrCode,
+  ScanLine
 } from 'lucide-react';
 
 export interface BatchItem {
@@ -925,7 +926,7 @@ export const InventoryView: React.FC = () => {
           border: scanStatus === 'not_found' ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid rgba(16, 185, 129, 0.4)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flex: 1 }}>
-            <CheckCircle2 size={18} />
+            {scanStatus === 'not_found' ? <ScanLine size={18} /> : <CheckCircle2 size={18} />}
             <span>{scanVerifiedMessage}</span>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -1234,7 +1235,7 @@ export const InventoryView: React.FC = () => {
                   border: scanStatus === 'not_found' ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid rgba(16, 185, 129, 0.4)'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
-                    <CheckCircle2 size={18} />
+                    {scanStatus === 'not_found' ? <ScanLine size={18} /> : <CheckCircle2 size={18} />}
                     <span>{scanVerifiedMessage}</span>
                   </div>
                   {scanStatus === 'not_found' ? (

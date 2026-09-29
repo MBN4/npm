@@ -7,6 +7,12 @@ export interface OfflineSaleItem {
   unitPrice: number;
   discount: number;
   lineTotal: number;
+  descriptionOverride?: string;
+  category?: string;
+  packType?: string;
+  unitsPerPack?: number;
+  packs?: number;
+  looseUnits?: number;
 }
 
 export interface OfflineSale {
@@ -17,6 +23,10 @@ export interface OfflineSale {
   subtotal: number;
   discount: number;
   tax: number;
+  percentageChargeLabel?: string;
+  percentageChargeRate?: number;
+  percentageChargeAmount?: number;
+  fixedChargeAmount?: number;
   totalAmount: number;
   paidAmount: number;
   paymentMethod: string;

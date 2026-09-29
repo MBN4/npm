@@ -696,10 +696,10 @@ inventoryRouter.get('/lookup-barcode', authenticateToken, async (req: Authentica
 
     const searchCode = parsedGTIN || rawCode;
     const strippedCode = searchCode.replace(/^0+/, '');
+    const candidateCodes = Array.from(new Set([rawCode, searchCode, strippedCode].filter(Boolean)));
 
-    // 2. Search active inventory medicines table strictly by barcode
-    const existingMed = db.prepare(`
-      SELECT 
+    const medicineDetailSelect = `
+      SELECT
         m.*,
         g.name as generic_name,
         c.name as category_name,
@@ -712,8 +712,17 @@ inventoryRouter.get('/lookup-barcode', authenticateToken, async (req: Authentica
       LEFT JOIN generics g ON m.generic_id = g.id
       LEFT JOIN categories c ON m.category_id = c.id
       LEFT JOIN manufacturers man ON m.manufacturer_id = man.id
-      WHERE m.barcode = ? OR m.custom_barcode = ? OR m.barcode = ? OR m.custom_barcode = ? OR m.barcode = ? OR m.custom_barcode = ? OR m.brand_name LIKE ?
-    `).get(rawCode, rawCode, searchCode, searchCode, strippedCode, strippedCode, `%${rawCode}%`) as any;
+    `;
+
+    // 2. Fast path: exact, indexed match on barcode / custom_barcode (no LIKE, no scan)
+    const exactPlaceholders = candidateCodes.map(() => '(m.barcode = ? OR m.custom_barcode = ?)').join(' OR ');
+    const exactParams = candidateCodes.flatMap(code => [code, code]);
+    let existingMed = db.prepare(`${medicineDetailSelect} WHERE ${exactPlaceholders} LIMIT 1`).get(...exactParams) as any;
+
+    // 3. Slow fallback: only reached when no exact barcode match exists
+    if (!existingMed) {
+      existingMed = db.prepare(`${medicineDetailSelect} WHERE m.brand_name LIKE ? LIMIT 1`).get(`%${rawCode}%`) as any;
+    }
 
 
     if (existingMed) {

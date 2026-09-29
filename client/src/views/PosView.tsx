@@ -14,7 +14,9 @@ import {
   CheckCircle,
   QrCode,
   UserPlus,
-  DollarSign
+  DollarSign,
+  ScanLine,
+  Pencil
 } from 'lucide-react';
 import { saveOfflineSale } from '../services/offlineSync.js';
 import { printThermalElement } from '../utils/thermalPrinter.js';
@@ -43,7 +45,25 @@ export interface CartItem {
   discount: number;
   lineTotal: number;
   availableBatches?: any[];
+  // Cash Memo grid fields (per-invoice, editable; never mutate Medicine Master)
+  descriptionOverride?: string;
+  categoryOverride?: string;
+  packTypeOverride?: string;
+  unitsPerPack: number;
+  packs: number;
+  looseUnits: number;
+  originalUnitPrice?: number;
+  rateOverridden?: boolean;
 }
+
+export const BILL_LINE_CATEGORIES = [
+  'Tablet', 'Capsule', 'Syrup', 'Drops', 'Injection', 'Cream', 'Ointment',
+  'Gel', 'Sachet', 'Bottle', 'Medical Device', 'Other'
+];
+
+export const BILL_LINE_PACK_TYPES = [
+  'Strip', 'Box', 'Bottle', 'Tube', 'Piece', 'Vial', 'Ampoule', 'Sachet', 'Pack'
+];
 
 export const PosView: React.FC = () => {
   const { token, user, hasRole } = useAuth();
@@ -205,6 +225,8 @@ export const PosView: React.FC = () => {
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [scannedNotFoundCode, setScannedNotFoundCode] = useState<string | null>(null);
+  const [editingDescriptionIndex, setEditingDescriptionIndex] = useState<number | null>(null);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [directPrinting, setDirectPrinting] = useState(false);
   const [autoPrint, setAutoPrint] = useState<boolean>(() => {
@@ -245,7 +267,13 @@ export const PosView: React.FC = () => {
     const currentCart = [...cartRef.current];
     const currentSubtotal = currentCart.reduce((sum, it) => sum + it.lineTotal, 0);
     const disc = Number(billDiscountRef.current) || 0;
-    const currentPrintFee = 2.00;
+    const currentPercentEnabled = settings['charge_percent_enabled'] === 'true';
+    const currentPercentLabel = settings['charge_percent_label'] || 'Sales Tax';
+    const currentPercentRate = settings['charge_percent_rate'] !== undefined ? Number(settings['charge_percent_rate']) : 13;
+    const currentPercentAmount = currentPercentEnabled ? (currentSubtotal * currentPercentRate) / 100 : 0;
+    const currentFixedEnabled = settings['charge_fixed_enabled'] === 'true';
+    const currentFixedAmount = currentFixedEnabled ? (settings['charge_fixed_amount'] !== undefined ? Number(settings['charge_fixed_amount']) : 2) : 0;
+    const currentPrintFee = currentPercentAmount + currentFixedAmount;
     const total = Math.max(0, currentSubtotal - disc + currentPrintFee);
 
     setInfoMessage(`QR Payment Verified: Rs. ${eventData.amount} (${eventData.provider})`);
@@ -264,11 +292,21 @@ export const PosView: React.FC = () => {
             batchId: it.batchId,
             quantity: it.quantity,
             unitPrice: it.unitPrice,
-            discount: it.discount
+            discount: it.discount,
+            descriptionOverride: it.descriptionOverride,
+            category: it.categoryOverride || it.categoryName,
+            packType: it.packTypeOverride,
+            unitsPerPack: it.unitsPerPack,
+            packs: it.packs,
+            looseUnits: it.looseUnits
           })),
           subtotal: currentSubtotal,
           discount: disc,
           tax: currentPrintFee,
+          percentageChargeLabel: currentPercentEnabled ? currentPercentLabel : '',
+          percentageChargeRate: currentPercentEnabled ? currentPercentRate : 0,
+          percentageChargeAmount: currentPercentAmount,
+          fixedChargeAmount: currentFixedAmount,
           totalAmount: total,
           paidAmount: eventData.amount,
           paymentMethod: method,
@@ -391,9 +429,7 @@ export const PosView: React.FC = () => {
 
         if (settingsRes.ok) {
           const sData = await settingsRes.json();
-          const map: Record<string, string> = {};
-          (sData.settings || []).forEach((s: any) => { map[s.key] = s.value; });
-          setSettings(map);
+          setSettings(sData.settings || {});
         }
       } catch (err) {
         console.error(err);
@@ -478,15 +514,21 @@ export const PosView: React.FC = () => {
       looseUnitsToAdd = 1 * count;
     }
 
+    const isMultiTier = (product.packaging_type || packaging.packagingType) === 'MULTI_TIER';
+    const unitsPerPack = isMultiTier ? tabletsPerPack : 1;
+
     const existingIndex = cart.findIndex(it => it.batchId === batch.batch_id);
     if (existingIndex > -1) {
       const updated = [...cart];
-      if (updated[existingIndex].quantity + looseUnitsToAdd > batch.quantity) {
+      const newTotalQty = updated[existingIndex].quantity + looseUnitsToAdd;
+      if (newTotalQty > batch.quantity) {
         setErrorMessage(`Cannot exceed available stock (${batch.quantity} ${packaging.unitPlural.toLowerCase()}).`);
         return;
       }
-      updated[existingIndex].quantity += looseUnitsToAdd;
-      updated[existingIndex].lineTotal = (updated[existingIndex].quantity * updated[existingIndex].unitPrice) - updated[existingIndex].discount;
+      updated[existingIndex].quantity = newTotalQty;
+      updated[existingIndex].packs = isMultiTier ? Math.floor(newTotalQty / unitsPerPack) : newTotalQty;
+      updated[existingIndex].looseUnits = isMultiTier ? newTotalQty % unitsPerPack : 0;
+      updated[existingIndex].lineTotal = (newTotalQty * updated[existingIndex].unitPrice) - updated[existingIndex].discount;
       setCart(updated);
     } else {
       if (looseUnitsToAdd > batch.quantity) {
@@ -512,7 +554,11 @@ export const PosView: React.FC = () => {
         quantity: looseUnitsToAdd,
         discount: 0,
         lineTotal: looseUnitsToAdd * Number(batch.sale_price),
-        availableBatches: product.available_batches
+        availableBatches: product.available_batches,
+        unitsPerPack,
+        packs: isMultiTier ? Math.floor(looseUnitsToAdd / unitsPerPack) : looseUnitsToAdd,
+        looseUnits: isMultiTier ? looseUnitsToAdd % unitsPerPack : 0,
+        packTypeOverride: isMultiTier ? (packaging.middle || 'Strip') : (packaging.unit || 'Bottle')
       };
       setCart([newItem, ...cart]);
     }
@@ -522,14 +568,19 @@ export const PosView: React.FC = () => {
     searchInputRef.current?.focus();
   };
 
-  const handleUpdateQty = (index: number, newQty: number) => {
+  /** Editable Cash Memo grid: user directly edits Packs / Loose Units for a row. */
+  const handleUpdatePacksLoose = (index: number, packs: number, looseUnits: number) => {
     setErrorMessage(null);
+    const item = cart[index];
+    const unitsPerPack = item.unitsPerPack || 1;
+    const safePacks = Math.max(0, Math.floor(packs) || 0);
+    const safeLoose = Math.max(0, Math.floor(looseUnits) || 0);
+    const newQty = (safePacks * unitsPerPack) + safeLoose;
+
     if (newQty <= 0) {
       handleRemoveItem(index);
       return;
     }
-
-    const item = cart[index];
     if (newQty > item.availableStock) {
       const packaging = getProductPackaging(item.dosageForm, item.stockUnit, item.categoryName);
       setErrorMessage(`Cannot exceed available stock (${item.availableStock} ${packaging.unitPlural.toLowerCase()}).`);
@@ -537,8 +588,31 @@ export const PosView: React.FC = () => {
     }
 
     const updated = [...cart];
+    updated[index].packs = safePacks;
+    updated[index].looseUnits = safeLoose;
     updated[index].quantity = newQty;
     updated[index].lineTotal = (newQty * updated[index].unitPrice) - updated[index].discount;
+    setCart(updated);
+  };
+
+  /** Editable Cash Memo grid: user directly edits the Rate for this invoice line only. */
+  const handleUpdateRate = (index: number, newRate: number) => {
+    if (isNaN(newRate) || newRate < 0) return;
+    const updated = [...cart];
+    const item = updated[index];
+    if (item.originalUnitPrice === undefined) {
+      item.originalUnitPrice = item.unitPrice;
+    }
+    item.unitPrice = newRate;
+    item.rateOverridden = newRate !== item.originalUnitPrice;
+    item.lineTotal = (item.quantity * newRate) - item.discount;
+    setCart(updated);
+  };
+
+  /** Editable Cash Memo grid: per-invoice text overrides (never mutate Medicine Master). */
+  const handleUpdateLineField = (index: number, field: 'descriptionOverride' | 'categoryOverride' | 'packTypeOverride', value: string) => {
+    const updated = [...cart];
+    (updated[index] as any)[field] = value;
     setCart(updated);
   };
 
@@ -571,10 +645,19 @@ export const PosView: React.FC = () => {
     searchInputRef.current?.focus();
   };
 
-  const printFee = cart.length > 0 ? 2.00 : 0.00;
   const subtotal = cart.reduce((acc, it) => acc + it.lineTotal, 0);
   const rawDiscount = Number(billDiscount) || 0;
   const discountVal = discountType === 'PERCENT' ? (subtotal * rawDiscount) / 100 : rawDiscount;
+
+  const percentChargeEnabled = settings['charge_percent_enabled'] === 'true';
+  const percentChargeLabel = settings['charge_percent_label'] || 'Sales Tax';
+  const percentChargeRate = settings['charge_percent_rate'] !== undefined ? Number(settings['charge_percent_rate']) : 13;
+  const percentChargeAmount = cart.length > 0 && percentChargeEnabled ? (subtotal * percentChargeRate) / 100 : 0;
+
+  const fixedChargeEnabled = settings['charge_fixed_enabled'] === 'true';
+  const fixedChargeAmount = cart.length > 0 && fixedChargeEnabled ? (settings['charge_fixed_amount'] !== undefined ? Number(settings['charge_fixed_amount']) : 2) : 0;
+
+  const printFee = percentChargeAmount + fixedChargeAmount;
   const grandTotal = cart.length > 0 ? Math.max(0, subtotal + printFee - discountVal) : 0;
   const numericPaid = paidAmount === '' ? (paymentMethod === 'CREDIT' ? 0 : grandTotal) : Number(paidAmount);
   const change = Math.max(0, numericPaid - grandTotal);
@@ -695,11 +778,21 @@ export const PosView: React.FC = () => {
             batchId: it.batchId,
             quantity: it.quantity,
             unitPrice: it.unitPrice,
-            discount: it.discount
+            discount: it.discount,
+            descriptionOverride: it.descriptionOverride,
+            category: it.categoryOverride || it.categoryName,
+            packType: it.packTypeOverride,
+            unitsPerPack: it.unitsPerPack,
+            packs: it.packs,
+            looseUnits: it.looseUnits
           })),
           subtotal,
           discount: discountVal,
           tax: printFee,
+          percentageChargeLabel: percentChargeEnabled ? percentChargeLabel : '',
+          percentageChargeRate: percentChargeEnabled ? percentChargeRate : 0,
+          percentageChargeAmount: percentChargeAmount,
+          fixedChargeAmount: fixedChargeAmount,
           totalAmount: grandTotal,
           paidAmount: numericPaid,
           paymentMethod,
@@ -745,11 +838,21 @@ export const PosView: React.FC = () => {
             quantity: it.quantity,
             unitPrice: it.unitPrice,
             discount: it.discount,
-            lineTotal: it.lineTotal
+            lineTotal: it.lineTotal,
+            descriptionOverride: it.descriptionOverride,
+            category: it.categoryOverride || it.categoryName,
+            packType: it.packTypeOverride,
+            unitsPerPack: it.unitsPerPack,
+            packs: it.packs,
+            looseUnits: it.looseUnits
           })),
           subtotal,
           discount: discountVal,
           tax: printFee,
+          percentageChargeLabel: percentChargeEnabled ? percentChargeLabel : '',
+          percentageChargeRate: percentChargeEnabled ? percentChargeRate : 0,
+          percentageChargeAmount: percentChargeAmount,
+          fixedChargeAmount: fixedChargeAmount,
           totalAmount: grandTotal,
           paidAmount: numericPaid,
           paymentMethod,
@@ -939,6 +1042,50 @@ export const PosView: React.FC = () => {
         </div>
       )}
 
+      {scannedNotFoundCode && (
+        <div
+          style={{
+            padding: '0.85rem 1rem',
+            background: 'var(--warning-light)',
+            color: 'var(--warning-text)',
+            borderRadius: 'var(--radius-md)',
+            marginBottom: '0.85rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            border: '1px solid rgba(245, 158, 11, 0.35)'
+          }}
+        >
+          <div
+            style={{
+              width: '34px',
+              height: '34px',
+              borderRadius: '50%',
+              background: 'rgba(245, 158, 11, 0.15)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
+            }}
+          >
+            <ScanLine size={18} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>Barcode Not Found</div>
+            <div style={{ fontSize: '0.78rem', opacity: 0.9 }}>
+              No product matches code <strong style={{ fontFamily: "'JetBrains Mono', monospace" }}>{scannedNotFoundCode}</strong>. Register it in Medicines Master to start selling this item.
+            </div>
+          </div>
+          <button
+            onClick={() => setScannedNotFoundCode(null)}
+            className="btn btn-secondary btn-sm"
+            style={{ padding: '0.2rem', flexShrink: 0 }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {showCameraScanner && (
         <div className="modal-overlay">
           <div className="modal-content" style={{ maxWidth: '420px', padding: '1.25rem' }}>
@@ -989,6 +1136,9 @@ export const PosView: React.FC = () => {
                     const codeToSearch = query.trim();
                     if (!codeToSearch) return;
 
+                    setErrorMessage(null);
+                    setScannedNotFoundCode(null);
+
                     if (searchResults.length > 0) {
                       handleAddToCart(searchResults[0]);
                       setQuery('');
@@ -1006,10 +1156,18 @@ export const PosView: React.FC = () => {
                           handleAddToCart(data.results[0]);
                           setQuery('');
                           setSearchResults([]);
+                        } else {
+                          setScannedNotFoundCode(codeToSearch);
+                          setQuery('');
+                          setSearchResults([]);
+                          setTimeout(() => setScannedNotFoundCode(null), 4000);
                         }
+                      } else {
+                        setErrorMessage('Barcode lookup failed. Please try again.');
                       }
                     } catch (err) {
                       console.error(err);
+                      setErrorMessage('Barcode lookup failed. Please check your connection.');
                     }
                   }
                 }}
@@ -1157,129 +1315,154 @@ export const PosView: React.FC = () => {
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
+                <table style={{ width: '100%', fontSize: '0.76rem', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                      <th style={{ padding: '0.5rem' }}>Medicine & Packaging</th>
-                      <th style={{ padding: '0.5rem' }}>Batch / Expiry</th>
-                      <th style={{ padding: '0.5rem', textAlign: 'right' }}>Price Rate</th>
-                      <th style={{ padding: '0.5rem', textAlign: 'center' }}>Dispensed Qty</th>
-                      <th style={{ padding: '0.5rem', textAlign: 'right' }}>Subtotal</th>
-                      <th style={{ padding: '0.5rem', width: '30px' }}></th>
+                      <th style={{ padding: '0.4rem' }}>S.#</th>
+                      <th style={{ padding: '0.4rem', minWidth: '160px' }}>Item Description</th>
+                      <th style={{ padding: '0.4rem', minWidth: '100px' }}>Category</th>
+                      <th style={{ padding: '0.4rem', minWidth: '90px' }}>Pack Type</th>
+                      <th style={{ padding: '0.4rem', textAlign: 'center', width: '70px' }}>Units/Pack</th>
+                      <th style={{ padding: '0.4rem', textAlign: 'center', width: '60px' }}>Packs</th>
+                      <th style={{ padding: '0.4rem', textAlign: 'center', width: '70px' }}>Loose Units</th>
+                      <th style={{ padding: '0.4rem', textAlign: 'center', width: '60px' }}>Total Units</th>
+                      <th style={{ padding: '0.4rem', textAlign: 'right', width: '85px' }}>Rate (Rs.)</th>
+                      <th style={{ padding: '0.4rem', textAlign: 'right', width: '90px' }}>Total (Rs.)</th>
+                      <th style={{ padding: '0.4rem', width: '60px' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {cart.map((item, index) => {
-                      const pSize = Number(item.packSize) > 0 ? Number(item.packSize) : 100;
-                      const tPack = Number(item.tabletsPerPack) > 0 ? Number(item.tabletsPerPack) : 10;
                       const itemPackaging = getProductPackaging(item.dosageForm, item.stockUnit, item.categoryName);
                       const itemIsMultiTier = (item.packagingType || itemPackaging.packagingType) === 'MULTI_TIER';
-                      const packagingText = formatPackagingBreakdown(item.quantity, pSize, tPack, item.dosageForm, item.stockUnit, item.categoryName);
+                      const strengthAlreadyInName = item.strength && item.brandName.toLowerCase().includes(item.strength.toLowerCase());
+                      const displayDescription = item.descriptionOverride !== undefined && item.descriptionOverride !== ''
+                        ? item.descriptionOverride
+                        : `${item.brandName}${item.strength && !strengthAlreadyInName ? ' ' + item.strength : ''}`;
 
                       return (
                         <tr key={index} style={{ borderBottom: '1px solid var(--border)' }}>
-                          <td style={{ padding: '0.6rem 0.5rem' }}>
-                            <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>{item.brandName}</div>
-                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.15rem' }}>
-                              <span>{item.strength} • {item.dosageForm}</span>
-                              <span style={{ fontSize: '0.68rem', padding: '0.05rem 0.35rem', borderRadius: '4px', background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
-                                {itemPackaging.outer}: {pSize} {itemPackaging.unitPlural}{itemIsMultiTier ? ` (${tPack} per ${itemPackaging.middle.toLowerCase()})` : ''}
-                              </span>
-                            </div>
-                            <div style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--primary)', marginTop: '0.25rem' }}>
-                              Dispensing: {packagingText} ({item.quantity} {itemPackaging.unitPlural.toLowerCase()})
+                          <td style={{ padding: '0.4rem', color: 'var(--text-muted)' }}>{index + 1}</td>
+                          <td style={{ padding: '0.4rem' }}>
+                            {editingDescriptionIndex === index ? (
+                              <input
+                                className="input input-sm"
+                                autoFocus
+                                value={displayDescription}
+                                onChange={e => handleUpdateLineField(index, 'descriptionOverride', e.target.value)}
+                                onBlur={() => setEditingDescriptionIndex(null)}
+                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); setEditingDescriptionIndex(null); } }}
+                                style={{ fontSize: '0.76rem', padding: '0.2rem 0.4rem', height: '28px' }}
+                              />
+                            ) : (
+                              <div style={{ fontWeight: 700 }}>{displayDescription}</div>
+                            )}
+                            <div style={{ marginTop: '0.2rem' }}>
+                              <select
+                                className="input input-sm"
+                                value={item.batchId}
+                                onChange={(e) => handleSwitchBatch(index, Number(e.target.value))}
+                                style={{ fontSize: '0.65rem', padding: '0.1rem 0.3rem', height: '22px', color: 'var(--text-muted)' }}
+                                title="Batch (FEFO)"
+                              >
+                                {item.availableBatches?.map(b => (
+                                  <option key={b.batch_id} value={b.batch_id}>
+                                    #{b.batch_number} (Exp: {b.expiry_date}) - {b.quantity} left
+                                  </option>
+                                ))}
+                              </select>
                             </div>
                           </td>
-                          <td style={{ padding: '0.6rem 0.5rem' }}>
+                          <td style={{ padding: '0.4rem' }}>
                             <select
                               className="input input-sm"
-                              value={item.batchId}
-                              onChange={(e) => handleSwitchBatch(index, Number(e.target.value))}
-                              style={{ fontSize: '0.72rem', padding: '0.2rem 0.4rem', height: '28px' }}
+                              value={item.categoryOverride || item.categoryName || ''}
+                              onChange={e => handleUpdateLineField(index, 'categoryOverride', e.target.value)}
+                              style={{ fontSize: '0.72rem', padding: '0.2rem 0.3rem', height: '28px' }}
                             >
-                              {item.availableBatches?.map(b => (
-                                <option key={b.batch_id} value={b.batch_id}>
-                                  #{b.batch_number} (Exp: {b.expiry_date}) - {b.quantity} left
+                              {!BILL_LINE_CATEGORIES.includes(item.categoryOverride || item.categoryName || '') && (
+                                <option value={item.categoryOverride || item.categoryName || ''}>
+                                  {item.categoryOverride || item.categoryName || '—'}
                                 </option>
-                              ))}
+                              )}
+                              {BILL_LINE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
                           </td>
-                          <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right' }}>
-                            <div style={{ fontWeight: 700 }}>Rs. {item.unitPrice.toFixed(2)} / {itemPackaging.unit.toLowerCase()}</div>
-                            {itemIsMultiTier && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                              Rs. {(item.unitPrice * tPack).toFixed(2)} / {itemPackaging.middle.toLowerCase()}
-                            </div>}
-                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                              Rs. {(item.unitPrice * pSize).toFixed(2)} / {itemPackaging.outer.toLowerCase()}
-                            </div>
+                          <td style={{ padding: '0.4rem' }}>
+                            <select
+                              className="input input-sm"
+                              value={item.packTypeOverride || itemPackaging.middle || 'Strip'}
+                              onChange={e => handleUpdateLineField(index, 'packTypeOverride', e.target.value)}
+                              style={{ fontSize: '0.72rem', padding: '0.2rem 0.3rem', height: '28px' }}
+                            >
+                              {BILL_LINE_PACK_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
+                            </select>
                           </td>
-                          <td style={{ padding: '0.6rem 0.5rem', textAlign: 'center' }}>
-                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
-                              <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateQty(index, item.quantity - 1)}
-                                  style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.5rem', cursor: 'pointer', fontWeight: 800 }}
-                                  title={`Decrease 1 ${itemPackaging.unit.toLowerCase()}`}
-                                >
-                                  -
-                                </button>
-                                <span style={{ padding: '0.2rem 0.6rem', fontWeight: 800, fontSize: '0.88rem', minWidth: '36px', textAlign: 'center' }}>
-                                  {item.quantity}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateQty(index, item.quantity + 1)}
-                                  style={{ border: 'none', background: 'var(--bg-surface)', padding: '0.2rem 0.5rem', cursor: 'pointer', fontWeight: 800 }}
-                                  title={`Increase 1 ${itemPackaging.unit.toLowerCase()}`}
-                                >
-                                  +
-                                </button>
-                              </div>
-
-                              <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateQty(index, item.quantity + 1)}
-                                  className="btn btn-secondary btn-sm"
-                                  style={{ fontSize: '0.65rem', padding: '0.15rem 0.35rem', whiteSpace: 'nowrap' }}
-                                  title={`Add 1 ${itemPackaging.unit.toLowerCase()}`}
-                                >
-                                  +1 {itemPackaging.unit}
-                                </button>
-                                {itemIsMultiTier && <button
-                                  type="button"
-                                  onClick={() => handleUpdateQty(index, item.quantity + tPack)}
-                                  className="btn btn-secondary btn-sm"
-                                  style={{ fontSize: '0.65rem', padding: '0.15rem 0.35rem', whiteSpace: 'nowrap', color: 'var(--primary)' }}
-                                  title={`Add 1 ${itemPackaging.middle.toLowerCase()} (${tPack} ${itemPackaging.unitPlural.toLowerCase()})`}
-                                >
-                                  +1 {itemPackaging.middle}
-                                </button>
-                                }
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateQty(index, item.quantity + pSize)}
-                                  className="btn btn-secondary btn-sm"
-                                  style={{ fontSize: '0.65rem', padding: '0.15rem 0.35rem', whiteSpace: 'nowrap' }}
-                                  title={`Add 1 ${itemPackaging.outer.toLowerCase()} (${pSize} ${itemPackaging.unitPlural.toLowerCase()})`}
-                                >
-                                  +1 {itemPackaging.outer}
-                                </button>
-                              </div>
-                            </div>
+                          <td style={{ padding: '0.4rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                            {item.unitsPerPack}
                           </td>
-                          <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', fontWeight: 800, fontSize: '0.9rem' }}>
+                          <td style={{ padding: '0.4rem' }}>
+                            <input
+                              type="number"
+                              min="0"
+                              className="input input-sm"
+                              value={item.packs}
+                              disabled={!itemIsMultiTier}
+                              onChange={e => handleUpdatePacksLoose(index, Number(e.target.value), item.looseUnits)}
+                              style={{ fontSize: '0.76rem', padding: '0.2rem 0.3rem', height: '28px', width: '52px', textAlign: 'center' }}
+                            />
+                          </td>
+                          <td style={{ padding: '0.4rem' }}>
+                            <input
+                              type="number"
+                              min="0"
+                              className="input input-sm"
+                              value={item.looseUnits}
+                              onChange={e => handleUpdatePacksLoose(index, item.packs, Number(e.target.value))}
+                              style={{ fontSize: '0.76rem', padding: '0.2rem 0.3rem', height: '28px', width: '58px', textAlign: 'center' }}
+                            />
+                          </td>
+                          <td style={{ padding: '0.4rem', textAlign: 'center', fontWeight: 800 }}>
+                            {item.quantity}
+                          </td>
+                          <td style={{ padding: '0.4rem' }}>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="input input-sm"
+                              value={item.unitPrice}
+                              onChange={e => handleUpdateRate(index, Number(e.target.value))}
+                              style={{
+                                fontSize: '0.76rem', padding: '0.2rem 0.3rem', height: '28px', width: '75px', textAlign: 'right',
+                                color: item.rateOverridden ? 'var(--warning-text)' : undefined,
+                                fontWeight: item.rateOverridden ? 700 : undefined
+                              }}
+                              title={item.rateOverridden ? `Overridden from Rs. ${item.originalUnitPrice?.toFixed(2)}` : undefined}
+                            />
+                          </td>
+                          <td style={{ padding: '0.4rem', textAlign: 'right', fontWeight: 800 }}>
                             Rs. {item.lineTotal.toFixed(2)}
                           </td>
-                          <td style={{ padding: '0.6rem 0.5rem', textAlign: 'center' }}>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveItem(index)}
-                              style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer' }}
-                            >
-                              <X size={15} />
-                            </button>
+                          <td style={{ padding: '0.4rem', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', gap: '0.3rem', justifyContent: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => setEditingDescriptionIndex(index)}
+                                style={{ border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                                title="Edit item description for this invoice"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(index)}
+                                style={{ border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer' }}
+                                title="Remove item"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1517,10 +1700,18 @@ export const PosView: React.FC = () => {
                 <span>Subtotal:</span>
                 <span>Rs. {subtotal.toFixed(2)}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
-                <span>POS Receipt Fee:</span>
-                <span>Rs. {printFee.toFixed(2)}</span>
-              </div>
+              {percentChargeEnabled && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                  <span>{percentChargeLabel} ({percentChargeRate}%):</span>
+                  <span>Rs. {percentChargeAmount.toFixed(2)}</span>
+                </div>
+              )}
+              {fixedChargeEnabled && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                  <span>POS Charge:</span>
+                  <span>Rs. {fixedChargeAmount.toFixed(2)}</span>
+                </div>
+              )}
               {discountVal > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--danger)' }}>
                   <span>Discount:</span>
