@@ -6,6 +6,7 @@ const phaseDetails: Record<NavView, { phase: string; title: string; desc: string
   dashboard: { phase: 'Live', title: 'Dashboard', desc: 'Real-time operational dashboard & quick actions.' },
   pos: { phase: 'Live', title: 'POS & Billing Counter', desc: 'Fast medicine search, barcode reader, FEFO batch selection, held bills, sales returns, 80mm thermal receipt.' },
   'cash-memo': { phase: 'Live', title: 'Cash Memo & Quick Dispense', desc: 'Category-filtered fast dispense, loose/pack calculator, and interactive cash memo billing.' },
+  'bill-history': { phase: 'Live', title: 'Bill Barcode Scanner & History', desc: 'Scan bill barcode to view full item breakdown, totals, ledger timeline, and reprint to Speed-X or A4.' },
   medicines: { phase: 'Live', title: 'Medicine Master', desc: 'Brand names, generics, manufacturers, dosages, strengths, custom barcodes, and rack locations.' },
   inventory: { phase: 'Live', title: 'Batch Inventory & Stock', desc: 'Batch tracking, physical count adjustments, stock valuation, and movement traceability.' },
   purchases: { phase: 'Live', title: 'Purchases & Inward Goods', desc: 'Supplier purchase invoices, batch creation, bonus quantities, and purchase returns.' },

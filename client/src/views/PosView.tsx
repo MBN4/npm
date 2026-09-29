@@ -1974,9 +1974,9 @@ export const PosView: React.FC = () => {
               {/* Barcode & QR Code Section */}
               <div style={{ textAlign: 'center', marginTop: '10px', paddingTop: '6px', borderTop: '1px dashed #000' }}>
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4px' }}>
-                  <SimpleQRCodeSVG value={lastInvoice.invoiceNumber} size={54} />
+                  <SimpleQRCodeSVG value={settings['pharmacy_maps_url'] || 'https://maps.app.goo.gl/cUe3jLr2kngNTnt2A'} size={54} />
                 </div>
-                <div style={{ fontSize: '8.5px', fontWeight: 700 }}>Scan QR Code for Verification</div>
+                <div style={{ fontSize: '8.5px', fontWeight: 700 }}>Scan QR for Pharmacy Location 📍</div>
                 <div style={{ marginTop: '6px', display: 'flex', justifyContent: 'center' }}>
                   <Barcode128 value={lastInvoice.invoiceNumber} width={1.2} height={26} fontSize={9} />
                 </div>

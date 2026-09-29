@@ -458,22 +458,97 @@ posRouter.delete('/held/:id', authenticateToken, (req: AuthenticatedRequest, res
   res.json({ message: 'Held bill removed' });
 });
 
-posRouter.get('/invoices/:invoiceNumber', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  const invoiceNum = req.params.invoiceNumber;
+posRouter.get('/invoices-recent', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 30, 100);
+    const q = ((req.query.q as string) || '').trim();
 
-  const sale = db.prepare(`
+    let query = `
+      SELECT 
+        s.id,
+        s.invoice_number,
+        s.customer_id,
+        s.cashier_id,
+        s.billing_person_id,
+        s.custom_slip_name,
+        s.subtotal,
+        s.discount,
+        s.tax,
+        s.total_amount,
+        s.paid_amount,
+        s.remaining_amount,
+        s.change_amount,
+        s.payment_method,
+        s.status,
+        s.notes,
+        s.created_at,
+        c.name as customer_name,
+        c.mobile as customer_phone,
+        u.full_name as cashier_name,
+        bp.name as billing_person_name,
+        (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = s.id) as item_count,
+        (SELECT SUM(quantity) FROM sale_items si WHERE si.sale_id = s.id) as total_units
+      FROM sales s
+      LEFT JOIN customers c ON s.customer_id = c.id
+      LEFT JOIN users u ON s.cashier_id = u.id
+      LEFT JOIN billing_persons bp ON s.billing_person_id = bp.id
+    `;
+
+    const params: any[] = [];
+    if (q) {
+      query += ` WHERE s.invoice_number LIKE ? OR LOWER(s.invoice_number) = LOWER(?) OR c.name LIKE ? OR c.mobile LIKE ? OR s.custom_slip_name LIKE ?`;
+      const cleanQ = q.replace(/^#/, '');
+      const searchVal = `%${cleanQ}%`;
+      params.push(searchVal, cleanQ, searchVal, searchVal, searchVal);
+    }
+
+    query += ` ORDER BY s.created_at DESC, s.id DESC LIMIT ?`;
+    params.push(limit);
+
+    const sales = db.prepare(query).all(...params);
+    res.json({ sales });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch invoices', details: err.message });
+  }
+});
+
+posRouter.get('/invoices/:invoiceNumber', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const rawNum = String(req.params.invoiceNumber || '').trim();
+  const cleanNum = rawNum.replace(/^#/, '').trim();
+
+  let sale = db.prepare(`
     SELECT 
       s.*,
-      c.name as customer_name, c.mobile as customer_phone,
-      u.full_name as cashier_name
+      c.name as customer_name, c.mobile as customer_phone, c.current_balance as customer_balance,
+      u.full_name as cashier_name,
+      bp.name as billing_person_name
     FROM sales s
     LEFT JOIN customers c ON s.customer_id = c.id
     LEFT JOIN users u ON s.cashier_id = u.id
-    WHERE s.invoice_number = ?
-  `).get(invoiceNum);
+    LEFT JOIN billing_persons bp ON s.billing_person_id = bp.id
+    WHERE LOWER(s.invoice_number) = LOWER(?) OR s.invoice_number = ?
+  `).get(cleanNum, cleanNum) as any;
 
   if (!sale) {
-    res.status(404).json({ error: 'Invoice not found' });
+    // Try partial match if exact scan has prefix/suffix
+    sale = db.prepare(`
+      SELECT 
+        s.*,
+        c.name as customer_name, c.mobile as customer_phone, c.current_balance as customer_balance,
+        u.full_name as cashier_name,
+        bp.name as billing_person_name
+      FROM sales s
+      LEFT JOIN customers c ON s.customer_id = c.id
+      LEFT JOIN users u ON s.cashier_id = u.id
+      LEFT JOIN billing_persons bp ON s.billing_person_id = bp.id
+      WHERE s.invoice_number LIKE ?
+      ORDER BY s.id DESC
+      LIMIT 1
+    `).get(`%${cleanNum}%`) as any;
+  }
+
+  if (!sale) {
+    res.status(404).json({ error: `Invoice '${cleanNum}' not found in system` });
     return;
   }
 
@@ -483,14 +558,22 @@ posRouter.get('/invoices/:invoiceNumber', authenticateToken, (req: Authenticated
       m.brand_name, m.strength, m.dosage_form, m.pack_size,
       COALESCE(m.tablets_per_pack, 10) as tablets_per_pack,
       m.stock_unit,
-      b.batch_number, b.expiry_date
+      b.batch_number, b.expiry_date, b.rack_location as batch_rack
     FROM sale_items si
     JOIN medicines m ON si.medicine_id = m.id
     JOIN batches b ON si.batch_id = b.id
     WHERE si.sale_id = ?
+    ORDER BY si.id ASC
   `).all((sale as any).id);
 
-  res.json({ sale, items });
+  // Also fetch customer ledger records related to this invoice if available
+  const ledgerEntries = db.prepare(`
+    SELECT * FROM customer_ledgers
+    WHERE reference_id = ? OR reference_id = ?
+    ORDER BY id ASC
+  `).all(sale.invoice_number, `INV#${sale.invoice_number}`);
+
+  res.json({ sale, items, ledgerEntries });
 });
 
 posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sales'), (req: AuthenticatedRequest, res: Response) => {

@@ -408,9 +408,9 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
               {/* Barcode & QR Code Section */}
               <div style={{ textAlign: 'center', marginTop: '10px', paddingTop: '6px', borderTop: '1px dashed #000' }}>
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4px' }}>
-                  <SimpleQRCodeSVG value={invNo} size={54} />
+                  <SimpleQRCodeSVG value={settings['pharmacy_maps_url'] || 'https://maps.app.goo.gl/cUe3jLr2kngNTnt2A'} size={54} />
                 </div>
-                <div style={{ fontSize: '8.5px', fontWeight: 700 }}>Scan QR Code for Verification</div>
+                <div style={{ fontSize: '8.5px', fontWeight: 700 }}>Scan QR for Pharmacy Location 📍</div>
                 <div style={{ marginTop: '6px', display: 'flex', justifyContent: 'center' }}>
                   <Barcode128 value={invNo} width={1.2} height={26} fontSize={9} />
                 </div>
@@ -702,8 +702,8 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
                   <Barcode128 value={invNo} width={0.95} height={32} showText={true} fontSize={8} />
                 </div>
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', marginBottom: '2px' }}>Scan to View Invoice</div>
-                  <SimpleQRCodeSVG value={invNo} size={50} />
+                  <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', marginBottom: '2px' }}>Pharmacy Location 📍</div>
+                  <SimpleQRCodeSVG value={settings['pharmacy_maps_url'] || 'https://maps.app.goo.gl/cUe3jLr2kngNTnt2A'} size={50} />
                 </div>
                 <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%' }}>
                   <div style={{ fontSize: '0.74rem', fontWeight: 900, color: '#0f172a' }}>

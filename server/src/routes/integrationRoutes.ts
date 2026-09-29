@@ -380,9 +380,10 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     chunks.push(Buffer.from([0x1B, 0x61, 0x01])); // Center
     chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
 
-    const qrRaster = await renderQrRaster(invNo, Math.round(paperDots * 0.3), paperDots);
+    const mapsLocationUrl = settingsMap['pharmacy_maps_url'] || 'https://maps.app.goo.gl/cUe3jLr2kngNTnt2A';
+    const qrRaster = await renderQrRaster(mapsLocationUrl, Math.round(paperDots * 0.32), paperDots);
     if (qrRaster) chunks.push(qrRaster);
-    chunks.push(Buffer.from('Scan QR Code for Verification\n', 'utf8'));
+    chunks.push(Buffer.from('Scan QR for Pharmacy Location\n', 'utf8'));
 
     const barcodeRaster = await renderBarcodeRaster(invNo, Math.round(paperDots * 0.72), 70, paperDots);
     if (barcodeRaster) chunks.push(barcodeRaster);

@@ -12,6 +12,7 @@ import { SuppliersView } from './views/SuppliersView.js';
 import { PurchasesView } from './views/PurchasesView.js';
 import { PosView } from './views/PosView.js';
 import { CashMemoView } from './views/CashMemoView.js';
+import { BillHistoryView } from './views/BillHistoryView.js';
 import { PatientsView } from './views/PatientsView.js';
 import { PrescriptionsView } from './views/PrescriptionsView.js';
 import { ExpiryView } from './views/ExpiryView.js';
@@ -52,6 +53,8 @@ export const AppContent: React.FC = () => {
         return <PosView />;
       case 'cash-memo':
         return <CashMemoView />;
+      case 'bill-history':
+        return <BillHistoryView />;
       case 'medicines':
         return <MedicinesView />;
       case 'inventory':
