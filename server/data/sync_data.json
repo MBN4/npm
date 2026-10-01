@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-01T17:49:38.033Z",
+  "exportedAt": "2026-10-01T18:12:24.569Z",
   "counts": {
     "categories": 46,
     "manufacturers": 16,
@@ -14,10 +14,13 @@
     "billing_persons": 1,
     "purchases": 57,
     "purchase_items": 2,
-    "sales": 168,
-    "sale_items": 23,
+    "sales": 169,
+    "sale_items": 24,
     "prescriptions": 53,
-    "prescription_items": 7
+    "prescription_items": 7,
+    "sales_returns": 0,
+    "sale_return_items": 0,
+    "replacement_items": 0
   },
   "categories": [
     {
@@ -4094,13 +4097,13 @@
       "expiry_date": "2028-06-30",
       "purchase_price": 3.5,
       "sale_price": 4.5,
-      "quantity": 288,
+      "quantity": 278,
       "bonus_quantity": 0,
       "supplier_id": 1,
       "rack_location": "Rack D-1",
       "status": "ACTIVE",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-09-29 11:52:38"
+      "updated_at": "2026-10-01 18:12:24"
     },
     {
       "id": 2,
@@ -10758,6 +10761,29 @@
       "percentage_charge_rate": 0,
       "percentage_charge_amount": 0,
       "fixed_charge_amount": 0
+    },
+    {
+      "id": 169,
+      "invoice_number": "INV-20261001-0001",
+      "customer_id": null,
+      "cashier_id": 1,
+      "subtotal": 45,
+      "discount": 0,
+      "tax": 0,
+      "total_amount": 45,
+      "paid_amount": 45,
+      "remaining_amount": 0,
+      "change_amount": 0,
+      "payment_method": "CASH",
+      "status": "COMPLETED",
+      "notes": null,
+      "created_at": "2026-10-01 18:12:24",
+      "billing_person_id": null,
+      "custom_slip_name": null,
+      "percentage_charge_label": "",
+      "percentage_charge_rate": 0,
+      "percentage_charge_amount": 0,
+      "fixed_charge_amount": 0
     }
   ],
   "sale_items": [
@@ -11146,6 +11172,23 @@
       "line_total": 7,
       "purchase_price_snapshot": 3.5,
       "description_snapshot": null,
+      "category_snapshot": null,
+      "pack_type_snapshot": null,
+      "units_per_pack_snapshot": null,
+      "packs_snapshot": null,
+      "loose_units_snapshot": null
+    },
+    {
+      "id": 172,
+      "sale_id": 169,
+      "medicine_id": 1,
+      "batch_id": 1,
+      "quantity": 10,
+      "unit_price": 4.5,
+      "discount": 0,
+      "line_total": 45,
+      "purchase_price_snapshot": 3.5,
+      "description_snapshot": "Glucophage 250mg",
       "category_snapshot": null,
       "pack_type_snapshot": null,
       "units_per_pack_snapshot": null,
@@ -11756,5 +11799,8 @@
       "timing": "AFTER_FOOD",
       "instructions": "Take after breakfast and dinner"
     }
-  ]
+  ],
+  "sales_returns": [],
+  "sale_return_items": [],
+  "replacement_items": []
 }
