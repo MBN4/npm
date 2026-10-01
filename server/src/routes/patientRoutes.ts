@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requirePermission, AuthenticatedRequest } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
+import { triggerAutoSync } from '../services/gitSyncService.js';
 
 export const patientRouter = Router();
 
@@ -107,6 +108,7 @@ patientRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res: Resp
       ipAddress: req.ip
     });
 
+    triggerAutoSync(`patient ${name.trim()}`);
     res.status(201).json({ message: 'Patient registered successfully', patientId: result.lastInsertRowid });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

@@ -14,6 +14,15 @@ export interface SyncDataExport {
   medicines: any[];
   drug_clinical_info: any[];
   batches: any[];
+  customers: any[];
+  doctors: any[];
+  billing_persons: any[];
+  purchases: any[];
+  purchase_items: any[];
+  sales: any[];
+  sale_items: any[];
+  prescriptions: any[];
+  prescription_items: any[];
 }
 
 const DEFAULT_SYNC_PATH = path.resolve(process.cwd(), 'data', 'sync_data.json');
@@ -38,6 +47,15 @@ export function exportSyncData(outputPath: string = DEFAULT_SYNC_PATH): { succes
     LEFT JOIN manufacturers mf ON mf.id = m.manufacturer_id`).all();
   const drug_clinical_info = db.prepare('SELECT * FROM drug_clinical_info').all();
   const batches = db.prepare('SELECT * FROM batches').all();
+  const customers = db.prepare('SELECT * FROM customers').all();
+  const doctors = db.prepare('SELECT * FROM doctors').all();
+  const billing_persons = db.prepare('SELECT * FROM billing_persons').all();
+  const purchases = db.prepare('SELECT * FROM purchases').all();
+  const purchase_items = db.prepare('SELECT * FROM purchase_items').all();
+  const sales = db.prepare('SELECT * FROM sales').all();
+  const sale_items = db.prepare('SELECT * FROM sale_items').all();
+  const prescriptions = db.prepare('SELECT * FROM prescriptions').all();
+  const prescription_items = db.prepare('SELECT * FROM prescription_items').all();
 
   const counts = {
     categories: categories.length,
@@ -47,6 +65,15 @@ export function exportSyncData(outputPath: string = DEFAULT_SYNC_PATH): { succes
     medicines: medicines.length,
     drug_clinical_info: drug_clinical_info.length,
     batches: batches.length,
+    customers: customers.length,
+    doctors: doctors.length,
+    billing_persons: billing_persons.length,
+    purchases: purchases.length,
+    purchase_items: purchase_items.length,
+    sales: sales.length,
+    sale_items: sale_items.length,
+    prescriptions: prescriptions.length,
+    prescription_items: prescription_items.length,
   };
 
   const payload: SyncDataExport = {
@@ -60,6 +87,15 @@ export function exportSyncData(outputPath: string = DEFAULT_SYNC_PATH): { succes
     medicines,
     drug_clinical_info,
     batches,
+    customers,
+    doctors,
+    billing_persons,
+    purchases,
+    purchase_items,
+    sales,
+    sale_items,
+    prescriptions,
+    prescription_items,
   };
 
   fs.writeFileSync(outputPath, JSON.stringify(payload, null, 2), 'utf8');
@@ -90,6 +126,15 @@ export function importSyncData(inputPath: string = DEFAULT_SYNC_PATH): { success
     medicines: 0,
     drug_clinical_info: 0,
     batches: 0,
+    customers: 0,
+    doctors: 0,
+    billing_persons: 0,
+    purchases: 0,
+    purchase_items: 0,
+    sales: 0,
+    sale_items: 0,
+    prescriptions: 0,
+    prescription_items: 0,
   };
 
   // Disable foreign keys outside transaction (SQLite requirement)
@@ -104,6 +149,15 @@ export function importSyncData(inputPath: string = DEFAULT_SYNC_PATH): { success
       importedCounts.medicines = upsertSyncRows(db, 'medicines', payload.medicines || []);
       importedCounts.drug_clinical_info = upsertSyncRows(db, 'drug_clinical_info', payload.drug_clinical_info || []);
       importedCounts.batches = upsertSyncRows(db, 'batches', payload.batches || []);
+      importedCounts.customers = upsertSyncRows(db, 'customers', payload.customers || []);
+      importedCounts.doctors = upsertSyncRows(db, 'doctors', payload.doctors || []);
+      importedCounts.billing_persons = upsertSyncRows(db, 'billing_persons', payload.billing_persons || []);
+      importedCounts.purchases = upsertSyncRows(db, 'purchases', payload.purchases || []);
+      importedCounts.purchase_items = upsertSyncRows(db, 'purchase_items', payload.purchase_items || []);
+      importedCounts.sales = upsertSyncRows(db, 'sales', payload.sales || []);
+      importedCounts.sale_items = upsertSyncRows(db, 'sale_items', payload.sale_items || []);
+      importedCounts.prescriptions = upsertSyncRows(db, 'prescriptions', payload.prescriptions || []);
+      importedCounts.prescription_items = upsertSyncRows(db, 'prescription_items', payload.prescription_items || []);
     });
 
     syncTx();

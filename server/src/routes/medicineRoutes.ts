@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { db } from '../db/index.js';
 import { authenticateToken, requirePermission, AuthenticatedRequest } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
+import { triggerAutoSync } from '../services/gitSyncService.js';
 
 export const medicineRouter = Router();
 
@@ -224,6 +225,7 @@ medicineRouter.post('/', authenticateToken, requirePermission('manage_medicines'
       ipAddress: req.ip
     });
 
+    triggerAutoSync(`medicine ${result.lastInsertRowid}`);
     res.status(201).json({ message: 'Medicine created successfully', medicineId: result.lastInsertRowid });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
