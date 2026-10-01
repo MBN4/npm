@@ -15,6 +15,7 @@ import { CashMemoView } from './views/CashMemoView.js';
 import { BillHistoryView } from './views/BillHistoryView.js';
 import { PatientsView } from './views/PatientsView.js';
 import { PrescriptionsView } from './views/PrescriptionsView.js';
+import { ReturnsView } from './views/ReturnsView.js';
 import { ExpiryView } from './views/ExpiryView.js';
 import { AccountsView } from './views/AccountsView.js';
 import { BalanceView } from './views/BalanceView.js';
@@ -50,7 +51,7 @@ export const AppContent: React.FC = () => {
       case 'dashboard':
         return <DashboardView onNavigate={setCurrentView} />;
       case 'pos':
-        return <PosView />;
+        return <PosView onNavigate={setCurrentView} />;
       case 'cash-memo':
         return <CashMemoView />;
       case 'bill-history':
@@ -77,6 +78,8 @@ export const AppContent: React.FC = () => {
         return <PrescriptionsView />;
       case 'patients':
         return <PatientsView />;
+      case 'returns':
+        return <ReturnsView />;
       case 'expiry':
         return <ExpiryView />;
       case 'accounts':

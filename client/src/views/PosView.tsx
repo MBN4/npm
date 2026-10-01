@@ -16,8 +16,10 @@ import {
   UserPlus,
   DollarSign,
   ScanLine,
-  Pencil
+  Pencil,
+  RotateCcw
 } from 'lucide-react';
+import type { NavView } from '../components/Sidebar.js';
 import { saveOfflineSale } from '../services/offlineSync.js';
 import { printThermalElement } from '../utils/thermalPrinter.js';
 import { CustomerSelect } from '../components/CustomerSelect.js';
@@ -65,7 +67,11 @@ export const BILL_LINE_PACK_TYPES = [
   'Strip', 'Box', 'Bottle', 'Tube', 'Piece', 'Vial', 'Ampoule', 'Sachet', 'Pack'
 ];
 
-export const PosView: React.FC = () => {
+interface PosViewProps {
+  onNavigate?: (view: NavView) => void;
+}
+
+export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
   const { token, user, hasRole } = useAuth();
 
   const [query, setQuery] = useState('');
@@ -970,6 +976,18 @@ export const PosView: React.FC = () => {
             <DollarSign size={14} />
             <span>💸 Cash Out</span>
           </button>
+
+          {onNavigate && hasRole(['Admin', 'Pharmacist']) && (
+            <button
+              onClick={() => onNavigate('returns')}
+              className="btn btn-secondary btn-sm"
+              style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 700 }}
+              title="Process a return, refund or replacement against a previous bill"
+            >
+              <RotateCcw size={14} />
+              <span>↩ Returns / Replace</span>
+            </button>
+          )}
 
           {lastInvoice && (
             <button

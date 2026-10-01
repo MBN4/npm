@@ -6,7 +6,8 @@ const SYNC_TABLES = new Set([
   'customers', 'doctors', 'billing_persons',
   'purchases', 'purchase_items',
   'sales', 'sale_items',
-  'prescriptions', 'prescription_items'
+  'prescriptions', 'prescription_items',
+  'sales_returns', 'sale_return_items', 'replacement_items'
 ]);
 
 /** Import a catalog row while resolving medicine relationships by name across devices. */

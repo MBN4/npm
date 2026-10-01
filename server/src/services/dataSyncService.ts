@@ -23,6 +23,9 @@ export interface SyncDataExport {
   sale_items: any[];
   prescriptions: any[];
   prescription_items: any[];
+  sales_returns: any[];
+  sale_return_items: any[];
+  replacement_items: any[];
 }
 
 const DEFAULT_SYNC_PATH = path.resolve(process.cwd(), 'data', 'sync_data.json');
@@ -56,6 +59,9 @@ export function exportSyncData(outputPath: string = DEFAULT_SYNC_PATH): { succes
   const sale_items = db.prepare('SELECT * FROM sale_items').all();
   const prescriptions = db.prepare('SELECT * FROM prescriptions').all();
   const prescription_items = db.prepare('SELECT * FROM prescription_items').all();
+  const sales_returns = db.prepare('SELECT * FROM sales_returns').all();
+  const sale_return_items = db.prepare('SELECT * FROM sale_return_items').all();
+  const replacement_items = db.prepare('SELECT * FROM replacement_items').all();
 
   const counts = {
     categories: categories.length,
@@ -74,6 +80,9 @@ export function exportSyncData(outputPath: string = DEFAULT_SYNC_PATH): { succes
     sale_items: sale_items.length,
     prescriptions: prescriptions.length,
     prescription_items: prescription_items.length,
+    sales_returns: sales_returns.length,
+    sale_return_items: sale_return_items.length,
+    replacement_items: replacement_items.length,
   };
 
   const payload: SyncDataExport = {
@@ -96,6 +105,9 @@ export function exportSyncData(outputPath: string = DEFAULT_SYNC_PATH): { succes
     sale_items,
     prescriptions,
     prescription_items,
+    sales_returns,
+    sale_return_items,
+    replacement_items,
   };
 
   fs.writeFileSync(outputPath, JSON.stringify(payload, null, 2), 'utf8');
@@ -135,6 +147,9 @@ export function importSyncData(inputPath: string = DEFAULT_SYNC_PATH): { success
     sale_items: 0,
     prescriptions: 0,
     prescription_items: 0,
+    sales_returns: 0,
+    sale_return_items: 0,
+    replacement_items: 0,
   };
 
   // Disable foreign keys outside transaction (SQLite requirement)
@@ -158,6 +173,9 @@ export function importSyncData(inputPath: string = DEFAULT_SYNC_PATH): { success
       importedCounts.sale_items = upsertSyncRows(db, 'sale_items', payload.sale_items || []);
       importedCounts.prescriptions = upsertSyncRows(db, 'prescriptions', payload.prescriptions || []);
       importedCounts.prescription_items = upsertSyncRows(db, 'prescription_items', payload.prescription_items || []);
+      importedCounts.sales_returns = upsertSyncRows(db, 'sales_returns', payload.sales_returns || []);
+      importedCounts.sale_return_items = upsertSyncRows(db, 'sale_return_items', payload.sale_return_items || []);
+      importedCounts.replacement_items = upsertSyncRows(db, 'replacement_items', payload.replacement_items || []);
     });
 
     syncTx();

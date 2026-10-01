@@ -356,6 +356,79 @@ CREATE TABLE IF NOT EXISTS prescription_items (
   FOREIGN KEY (medicine_id) REFERENCES medicines(id)
 );
 
+-- 9b. Returns, Refunds & Replacements
+CREATE TABLE IF NOT EXISTS sales_returns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  return_number TEXT UNIQUE NOT NULL, -- RET-YYYY-NNNNNN
+  sale_id INTEGER NOT NULL,
+  invoice_number TEXT NOT NULL,
+  customer_id INTEGER,
+  cashier_id INTEGER NOT NULL,
+  return_type TEXT NOT NULL, -- RETURN, REFUND, REPLACE
+  return_reason TEXT NOT NULL,
+  reason_notes TEXT,
+  gross_return_amount REAL NOT NULL,
+  deduction_type TEXT NOT NULL DEFAULT 'NONE', -- NONE, PERCENTAGE, FIXED
+  deduction_value REAL NOT NULL DEFAULT 0,
+  deduction_amount REAL NOT NULL DEFAULT 0,
+  net_return_amount REAL NOT NULL,
+  refund_method TEXT, -- CASH, CARD, CREDIT_NOTE, BANK_TRANSFER, JAZZCASH, EASYPAISA, OTHER
+  cash_refund_amount REAL NOT NULL DEFAULT 0,
+  credit_adjustment_amount REAL NOT NULL DEFAULT 0,
+  replacement_sale_amount REAL NOT NULL DEFAULT 0,
+  balance_due_from_customer REAL NOT NULL DEFAULT 0,
+  balance_due_to_customer REAL NOT NULL DEFAULT 0,
+  extra_charge_method TEXT, -- how balance_due_from_customer was settled: CASH_IN or CREDIT_NOTE (NULL if none owed)
+  status TEXT NOT NULL DEFAULT 'COMPLETED', -- COMPLETED, REVERSED
+  request_key TEXT UNIQUE,
+  notes TEXT,
+  reversed_by INTEGER,
+  reversed_at DATETIME,
+  reversal_reason TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (sale_id) REFERENCES sales(id),
+  FOREIGN KEY (customer_id) REFERENCES customers(id),
+  FOREIGN KEY (cashier_id) REFERENCES users(id),
+  FOREIGN KEY (reversed_by) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS sale_return_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sales_return_id INTEGER NOT NULL,
+  sale_item_id INTEGER NOT NULL,
+  medicine_id INTEGER NOT NULL,
+  batch_id INTEGER NOT NULL,
+  quantity_returned INTEGER NOT NULL,
+  unit_price REAL NOT NULL,
+  line_return_amount REAL NOT NULL,
+  disposition TEXT NOT NULL, -- RESTOCK_SELLABLE, QUARANTINE, DAMAGED, EXPIRED, SUPPLIER_RETURN, DISPOSAL
+  description_snapshot TEXT,
+  batch_number_snapshot TEXT,
+  expiry_date_snapshot TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (sales_return_id) REFERENCES sales_returns(id) ON DELETE CASCADE,
+  FOREIGN KEY (sale_item_id) REFERENCES sale_items(id),
+  FOREIGN KEY (medicine_id) REFERENCES medicines(id),
+  FOREIGN KEY (batch_id) REFERENCES batches(id)
+);
+
+CREATE TABLE IF NOT EXISTS replacement_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sales_return_id INTEGER NOT NULL,
+  medicine_id INTEGER NOT NULL,
+  batch_id INTEGER NOT NULL,
+  quantity INTEGER NOT NULL,
+  unit_price REAL NOT NULL,
+  line_total REAL NOT NULL,
+  description_snapshot TEXT,
+  batch_number_snapshot TEXT,
+  expiry_date_snapshot TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (sales_return_id) REFERENCES sales_returns(id) ON DELETE CASCADE,
+  FOREIGN KEY (medicine_id) REFERENCES medicines(id),
+  FOREIGN KEY (batch_id) REFERENCES batches(id)
+);
+
 -- 10. Accounts & Expenses
 CREATE TABLE IF NOT EXISTS cashbook_entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
