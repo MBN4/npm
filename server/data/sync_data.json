@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-01T18:14:13.570Z",
+  "exportedAt": "2026-10-01T18:14:32.980Z",
   "counts": {
     "categories": 46,
     "manufacturers": 16,
@@ -18,9 +18,9 @@
     "sale_items": 25,
     "prescriptions": 53,
     "prescription_items": 7,
-    "sales_returns": 3,
-    "sale_return_items": 3,
-    "replacement_items": 0
+    "sales_returns": 4,
+    "sale_return_items": 4,
+    "replacement_items": 1
   },
   "categories": [
     {
@@ -4097,13 +4097,13 @@
       "expiry_date": "2028-06-30",
       "purchase_price": 3.5,
       "sale_price": 4.5,
-      "quantity": 273,
+      "quantity": 271,
       "bonus_quantity": 0,
       "supplier_id": 1,
       "rack_location": "Rack D-1",
       "status": "ACTIVE",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-01 18:14:13"
+      "updated_at": "2026-10-01 18:14:32"
     },
     {
       "id": 2,
@@ -11930,6 +11930,36 @@
       "reversed_at": null,
       "reversal_reason": null,
       "created_at": "2026-10-01 18:14:13"
+    },
+    {
+      "id": 4,
+      "return_number": "RET-2026-000004",
+      "sale_id": 169,
+      "invoice_number": "INV-20261001-0001",
+      "customer_id": null,
+      "cashier_id": 1,
+      "return_type": "REPLACE",
+      "return_reason": "Replacement Required",
+      "reason_notes": null,
+      "gross_return_amount": 4.5,
+      "deduction_type": "NONE",
+      "deduction_value": 0,
+      "deduction_amount": 0,
+      "net_return_amount": 4.5,
+      "refund_method": "CASH",
+      "cash_refund_amount": 0,
+      "credit_adjustment_amount": 0,
+      "replacement_sale_amount": 9,
+      "balance_due_from_customer": 4.5,
+      "balance_due_to_customer": 0,
+      "extra_charge_method": "CASH_IN",
+      "status": "COMPLETED",
+      "request_key": "test-replace-1",
+      "notes": null,
+      "reversed_by": null,
+      "reversed_at": null,
+      "reversal_reason": null,
+      "created_at": "2026-10-01 18:14:32"
     }
   ],
   "sale_return_items": [
@@ -11977,7 +12007,36 @@
       "batch_number_snapshot": "BTH-PDF-001",
       "expiry_date_snapshot": "2028-06-30",
       "created_at": "2026-10-01 18:14:13"
+    },
+    {
+      "id": 4,
+      "sales_return_id": 4,
+      "sale_item_id": 172,
+      "medicine_id": 1,
+      "batch_id": 1,
+      "quantity_returned": 1,
+      "unit_price": 4.5,
+      "line_return_amount": 4.5,
+      "disposition": "QUARANTINE",
+      "description_snapshot": "Glucophage 250mg",
+      "batch_number_snapshot": "BTH-PDF-001",
+      "expiry_date_snapshot": "2028-06-30",
+      "created_at": "2026-10-01 18:14:32"
     }
   ],
-  "replacement_items": []
+  "replacement_items": [
+    {
+      "id": 1,
+      "sales_return_id": 4,
+      "medicine_id": 1,
+      "batch_id": 1,
+      "quantity": 2,
+      "unit_price": 4.5,
+      "line_total": 9,
+      "description_snapshot": "Glucophage 250mg 250mg",
+      "batch_number_snapshot": "BTH-PDF-001",
+      "expiry_date_snapshot": "2028-06-30",
+      "created_at": "2026-10-01 18:14:32"
+    }
+  ]
 }
