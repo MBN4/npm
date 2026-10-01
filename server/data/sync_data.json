@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-01T18:15:16.501Z",
+  "exportedAt": "2026-10-01T18:16:01.799Z",
   "counts": {
     "categories": 46,
     "manufacturers": 16,
@@ -4097,13 +4097,13 @@
       "expiry_date": "2028-06-30",
       "purchase_price": 3.5,
       "sale_price": 4.5,
-      "quantity": 269,
+      "quantity": 271,
       "bonus_quantity": 0,
       "supplier_id": 1,
       "rack_location": "Rack D-1",
       "status": "ACTIVE",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-01 18:15:16"
+      "updated_at": "2026-10-01 18:16:01"
     },
     {
       "id": 2,
@@ -11953,12 +11953,12 @@
       "balance_due_from_customer": 4.5,
       "balance_due_to_customer": 0,
       "extra_charge_method": "CASH_IN",
-      "status": "COMPLETED",
+      "status": "REVERSED",
       "request_key": "test-replace-1",
       "notes": null,
-      "reversed_by": null,
-      "reversed_at": null,
-      "reversal_reason": null,
+      "reversed_by": 1,
+      "reversed_at": "2026-10-01 18:16:01",
+      "reversal_reason": "Testing reversal ordering fix",
       "created_at": "2026-10-01 18:14:32"
     }
   ],
