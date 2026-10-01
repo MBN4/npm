@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-01T18:33:30.466Z",
+  "exportedAt": "2026-10-01T18:33:39.838Z",
   "counts": {
     "categories": 46,
     "manufacturers": 16,
@@ -14,8 +14,8 @@
     "billing_persons": 1,
     "purchases": 57,
     "purchase_items": 2,
-    "sales": 171,
-    "sale_items": 27,
+    "sales": 172,
+    "sale_items": 29,
     "prescriptions": 53,
     "prescription_items": 7,
     "sales_returns": 4,
@@ -4097,13 +4097,13 @@
       "expiry_date": "2028-06-30",
       "purchase_price": 3.5,
       "sale_price": 4.5,
-      "quantity": 267,
+      "quantity": 263,
       "bonus_quantity": 0,
       "supplier_id": 1,
       "rack_location": "Rack D-1",
       "status": "ACTIVE",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-01 18:33:30"
+      "updated_at": "2026-10-01 18:33:39"
     },
     {
       "id": 2,
@@ -4113,13 +4113,13 @@
       "expiry_date": "2028-06-30",
       "purchase_price": 5.5,
       "sale_price": 7,
-      "quantity": 298,
+      "quantity": 296,
       "bonus_quantity": 0,
       "supplier_id": 1,
       "rack_location": "Rack D-1",
       "status": "ACTIVE",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-01 18:33:30"
+      "updated_at": "2026-10-01 18:33:39"
     },
     {
       "id": 3,
@@ -10830,6 +10830,29 @@
       "percentage_charge_rate": 0,
       "percentage_charge_amount": 0,
       "fixed_charge_amount": 0
+    },
+    {
+      "id": 172,
+      "invoice_number": "INV-20261001-0004",
+      "customer_id": null,
+      "cashier_id": 1,
+      "subtotal": 0,
+      "discount": 0,
+      "tax": 0,
+      "total_amount": 0,
+      "paid_amount": 32,
+      "remaining_amount": 0,
+      "change_amount": 32,
+      "payment_method": "CASH",
+      "status": "COMPLETED",
+      "notes": null,
+      "created_at": "2026-10-01 18:33:39",
+      "billing_person_id": null,
+      "custom_slip_name": null,
+      "percentage_charge_label": "",
+      "percentage_charge_rate": 0,
+      "percentage_charge_amount": 0,
+      "fixed_charge_amount": 0
     }
   ],
   "sale_items": [
@@ -11278,6 +11301,40 @@
     {
       "id": 175,
       "sale_id": 171,
+      "medicine_id": 2,
+      "batch_id": 2,
+      "quantity": 2,
+      "unit_price": 7,
+      "discount": 0,
+      "line_total": 14,
+      "purchase_price_snapshot": 5.5,
+      "description_snapshot": "Glucophage 500mg",
+      "category_snapshot": null,
+      "pack_type_snapshot": null,
+      "units_per_pack_snapshot": null,
+      "packs_snapshot": null,
+      "loose_units_snapshot": null
+    },
+    {
+      "id": 176,
+      "sale_id": 172,
+      "medicine_id": 1,
+      "batch_id": 1,
+      "quantity": 4,
+      "unit_price": 4.5,
+      "discount": 0,
+      "line_total": 18,
+      "purchase_price_snapshot": 3.5,
+      "description_snapshot": "Glucophage 250mg",
+      "category_snapshot": null,
+      "pack_type_snapshot": null,
+      "units_per_pack_snapshot": null,
+      "packs_snapshot": null,
+      "loose_units_snapshot": null
+    },
+    {
+      "id": 177,
+      "sale_id": 172,
       "medicine_id": 2,
       "batch_id": 2,
       "quantity": 2,
