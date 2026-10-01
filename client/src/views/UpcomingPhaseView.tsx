@@ -18,6 +18,7 @@ const phaseDetails: Record<NavView, { phase: string; title: string; desc: string
   udhaar: { phase: 'Live', title: 'Udhaar / Customer Credit 👥', desc: 'Customer credit ledger, auto CNIC serial tracking, WhatsApp contact link, and instant payment recording.' },
   prescriptions: { phase: 'Live', title: 'Prescriptions (Rx)', desc: 'Doctor prescriptions, dosages (OD, BD, TDS), refill history, and dispensing to POS.' },
   patients: { phase: 'Live', title: 'Patients & Customer CRM', desc: 'Patient profiles, allergy history, credit receivables ledger, and refill reminders.' },
+  returns: { phase: 'Live', title: 'Returns / Refund / Replacement', desc: 'Scan a bill to process item returns, refunds, and replacements with full inventory and ledger traceability.' },
   expiry: { phase: 'Live', title: 'Expiry Control', desc: 'Configurable expiry windows (180/90/60/30/7 days), supplier return claims, and disposal register.' },
   accounts: { phase: 'Live', title: 'Financial Accounts & Cashbook', desc: 'Daily cashbook entries, expenses, profit & loss statement, and customer receivables.' },
   balance: { phase: 'Live', title: 'Store Balance & Day-End Register', desc: 'Running drawer cash balance, cash additions, operating expenses, and Day-End shift settlements.' },

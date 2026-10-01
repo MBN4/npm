@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requirePermission, AuthenticatedRequest } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
+import { triggerAutoSync } from '../services/gitSyncService.js';
 
 export const purchaseRouter = Router();
 
@@ -260,6 +261,7 @@ purchaseRouter.post('/', authenticateToken, requirePermission('create_purchases'
       return { purchaseId, invoiceNumber, total, remaining, newSupplierBalance };
     });
 
+    triggerAutoSync(`purchase ${result.invoiceNumber}`);
     res.status(201).json({ message: 'Purchase invoice recorded and stock batches updated', ...result });
   } catch (err: any) {
     res.status(400).json({ error: err.message });

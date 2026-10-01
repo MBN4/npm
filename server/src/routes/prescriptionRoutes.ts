@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
+import { triggerAutoSync } from '../services/gitSyncService.js';
 
 export const prescriptionRouter = Router();
 
@@ -156,6 +157,7 @@ prescriptionRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res:
       return { prescriptionId };
     });
 
+    triggerAutoSync(`prescription ${result.prescriptionId}`);
     res.status(201).json({ message: 'Prescription recorded successfully', prescriptionId: result.prescriptionId });
   } catch (err: any) {
     res.status(400).json({ error: err.message });

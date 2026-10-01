@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requirePermission, AuthenticatedRequest } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
+import { triggerAutoSync } from '../services/gitSyncService.js';
 
 export const posRouter = Router();
 
@@ -413,6 +414,7 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
       };
     });
 
+    triggerAutoSync(`sale ${result.invoiceNumber}`);
     res.status(201).json({ message: 'Sale completed successfully', invoice: result });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
