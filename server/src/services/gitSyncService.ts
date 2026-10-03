@@ -19,6 +19,17 @@ function runGit(args: string[]): Promise<string> {
   });
 }
 
+// Best-effort, idempotent: registers the "syncdata" merge driver (scripts/merge-sync-data.js) in
+// this machine's local git config so a `git pull` conflict in sync_data.json auto-resolves by
+// merging rows instead of stopping for manual resolution. Normally set up by the root
+// postinstall script, but re-checked here too in case this checkout's node_modules predates it.
+function ensureMergeDriverConfigured(): void {
+  execFile('git', ['config', 'merge.syncdata.driver', 'node scripts/merge-sync-data.js %O %A %B'], { cwd: REPO_ROOT, windowsHide: true }, () => {});
+  execFile('git', ['config', 'merge.syncdata.name', 'Row-level union merge driver for sync_data.json'], { cwd: REPO_ROOT, windowsHide: true }, () => {});
+}
+
+ensureMergeDriverConfigured();
+
 // Serializes all auto-sync attempts so concurrent saves never race on the git index.
 let queue: Promise<void> = Promise.resolve();
 
