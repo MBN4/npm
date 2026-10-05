@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-05T13:18:37.069Z",
+  "exportedAt": "2026-10-05T14:58:00.481Z",
   "counts": {
     "categories": 46,
     "manufacturers": 16,
@@ -24,7 +24,7 @@
     "drug_classifications": 216,
     "medicine_ingredients": 0,
     "medicine_classification_links": 0,
-    "schedule_bd_register_entries": 8,
+    "schedule_bd_register_entries": 9,
     "schedule_bd_register_amendments": 2,
     "schedule_bd_register_return_links": 0
   },
@@ -22218,6 +22218,41 @@
       "entry_source": "POS",
       "original_dispensing_date": null,
       "created_at": "2026-10-05 13:17:15"
+    },
+    {
+      "id": 20,
+      "serial_number": "SBD-2026-000009",
+      "request_key": null,
+      "classification_id": null,
+      "classification_version": null,
+      "rule_version": "manual-entry",
+      "sale_id": null,
+      "sale_item_id": null,
+      "invoice_number": null,
+      "branch": "Hospital Road Branch",
+      "pos_counter": "Counter 01",
+      "prescription_id": null,
+      "prescription_item_id": null,
+      "original_document_reference": null,
+      "patient_snapshot": null,
+      "purchaser_snapshot": null,
+      "prescriber_snapshot": null,
+      "medicine_snapshot": "{\"brandName\":\"Glucophage 250mg\",\"genericName\":\"Metformin HCl\",\"strength\":\"250mg\",\"dosageForm\":\"Tablet\"}",
+      "batch_id": null,
+      "batch_number_snapshot": null,
+      "expiry_date_snapshot": null,
+      "dispensed_quantity": 2,
+      "unit": null,
+      "cashier_id": null,
+      "cashier_snapshot": "{\"enteredBy\":\"Dr. Naveed (Chief Pharmacist/Admin)\",\"note\":\"Manual/legacy register entry\"}",
+      "approved_by_user_id": 1,
+      "approved_at": "2026-10-05T14:58:00.466Z",
+      "approval_credentials_ref": "manual-entry:1",
+      "schedule": "B",
+      "status": "MANUAL",
+      "entry_source": "MANUAL",
+      "original_dispensing_date": "2026-09-20",
+      "created_at": "2026-10-05 14:58:00"
     }
   ],
   "schedule_bd_register_amendments": [
