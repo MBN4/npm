@@ -1,3 +1,5 @@
+import { safeJsonParse } from '../utils/json.js';
+
 export interface OfflineSaleItem {
   medicineId: number;
   batchId: number;
@@ -40,8 +42,7 @@ const OFFLINE_SALES_KEY = 'nmp_offline_sales_queue';
 
 export function getOfflineSalesQueue(): OfflineSale[] {
   try {
-    const raw = localStorage.getItem(OFFLINE_SALES_KEY);
-    return raw ? JSON.parse(raw) : [];
+    return safeJsonParse<OfflineSale[]>(localStorage.getItem(OFFLINE_SALES_KEY), []);
   } catch (err) {
     console.error('Failed to read offline sales queue', err);
     return [];

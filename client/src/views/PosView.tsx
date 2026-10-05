@@ -26,6 +26,7 @@ import { CustomerSelect } from '../components/CustomerSelect.js';
 import { getProductPackaging } from '../utils/productPackaging.js';
 import { CashOutModal } from '../components/CashOutModal.js';
 import { Barcode128, SimpleQRCodeSVG } from '../utils/barcodeGenerator.js';
+import { safeJsonParse } from '../utils/json.js';
 
 export interface CartItem {
   medicineId: number;
@@ -354,8 +355,8 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
       eventSource = new EventSource('/api/integrations/qr/events');
       eventSource.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'HEARTBEAT') return;
+          const data = safeJsonParse<Record<string, any> | null>(event.data, null);
+          if (!data || data.type === 'HEARTBEAT') return;
 
           try {
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;

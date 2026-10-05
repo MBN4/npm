@@ -3,6 +3,7 @@ import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requirePermission, AuthenticatedRequest } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
 import { triggerAutoSync } from '../services/gitSyncService.js';
+import { safeJsonParse } from '../utils/json.js';
 
 export const posRouter = Router();
 
@@ -432,7 +433,7 @@ posRouter.get('/held', authenticateToken, (req: AuthenticatedRequest, res: Respo
   res.json({
     heldBills: held.map((h: any) => ({
       ...h,
-      cart: JSON.parse(h.cart_json)
+      cart: safeJsonParse(h.cart_json, [])
     }))
   });
 });

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { db, initDatabase } from '../db/index.js';
 import { upsertSyncRows } from '../services/syncRowHelpers.js';
 import type { SyncDataExport } from '../services/dataSyncService.js';
+import { safeJsonParse } from '../utils/json.js';
 
 interface RackMedicine {
   brand: string;
@@ -21,13 +22,36 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.resolve(scriptDir, '../../data');
 const manifestPath = path.join(dataDir, 'new_rack_medicines.json');
 const syncPath = process.env.CATALOG_SYNC_PATH || path.join(dataDir, 'sync_data.json');
-const medicines = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as RackMedicine[];
+const medicines = safeJsonParse<RackMedicine[]>(fs.readFileSync(manifestPath, 'utf8'), []);
 if (medicines.length !== 30 || new Set(medicines.map(medicine => medicine.brand.toLowerCase())).size !== 30) {
   throw new Error('Expected 30 unique medicines from New_Rack_Medicines_List.pdf');
 }
 
 initDatabase();
-const snapshot = JSON.parse(fs.readFileSync(syncPath, 'utf8')) as SyncDataExport;
+const snapshot = safeJsonParse<SyncDataExport>(fs.readFileSync(syncPath, 'utf8'), {
+  version: '1.0.0',
+  exportedAt: new Date().toISOString(),
+  counts: {},
+  categories: [],
+  manufacturers: [],
+  generics: [],
+  suppliers: [],
+  medicines: [],
+  drug_clinical_info: [],
+  batches: [],
+  customers: [],
+  doctors: [],
+  billing_persons: [],
+  purchases: [],
+  purchase_items: [],
+  sales: [],
+  sale_items: [],
+  prescriptions: [],
+  prescription_items: [],
+  sales_returns: [],
+  sale_return_items: [],
+  replacement_items: []
+});
 const byName = (name: string) => name.trim().toLowerCase();
 const categoryIds = new Map(snapshot.categories.map(row => [byName(row.name), row.id]));
 const manufacturerIds = new Map(snapshot.manufacturers.map(row => [byName(row.name), row.id]));

@@ -2,6 +2,7 @@ import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { safeJsonParse } from '../utils/json.js';
 
 export interface PrintResult {
   success: boolean;
@@ -253,7 +254,7 @@ export function getWindowsPrinters(): Promise<WindowsPrinterInfo[]> {
       }
 
       try {
-        let raw = JSON.parse(stdout.trim());
+        let raw = safeJsonParse<any[]>(stdout.trim(), []);
         if (!Array.isArray(raw)) {
           raw = [raw];
         }

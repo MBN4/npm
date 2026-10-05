@@ -378,42 +378,14 @@ export function seedDatabase() {
         rack_location = excluded.rack_location
     `);
 
-    const pdfMeds = [
-      { id: 1, brand: 'Glucophage 250mg', generic: 'Metformin HCl', mfg: 'Merck', strength: '250mg', form: 'Tablet', cat: 'Tablets', pack: 50, price: 4.50, cost: 3.50, barcode: '896400000001', rack: 'Rack D-1' },
-      { id: 2, brand: 'Glucophage 500mg', generic: 'Metformin HCl', mfg: 'Merck', strength: '500mg', form: 'Tablet', cat: 'Tablets', pack: 50, price: 7.00, cost: 5.50, barcode: '896400000002', rack: 'Rack D-1' },
-      { id: 3, brand: 'Glucophage XR 500mg', generic: 'Metformin HCl ER', mfg: 'Merck', strength: '500mg', form: 'Tablet', cat: 'Tablets', pack: 30, price: 9.50, cost: 7.50, barcode: '896400000003', rack: 'Rack D-1' },
-      { id: 4, brand: 'Glucophage XR 750mg', generic: 'Metformin HCl ER', mfg: 'Merck', strength: '750mg', form: 'Tablet', cat: 'Tablets', pack: 30, price: 12.00, cost: 9.50, barcode: '896400000004', rack: 'Rack D-1' },
-      { id: 5, brand: 'Glucophage XR 1000mg', generic: 'Metformin HCl ER', mfg: 'Merck', strength: '1000mg', form: 'Tablet', cat: 'Tablets', pack: 30, price: 15.00, cost: 12.00, barcode: '896400000005', rack: 'Rack D-1' },
-      { id: 6, brand: 'Glucovance 500/2.5mg', generic: 'Metformin + Glibenclamide', mfg: 'Merck', strength: '500mg/2.5mg', form: 'Tablet', cat: 'Tablets', pack: 30, price: 8.50, cost: 6.80, barcode: '896400000006', rack: 'Rack D-2' },
-      { id: 7, brand: 'Glucovance 500/5mg', generic: 'Metformin + Glibenclamide', mfg: 'Merck', strength: '500mg/5mg', form: 'Tablet', cat: 'Tablets', pack: 30, price: 10.00, cost: 8.00, barcode: '896400000007', rack: 'Rack D-2' },
-      { id: 8, brand: 'Sitaphage XR 50/500mg', generic: 'Sitagliptin + Metformin XR', mfg: 'Merck', strength: '50mg + 500mg', form: 'Tablet', cat: 'Tablets', pack: 14, price: 22.00, cost: 17.50, barcode: '896400000008', rack: 'Rack D-2' },
-      { id: 9, brand: 'Concor 2.5mg', generic: 'Bisoprolol fumarate', mfg: 'Merck', strength: '2.5mg', form: 'Tablet', cat: 'Tablets', pack: 14, price: 11.00, cost: 8.80, barcode: '896400000009', rack: 'Rack C-1' },
-      { id: 10, brand: 'Concor 5mg', generic: 'Bisoprolol fumarate', mfg: 'Merck', strength: '5mg', form: 'Tablet', cat: 'Tablets', pack: 14, price: 16.00, cost: 12.80, barcode: '896400000010', rack: 'Rack C-1' },
-      { id: 11, brand: 'Concor 10mg', generic: 'Bisoprolol fumarate', mfg: 'Merck', strength: '10mg', form: 'Tablet', cat: 'Tablets', pack: 14, price: 24.00, cost: 19.00, barcode: '896400000011', rack: 'Rack C-1' },
-      { id: 12, brand: 'Lodopin 2.5mg', generic: 'Amlodipine', mfg: 'Searle', strength: '2.5mg', form: 'Tablet', cat: 'Tablets', pack: 20, price: 6.00, cost: 4.80, barcode: '896400000012', rack: 'Rack C-2' },
-      { id: 13, brand: 'Lodopin 5mg', generic: 'Amlodipine', mfg: 'Searle', strength: '5mg', form: 'Tablet', cat: 'Tablets', pack: 20, price: 9.50, cost: 7.50, barcode: '896400000013', rack: 'Rack C-2' },
-      { id: 14, brand: 'Lodopin 10mg', generic: 'Amlodipine', mfg: 'Searle', strength: '10mg', form: 'Tablet', cat: 'Tablets', pack: 20, price: 15.00, cost: 12.00, barcode: '896400000014', rack: 'Rack C-2' },
-      { id: 15, brand: 'Lodopin-V 5/80mg', generic: 'Amlodipine + Valsartan', mfg: 'Searle', strength: '5mg/80mg', form: 'Tablet', cat: 'Tablets', pack: 14, price: 18.00, cost: 14.50, barcode: '896400000015', rack: 'Rack C-3' },
-      { id: 16, brand: 'Lodopin-V HCT 5/160/12.5mg', generic: 'Amlodipine + Valsartan + HCTZ', mfg: 'Searle', strength: '5/160/12.5mg', form: 'Tablet', cat: 'Tablets', pack: 14, price: 25.00, cost: 20.00, barcode: '896400000016', rack: 'Rack C-3' },
-      { id: 17, brand: 'Lodopin-V HCT 10/160/12.5mg', generic: 'Amlodipine + Valsartan + HCTZ', mfg: 'Searle', strength: '10/160/12.5mg', form: 'Tablet', cat: 'Tablets', pack: 14, price: 29.00, cost: 23.20, barcode: '896400000017', rack: 'Rack C-3' },
-      { id: 18, brand: 'Teril 200mg', generic: 'Carbamazepine', mfg: 'Searle', strength: '200mg', form: 'Tablet', cat: 'Tablets', pack: 50, price: 5.50, cost: 4.20, barcode: '896400000018', rack: 'Rack B-1' },
-      { id: 19, brand: 'Azolam 0.5mg', generic: 'Alprazolam', mfg: 'Getz', strength: '0.5mg', form: 'Tablet', cat: 'Tablets', pack: 30, price: 4.00, cost: 3.10, barcode: '896400000019', rack: 'Rack B-2' },
-      { id: 20, brand: 'Librax 5/2.5mg', generic: 'Chlordiazepoxide + Clidinium bromide', mfg: 'Getz', strength: '5mg + 2.5mg', form: 'Tablet', cat: 'Tablets', pack: 30, price: 6.50, cost: 5.20, barcode: '896400000020', rack: 'Rack B-3' },
-      { id: 21, brand: 'Lexotanil 3mg', generic: 'Bromazepam', mfg: 'Abbott', strength: '3mg', form: 'Tablet', cat: 'Tablets', pack: 30, price: 8.00, cost: 6.40, barcode: '896400000021', rack: 'Rack B-4' },
-      { id: 22, brand: 'Neuromet 1000mcg', generic: 'Mecobalamin / Methylcobalamin', mfg: 'Hilton', strength: '1000mcg', form: 'Tablet', cat: 'Tablets', pack: 20, price: 14.00, cost: 11.20, barcode: '896400000022', rack: 'Rack E-1' },
-      { id: 23, brand: 'Synflex 550mg', generic: 'Naproxen sodium', mfg: 'Searle', strength: '550mg', form: 'Tablet', cat: 'Tablets', pack: 20, price: 21.00, cost: 16.80, barcode: '896400000023', rack: 'Rack A-1' },
-      { id: 24, brand: 'Synflex-M 85/500mg', generic: 'Sumatriptan + Naproxen sodium', mfg: 'Searle', strength: '85mg + 500mg', form: 'Tablet', cat: 'Tablets', pack: 10, price: 45.00, cost: 36.00, barcode: '896400000024', rack: 'Rack A-1' },
-      { id: 25, brand: 'Proxen 250mg', generic: 'Naproxen', mfg: 'Searle', strength: '250mg', form: 'Tablet', cat: 'Tablets', pack: 20, price: 9.00, cost: 7.20, barcode: '896400000025', rack: 'Rack A-2' },
-      { id: 26, brand: 'Proxen 500mg', generic: 'Naproxen', mfg: 'Searle', strength: '500mg', form: 'Tablet', cat: 'Tablets', pack: 20, price: 16.00, cost: 12.80, barcode: '896400000026', rack: 'Rack A-2' },
-      { id: 27, brand: 'Neoprox 250mg', generic: 'Naproxen', mfg: 'Searle', strength: '250mg', form: 'Tablet', cat: 'Tablets', pack: 20, price: 8.50, cost: 6.80, barcode: '896400000027', rack: 'Rack A-3' },
-      { id: 28, brand: 'Neoprox 500mg', generic: 'Naproxen', mfg: 'Searle', strength: '500mg', form: 'Tablet', cat: 'Tablets', pack: 20, price: 15.00, cost: 12.00, barcode: '896400000028', rack: 'Rack A-3' },
-      { id: 29, brand: 'Naprosyn 500mg', generic: 'Naproxen', mfg: 'Searle', strength: '500mg', form: 'Tablet', cat: 'Tablets', pack: 20, price: 18.00, cost: 14.40, barcode: '896400000029', rack: 'Rack A-4' },
-      { id: 30, brand: 'Enflor 250mg Sachet', generic: 'Saccharomyces boulardii CNCM I-745', mfg: 'GSK', strength: '250mg', form: 'Sachet', cat: 'Sachets & Powders', pack: 10, price: 35.00, cost: 28.00, barcode: '896400000030', rack: 'Rack F-1' },
-      { id: 31, brand: 'Wintogeno Balm 12.17%', generic: 'Methyl salicylate', mfg: 'GSK', strength: '12.17% w/w', form: 'Cream', cat: 'Topical Medicines', pack: 1, price: 120.00, cost: 95.00, barcode: '896400000031', rack: 'Rack G-1' },
-      { id: 32, brand: 'Depex Capsule', generic: 'Unconfirmed Formula (Depex)', mfg: 'GSK', strength: 'Capsule', form: 'Capsule', cat: 'Capsules', pack: 20, price: 12.00, cost: 9.60, barcode: '896400000032', rack: 'Rack G-2' }
+    const baselineMeds = [
+      { id: 1, brand: 'Panadol 500mg', generic: 'Paracetamol', mfg: 'GSK Pakistan', strength: '500mg', form: 'Tablet', cat: 'Tablets', pack: 20, price: 3.50, cost: 2.50, barcode: '896400012345', rack: 'Rack A-1' },
+      { id: 2, brand: 'Augmentin 625mg', generic: 'Amoxicillin + Clavulanic Acid', mfg: 'GSK Pakistan', strength: '625mg', form: 'Tablet', cat: 'Tablets', pack: 10, price: 120.00, cost: 80.00, barcode: '896400012346', rack: 'Rack B-1' },
+      { id: 3, brand: 'Risek 20mg', generic: 'Omeprazole', mfg: 'Getz Pharma', strength: '20mg', form: 'Capsule', cat: 'Capsules', pack: 15, price: 28.00, cost: 20.00, barcode: '896400012347', rack: 'Rack C-1' },
+      { id: 4, brand: 'Norvasc 5mg', generic: 'Amlodipine', mfg: 'Pfizer Pakistan', strength: '5mg', form: 'Tablet', cat: 'Tablets', pack: 20, price: 18.00, cost: 12.00, barcode: '896400012348', rack: 'Rack C-2' }
     ];
 
-    pdfMeds.forEach(m => {
+    baselineMeds.forEach(m => {
       insertMedicine.run(
         m.id,
         m.brand,
@@ -424,12 +396,12 @@ export function seedDatabase() {
         m.form,
         m.pack,
         m.barcode,
-        `MED-PDF-${String(m.id).padStart(3, '0')}`,
+        `MED-BASE-${String(m.id).padStart(3, '0')}`,
         m.rack,
         20,
         40,
         1,
-        'Pharmacy Medicines List PDF Item',
+        'Baseline test medicine',
         drugCatalog.find(g => g.name === m.generic)?.class || 'General'
       );
     });
@@ -447,22 +419,13 @@ export function seedDatabase() {
         expiry_date = excluded.expiry_date
     `);
 
-    pdfMeds.forEach(m => {
-      insertBatch.run(
-        m.id,
-        m.id,
-        `BTH-PDF-${String(m.id).padStart(3, '0')}`,
-        '2025-01-01',
-        '2028-06-30',
-        m.cost,
-        m.price,
-        300,
-        0,
-        1,
-        m.rack,
-        'ACTIVE'
-      );
-    });
+    insertBatch.run(1, 1, 'PAN-2026-A', '2025-01-01', '2026-11-30', 2.50, 3.50, 300, 0, 1, 'Rack A-1', 'ACTIVE');
+    insertBatch.run(2, 1, 'PAN-2026-B', '2025-01-01', '2027-04-30', 2.50, 3.50, 180, 0, 1, 'Rack A-1', 'ACTIVE');
+    insertBatch.run(3, 2, 'AUG-26-01', '2025-01-01', '2026-12-15', 80.00, 120.00, 120, 0, 1, 'Rack B-1', 'ACTIVE');
+    insertBatch.run(4, 2, 'AUG-26-02', '2025-01-01', '2027-03-15', 80.00, 120.00, 90, 0, 1, 'Rack B-1', 'ACTIVE');
+    insertBatch.run(5, 3, 'RSK-EXP-99', '2024-01-01', '2024-12-31', 18.00, 28.00, 45, 0, 1, 'Rack C-1', 'EXPIRED');
+    insertBatch.run(6, 3, 'RSK-2026-NEW', '2025-01-01', '2026-12-31', 18.00, 28.00, 75, 0, 1, 'Rack C-1', 'ACTIVE');
+    insertBatch.run(7, 4, 'NOR-2026-A', '2025-01-01', '2027-02-28', 12.00, 18.00, 200, 0, 1, 'Rack C-2', 'ACTIVE');
 
     const insertCust = db.prepare(`
       INSERT INTO customers (id, name, mobile, age, gender, allergy_notes, credit_limit, current_balance)

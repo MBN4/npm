@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { db } from '../db/index.js';
+import { safeJsonParse } from '../utils/json.js';
 import { upsertSyncRows } from './syncRowHelpers.js';
 
 export interface SyncDataExport {
@@ -128,7 +129,30 @@ export function importSyncData(inputPath: string = DEFAULT_SYNC_PATH): { success
   }
 
   const fileContent = fs.readFileSync(inputPath, 'utf8');
-  const payload: SyncDataExport = JSON.parse(fileContent);
+  const payload: SyncDataExport = safeJsonParse<SyncDataExport>(fileContent, {
+    version: '1.0.0',
+    exportedAt: new Date().toISOString(),
+    counts: {},
+    categories: [],
+    manufacturers: [],
+    generics: [],
+    suppliers: [],
+    medicines: [],
+    drug_clinical_info: [],
+    batches: [],
+    customers: [],
+    doctors: [],
+    billing_persons: [],
+    purchases: [],
+    purchase_items: [],
+    sales: [],
+    sale_items: [],
+    prescriptions: [],
+    prescription_items: [],
+    sales_returns: [],
+    sale_return_items: [],
+    replacement_items: [],
+  });
 
   const importedCounts: Record<string, number> = {
     categories: 0,
@@ -207,7 +231,30 @@ export function getSyncStatus(syncPath: string = DEFAULT_SYNC_PATH) {
   try {
     const stats = fs.statSync(syncPath);
     const fileContent = fs.readFileSync(syncPath, 'utf8');
-    const data: SyncDataExport = JSON.parse(fileContent);
+    const data: SyncDataExport = safeJsonParse<SyncDataExport>(fileContent, {
+      version: '1.0.0',
+      exportedAt: '',
+      counts: {},
+      categories: [],
+      manufacturers: [],
+      generics: [],
+      suppliers: [],
+      medicines: [],
+      drug_clinical_info: [],
+      batches: [],
+      customers: [],
+      doctors: [],
+      billing_persons: [],
+      purchases: [],
+      purchase_items: [],
+      sales: [],
+      sale_items: [],
+      prescriptions: [],
+      prescription_items: [],
+      sales_returns: [],
+      sale_return_items: [],
+      replacement_items: [],
+    });
 
     return {
       exists: true,

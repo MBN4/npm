@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { upsertSyncRows } from '../services/syncRowHelpers.js';
+import { safeJsonParse } from '../utils/json.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -497,7 +498,7 @@ export function initDatabase() {
     const syncDataPath = path.resolve(__dirname, '../../data/sync_data.json');
     if (fs.existsSync(syncDataPath)) {
       const fileContent = fs.readFileSync(syncDataPath, 'utf8');
-      const payload = JSON.parse(fileContent);
+      const payload = safeJsonParse<{ categories?: any[]; manufacturers?: any[]; generics?: any[]; suppliers?: any[]; medicines?: any[]; drug_clinical_info?: any[]; batches?: any[] }>(fileContent, {});
 
       db.pragma('foreign_keys = OFF');
       try {

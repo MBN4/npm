@@ -6,6 +6,7 @@ import {
   MedPracKPIs,
   MedPracReportData
 } from '../types/medprac.js';
+import { safeJsonParse } from '../utils/json.js';
 
 const API_BASE = '/api/medprac';
 
@@ -41,7 +42,7 @@ export const medpracService = {
       return await res.json();
     } catch {
       // Fallback offline patient search
-      const offline = JSON.parse(localStorage.getItem('nmp_offline_patients') || '[]');
+      const offline = safeJsonParse<MedPracPatient[]>(localStorage.getItem('nmp_offline_patients'), []);
       if (!query.trim()) return offline.slice(0, 20);
       const q = query.toLowerCase();
       return offline.filter((p: MedPracPatient) =>
@@ -81,7 +82,7 @@ export const medpracService = {
       }
       const newP = await res.json();
       // Cache in offline list
-      const offline = JSON.parse(localStorage.getItem('nmp_offline_patients') || '[]');
+      const offline = safeJsonParse<MedPracPatient[]>(localStorage.getItem('nmp_offline_patients'), []);
       offline.unshift(newP);
       localStorage.setItem('nmp_offline_patients', JSON.stringify(offline));
       return newP;
@@ -101,7 +102,7 @@ export const medpracService = {
         created_at: new Date().toISOString(),
         total_visits: 0
       };
-      const offline = JSON.parse(localStorage.getItem('nmp_offline_patients') || '[]');
+      const offline = safeJsonParse<MedPracPatient[]>(localStorage.getItem('nmp_offline_patients'), []);
       offline.unshift(newP);
       localStorage.setItem('nmp_offline_patients', JSON.stringify(offline));
       return newP;
@@ -115,9 +116,9 @@ export const medpracService = {
       if (!res.ok) throw new Error('Failed to load patient history');
       return await res.json();
     } catch {
-      const offlinePatients = JSON.parse(localStorage.getItem('nmp_offline_patients') || '[]');
+      const offlinePatients = safeJsonParse<MedPracPatient[]>(localStorage.getItem('nmp_offline_patients'), []);
       const patient = offlinePatients.find((p: MedPracPatient) => String(p.id) === String(patientId) || p.serial_number === patientId);
-      const offlineVisits = JSON.parse(localStorage.getItem('nmp_offline_visits') || '[]');
+      const offlineVisits = safeJsonParse<MedPracVisit[]>(localStorage.getItem('nmp_offline_visits'), []);
       const visits = offlineVisits.filter((v: MedPracVisit) => v.patient_id === patient?.id || v.patient_serial === patient?.serial_number);
       return { patient: patient || { id: 0, uuid: '', serial_number: '', name: 'Unknown', age: 0, age_unit: 'Years', sex: 'Male' }, visits };
     }
@@ -205,7 +206,7 @@ export const medpracService = {
         throw new Error(err.error || 'Failed to record visit');
       }
       const newV = await res.json();
-      const offlineVisits = JSON.parse(localStorage.getItem('nmp_offline_visits') || '[]');
+      const offlineVisits = safeJsonParse<MedPracVisit[]>(localStorage.getItem('nmp_offline_visits'), []);
       offlineVisits.unshift(newV);
       localStorage.setItem('nmp_offline_visits', JSON.stringify(offlineVisits));
       return newV;
@@ -236,7 +237,7 @@ export const medpracService = {
         services: visitData.services || [],
         medicines: visitData.medicines || []
       };
-      const offlineVisits = JSON.parse(localStorage.getItem('nmp_offline_visits') || '[]');
+      const offlineVisits = safeJsonParse<MedPracVisit[]>(localStorage.getItem('nmp_offline_visits'), []);
       offlineVisits.unshift(offlineV);
       localStorage.setItem('nmp_offline_visits', JSON.stringify(offlineVisits));
       return offlineV;
@@ -251,7 +252,7 @@ export const medpracService = {
       if (!res.ok) throw new Error('Failed to fetch visits');
       return await res.json();
     } catch {
-      const offlineVisits = JSON.parse(localStorage.getItem('nmp_offline_visits') || '[]');
+      const offlineVisits = safeJsonParse<MedPracVisit[]>(localStorage.getItem('nmp_offline_visits'), []);
       return {
         visits: offlineVisits.slice(0, 50),
         pagination: { page: 1, limit: 50, total: offlineVisits.length, totalPages: 1 }
