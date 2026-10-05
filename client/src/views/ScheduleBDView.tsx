@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext.js';
 import {
-  ClipboardList, Search, Printer, Download, ShieldCheck, ShieldAlert, AlertTriangle,
-  CheckCircle2, XCircle, History, FileText, X
+  ClipboardList, ScanBarcode, Printer, Download, ShieldCheck, ShieldAlert, AlertTriangle,
+  CheckCircle2, XCircle, History, FileText, X, PlusCircle
 } from 'lucide-react';
 import { DownwardSelect } from '../components/DownwardSelect.js';
 
@@ -34,6 +34,12 @@ const CLASSIFICATION_STATUS_OPTIONS = [
   { value: 'REJECTED', label: 'Rejected' }
 ];
 
+const MANUAL_SCHEDULE_OPTIONS = [
+  { value: 'B', label: 'Schedule B' },
+  { value: 'D', label: 'Schedule D' },
+  { value: 'BOTH', label: 'Both B & D' }
+];
+
 function ScheduleBadge({ schedule }: { schedule: string }) {
   const cls = schedule === 'BOTH' ? 'badge-purple' : schedule === 'D' ? 'badge-warning' : 'badge-primary';
   return <span className={`badge ${cls} badge-uppercase`}>{schedule}</span>;
@@ -57,6 +63,25 @@ function ClassificationStatusBadge({ status }: { status: string }) {
   return <span className={`badge ${cls}`}>{status.replace('_', ' ')}</span>;
 }
 
+/** A fixed-width label beside a value, laid out as a flex row with no stray browser margins -
+ * keeps the two-column detail grid lined up even when one side's text wraps. */
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'baseline' }}>
+      <span style={{ fontWeight: 700, color: 'var(--text-secondary)', minWidth: '125px', flexShrink: 0 }}>{label}</span>
+      <span style={{ color: 'var(--text-primary)' }}>{value}</span>
+    </div>
+  );
+}
+
+const FIELD_MAX_WIDTH = 260;
+
+const EMPTY_MANUAL_FORM = {
+  medicineId: '', schedule: 'B', dispensedQuantity: '', unit: '',
+  batchNumberSnapshot: '', expiryDateSnapshot: '', originalDispensingDate: '',
+  patientName: '', purchaserName: '', prescriberName: '', originalDocumentReference: ''
+};
+
 export const ScheduleBDView: React.FC = () => {
   const { token, hasPermission } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('ALL');
@@ -70,6 +95,13 @@ export const ScheduleBDView: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [classificationFilter, setClassificationFilter] = useState<'ALL' | 'DRAFT_UNVERIFIED' | 'PENDING_REVIEW' | 'VERIFIED' | 'REJECTED'>('ALL');
+
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [medicines, setMedicines] = useState<any[]>([]);
+  const [manualForm, setManualForm] = useState(EMPTY_MANUAL_FORM);
+  const [manualSaving, setManualSaving] = useState(false);
+
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
   const authHeaders = { Authorization: `Bearer ${token}` };
 
@@ -119,6 +151,21 @@ export const ScheduleBDView: React.FC = () => {
 
   useEffect(() => { fetchEntries(); }, [fetchEntries]);
   useEffect(() => { fetchClassifications(); }, [fetchClassifications]);
+
+  // Keep the scanner/search bar focused and ready so a keyboard-wedge barcode scanner can type
+  // straight into it (scanning an invoice/batch barcode jumps straight to the matching entry).
+  useEffect(() => {
+    if (activeTab !== 'CLASSIFICATION_REVIEW') scanInputRef.current?.focus();
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!token || !showManualModal || medicines.length > 0) return;
+    fetch('/api/medicines', { headers: authHeaders })
+      .then(res => res.ok ? res.json() : { medicines: [] })
+      .then(data => setMedicines(data.medicines || []))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, showManualModal]);
 
   const openDetail = async (entry: any) => {
     setSelectedEntry(entry);
@@ -194,6 +241,48 @@ export const ScheduleBDView: React.FC = () => {
     window.print();
   };
 
+  const handleSubmitManualEntry = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const medicine = medicines.find(m => String(m.id) === manualForm.medicineId);
+    if (!medicine) { setErrorMessage('Select a medicine for this manual entry.'); return; }
+    if (!manualForm.dispensedQuantity || Number(manualForm.dispensedQuantity) <= 0) { setErrorMessage('Enter a valid dispensed quantity.'); return; }
+    if (!manualForm.originalDispensingDate) { setErrorMessage('The original dispensing date is required for a manual/legacy entry.'); return; }
+
+    setManualSaving(true);
+    try {
+      const res = await fetch('/api/schedule-bd/manual', {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          schedule: manualForm.schedule,
+          dispensedQuantity: Number(manualForm.dispensedQuantity),
+          unit: manualForm.unit || medicine.stock_unit || null,
+          batchNumberSnapshot: manualForm.batchNumberSnapshot || null,
+          expiryDateSnapshot: manualForm.expiryDateSnapshot || null,
+          originalDispensingDate: manualForm.originalDispensingDate,
+          originalDocumentReference: manualForm.originalDocumentReference || null,
+          medicineSnapshot: {
+            brandName: medicine.brand_name, genericName: medicine.generic_name,
+            strength: medicine.strength, dosageForm: medicine.dosage_form
+          },
+          patientSnapshot: manualForm.patientName ? { name: manualForm.patientName } : null,
+          purchaserSnapshot: manualForm.purchaserName ? { name: manualForm.purchaserName } : null,
+          prescriberSnapshot: manualForm.prescriberName ? { name: manualForm.prescriberName } : null
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setInfoMessage(data.message);
+      setShowManualModal(false);
+      setManualForm(EMPTY_MANUAL_FORM);
+      fetchEntries();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to record manual entry');
+    } finally {
+      setManualSaving(false);
+    }
+  };
+
   return (
     <div className="page-container">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
@@ -201,18 +290,21 @@ export const ScheduleBDView: React.FC = () => {
           <h1 style={{ fontSize: '1.4rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
             <ClipboardList size={24} style={{ color: 'var(--primary)' }} /> Schedule B & D Register
           </h1>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+          <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
             Controlled & prescription-only drug dispensing register, with classification review and pharmacist sign-off.
-          </p>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {hasPermission('amend_scheduled_register') && (
+            <button className="btn btn-primary btn-sm" onClick={() => setShowManualModal(true)}><PlusCircle size={15} /> Add Manual Entry</button>
+          )}
           <button className="btn btn-secondary btn-sm" onClick={handleExportCsv}><Download size={15} /> Export CSV</button>
           <button className="btn btn-secondary btn-sm" onClick={handlePrintAll}><Printer size={15} /> Print (A4 Landscape)</button>
         </div>
       </div>
 
       <div style={{ fontSize: '0.78rem', color: 'var(--warning-text)', marginBottom: '1rem', padding: '0.65rem 0.9rem', background: 'var(--warning-light)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: 'var(--radius-md)' }}>
-        Software-generated register and export — a dispensing record for this pharmacy's own use, not a certified regulatory register format. Only pharmacist-verified classifications gate dispensing; unverified draft entries never control a sale.
+        Software-generated register and export — a dispensing record for this pharmacy's own use, not a certified regulatory register format. Only pharmacist-verified classifications gate dispensing; unverified draft entries never control a sale. Completed entries cannot be edited or deleted — use "Record Correction" / "Cancel" / "Reverse" to make an audited amendment instead.
       </div>
 
       {errorMessage && (
@@ -247,33 +339,34 @@ export const ScheduleBDView: React.FC = () => {
       {activeTab !== 'CLASSIFICATION_REVIEW' ? (
         <>
           <div className="card" style={{ marginBottom: '1.25rem', padding: '1rem' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
-              <div>
-                <label className="form-label">Search</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'end' }}>
+              <div style={{ flex: '1 1 260px', maxWidth: '360px' }}>
+                <label className="form-label">Scan or Search</label>
                 <div style={{ position: 'relative' }}>
-                  <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                  <ScanBarcode size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
                   <input
+                    ref={scanInputRef}
                     className="input"
-                    placeholder="Serial, invoice, patient, medicine, batch..."
+                    placeholder="Scan invoice/batch barcode, or type serial, patient, medicine..."
                     value={filters.q}
                     onChange={e => setFilters(f => ({ ...f, q: e.target.value }))}
                     style={{ paddingLeft: '2rem' }}
                   />
                 </div>
               </div>
-              <div>
+              <div style={{ flex: '1 1 150px', maxWidth: FIELD_MAX_WIDTH }}>
                 <label className="form-label">From Date</label>
                 <input className="input" type="date" value={filters.dateFrom} onChange={e => setFilters(f => ({ ...f, dateFrom: e.target.value }))} />
               </div>
-              <div>
+              <div style={{ flex: '1 1 150px', maxWidth: FIELD_MAX_WIDTH }}>
                 <label className="form-label">To Date</label>
                 <input className="input" type="date" value={filters.dateTo} onChange={e => setFilters(f => ({ ...f, dateTo: e.target.value }))} />
               </div>
-              <div>
+              <div style={{ flex: '1 1 150px', maxWidth: FIELD_MAX_WIDTH }}>
                 <label className="form-label">Branch</label>
                 <input className="input" placeholder="Any branch" value={filters.branch} onChange={e => setFilters(f => ({ ...f, branch: e.target.value }))} />
               </div>
-              <div>
+              <div style={{ flex: '1 1 160px', maxWidth: FIELD_MAX_WIDTH, minWidth: '160px' }}>
                 <label className="form-label">Status</label>
                 <DownwardSelect
                   value={filters.status}
@@ -326,15 +419,15 @@ export const ScheduleBDView: React.FC = () => {
           ))}
 
           <div className="card" style={{ marginBottom: '1.25rem', padding: '1rem' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
-              <div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'end' }}>
+              <div style={{ flex: '1 1 260px', maxWidth: '360px' }}>
                 <label className="form-label">Search</label>
                 <div style={{ position: 'relative' }}>
-                  <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                  <ScanBarcode size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
                   <input className="input" placeholder="Substance or group name..." value={filters.q} onChange={e => setFilters(f => ({ ...f, q: e.target.value }))} style={{ paddingLeft: '2rem' }} />
                 </div>
               </div>
-              <div>
+              <div style={{ flex: '1 1 180px', maxWidth: FIELD_MAX_WIDTH, minWidth: '180px' }}>
                 <label className="form-label">Verification Status</label>
                 <DownwardSelect
                   value={classificationFilter}
@@ -363,7 +456,7 @@ export const ScheduleBDView: React.FC = () => {
                       <td style={{ textAlign: 'center' }}>
                         {c.suspected_error_flag ? <span title={c.suspected_error_note}><AlertTriangle size={16} color="var(--warning-text)" /></span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                       </td>
-                      <td style={{ display: 'flex', gap: '0.4rem' }}>
+                      <td style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', height: '100%' }}>
                         {hasPermission('manage_drug_classification') && c.verification_status !== 'VERIFIED' && (
                           <button className="btn btn-secondary btn-sm" title="Verify" onClick={() => handleVerify(c.id, 'VERIFIED')}><ShieldCheck size={14} /></button>
                         )}
@@ -387,8 +480,8 @@ export const ScheduleBDView: React.FC = () => {
             style={{ width: '100%', maxWidth: '760px', maxHeight: '85vh', overflowY: 'auto', padding: '1.5rem' }}
             onClick={e => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.6rem', margin: 0 }}>
                 {detail.entry.serial_number}
                 <ScheduleBadge schedule={detail.entry.schedule} />
                 <EntryStatusBadge status={detail.entry.status} verified={detail.entry.classification_status === 'VERIFIED'} />
@@ -396,18 +489,21 @@ export const ScheduleBDView: React.FC = () => {
               <button className="btn-icon" onClick={() => { setSelectedEntry(null); setDetail(null); }}><X size={18} /></button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem 1.5rem', fontSize: '0.85rem', marginBottom: '1rem' }}>
-              <p><strong>Rule version:</strong> {detail.entry.rule_version}</p>
-              <p><strong>Invoice:</strong> {detail.entry.invoice_number}</p>
-              <p><strong>Branch / Counter:</strong> {detail.entry.branch} / {detail.entry.pos_counter}</p>
-              <p><strong>Batch:</strong> {detail.entry.batch_number_snapshot} (exp. {detail.entry.expiry_date_snapshot})</p>
-              <p style={{ gridColumn: '1 / -1' }}><strong>Medicine:</strong> {detail.entry.medicine_snapshot?.brandName} ({detail.entry.medicine_snapshot?.genericName}) {detail.entry.medicine_snapshot?.strength} — {detail.entry.medicine_snapshot?.dosageForm}</p>
-              <p><strong>Quantity:</strong> {detail.entry.dispensed_quantity} {detail.entry.unit}</p>
-              <p><strong>Patient:</strong> {detail.entry.patient_snapshot?.name || '-'}</p>
-              <p><strong>Purchaser:</strong> {detail.entry.purchaser_snapshot?.name || 'Same as patient'}</p>
-              <p><strong>Prescriber:</strong> {detail.entry.prescriber_snapshot?.name || '-'} ({detail.entry.prescriber_snapshot?.registrationNumber || 'no reg. no.'})</p>
-              <p><strong>Cashier:</strong> {detail.entry.cashier_snapshot?.name}</p>
-              <p><strong>Approved by:</strong> {detail.entry.approved_by_name} at {detail.entry.approved_at}</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.6rem 1.5rem', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
+              <DetailRow label="Rule version" value={detail.entry.rule_version} />
+              <DetailRow label="Invoice" value={detail.entry.invoice_number} />
+              <DetailRow label="Branch / Counter" value={`${detail.entry.branch} / ${detail.entry.pos_counter}`} />
+              <DetailRow label="Batch" value={`${detail.entry.batch_number_snapshot || '-'} (exp. ${detail.entry.expiry_date_snapshot || '-'})`} />
+              <DetailRow
+                label="Medicine"
+                value={`${detail.entry.medicine_snapshot?.brandName} (${detail.entry.medicine_snapshot?.genericName}) ${detail.entry.medicine_snapshot?.strength || ''} — ${detail.entry.medicine_snapshot?.dosageForm || ''}`}
+              />
+              <DetailRow label="Quantity" value={`${detail.entry.dispensed_quantity} ${detail.entry.unit || ''}`} />
+              <DetailRow label="Patient" value={detail.entry.patient_snapshot?.name || '-'} />
+              <DetailRow label="Purchaser" value={detail.entry.purchaser_snapshot?.name || 'Same as patient'} />
+              <DetailRow label="Prescriber" value={`${detail.entry.prescriber_snapshot?.name || '-'} (${detail.entry.prescriber_snapshot?.registrationNumber || 'no reg. no.'})`} />
+              <DetailRow label="Cashier" value={detail.entry.cashier_snapshot?.name || '-'} />
+              <DetailRow label="Approved by" value={`${detail.entry.approved_by_name || '-'} at ${detail.entry.approved_at || '-'}`} />
             </div>
 
             {detail.entry.classification_status !== 'VERIFIED' && (
@@ -417,7 +513,7 @@ export const ScheduleBDView: React.FC = () => {
             )}
 
             {detail.prescription && (
-              <p style={{ fontSize: '0.85rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <div style={{ fontSize: '0.85rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <FileText size={14} /> Prescription #{detail.prescription.id}
                 {detail.hasAttachment && (
                   <button className="btn btn-secondary btn-sm" onClick={async () => {
@@ -428,11 +524,11 @@ export const ScheduleBDView: React.FC = () => {
                     }
                   }}>View Attachment</button>
                 )}
-              </p>
+              </div>
             )}
 
             <h4 style={{ marginTop: '1.25rem', marginBottom: '0.5rem', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><History size={16} /> Audit History</h4>
-            {detail.amendments.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>No corrections, cancellations or reversals recorded.</p>}
+            {detail.amendments.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>No corrections, cancellations or reversals recorded.</div>}
             {detail.amendments.map((a: any) => (
               <div key={a.id} style={{ fontSize: '0.82rem', padding: '0.5rem 0', borderBottom: '1px dashed var(--border)' }}>
                 <span className="badge badge-warning" style={{ marginRight: '0.5rem' }}>{a.amendment_type}</span>
@@ -460,6 +556,77 @@ export const ScheduleBDView: React.FC = () => {
             <div style={{ marginTop: '1.25rem', textAlign: 'right' }}>
               <button className="btn btn-primary btn-sm" onClick={() => window.print()}><Printer size={15} /> Print this entry</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showManualModal && (
+        <div className="modal-overlay" onClick={() => setShowManualModal(false)}>
+          <div className="modal-content" style={{ width: '100%', maxWidth: '560px', padding: '1.5rem' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0 }}>Add Manual / Legacy Register Entry</h3>
+              <button className="btn-icon" onClick={() => setShowManualModal(false)}><X size={18} /></button>
+            </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+              For a paper record found later, or a legacy dispense never entered at the counter. This creates an audited register entry only — it does <strong>not</strong> deduct stock. Link a separate inventory adjustment yourself if stock also needs correcting.
+            </div>
+            <form onSubmit={handleSubmitManualEntry} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div>
+                <label className="form-label">Medicine *</label>
+                <select className="select" value={manualForm.medicineId} onChange={e => setManualForm(f => ({ ...f, medicineId: e.target.value }))} required>
+                  <option value="">Select medicine...</option>
+                  {medicines.map((m: any) => (
+                    <option key={m.id} value={m.id}>{m.brand_name} {m.strength} ({m.dosage_form || 'Unit'})</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label className="form-label">Schedule *</label>
+                  <DownwardSelect value={manualForm.schedule} onChange={v => setManualForm(f => ({ ...f, schedule: v }))} options={MANUAL_SCHEDULE_OPTIONS} />
+                </div>
+                <div>
+                  <label className="form-label">Dispensed Quantity *</label>
+                  <input className="input" type="number" min="0.01" step="0.01" value={manualForm.dispensedQuantity} onChange={e => setManualForm(f => ({ ...f, dispensedQuantity: e.target.value }))} required />
+                </div>
+                <div>
+                  <label className="form-label">Unit</label>
+                  <input className="input" placeholder="e.g. Tablet" value={manualForm.unit} onChange={e => setManualForm(f => ({ ...f, unit: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="form-label">Original Dispensing Date *</label>
+                  <input className="input" type="date" value={manualForm.originalDispensingDate} onChange={e => setManualForm(f => ({ ...f, originalDispensingDate: e.target.value }))} required />
+                </div>
+                <div>
+                  <label className="form-label">Batch Number</label>
+                  <input className="input" value={manualForm.batchNumberSnapshot} onChange={e => setManualForm(f => ({ ...f, batchNumberSnapshot: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="form-label">Batch Expiry</label>
+                  <input className="input" type="date" value={manualForm.expiryDateSnapshot} onChange={e => setManualForm(f => ({ ...f, expiryDateSnapshot: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="form-label">Patient Name</label>
+                  <input className="input" value={manualForm.patientName} onChange={e => setManualForm(f => ({ ...f, patientName: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="form-label">Purchaser (if different)</label>
+                  <input className="input" value={manualForm.purchaserName} onChange={e => setManualForm(f => ({ ...f, purchaserName: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="form-label">Prescriber Name</label>
+                  <input className="input" value={manualForm.prescriberName} onChange={e => setManualForm(f => ({ ...f, prescriberName: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="form-label">Original Document Ref.</label>
+                  <input className="input" value={manualForm.originalDocumentReference} onChange={e => setManualForm(f => ({ ...f, originalDocumentReference: e.target.value }))} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowManualModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary btn-sm" disabled={manualSaving}>{manualSaving ? 'Saving...' : 'Record Entry'}</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
