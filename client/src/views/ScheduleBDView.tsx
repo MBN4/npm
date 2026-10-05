@@ -456,7 +456,7 @@ export const ScheduleBDView: React.FC = () => {
                       <td style={{ textAlign: 'center' }}>
                         {c.suspected_error_flag ? <span title={c.suspected_error_note}><AlertTriangle size={16} color="var(--warning-text)" /></span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                       </td>
-                      <td style={{ display: 'flex', gap: '0.4rem' }}>
+                      <td style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', height: '100%' }}>
                         {hasPermission('manage_drug_classification') && c.verification_status !== 'VERIFIED' && (
                           <button className="btn btn-secondary btn-sm" title="Verify" onClick={() => handleVerify(c.id, 'VERIFIED')}><ShieldCheck size={14} /></button>
                         )}
