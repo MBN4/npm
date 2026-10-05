@@ -34,7 +34,12 @@ export function seedDatabase() {
       ['manage_staff', 'Manage user accounts and role assignments', 'ADMIN'],
       ['manage_settings', 'Modify pharmacy system configuration', 'ADMIN'],
       ['export_data', 'Export financial and stock reports', 'REPORTS'],
-      ['backup_restore', 'Perform database backups and restore', 'SYSTEM']
+      ['backup_restore', 'Perform database backups and restore', 'SYSTEM'],
+      ['manage_drug_classification', 'Create, edit and verify Schedule B/D drug classifications', 'CLINICAL'],
+      ['view_scheduled_register', 'View the Schedule B & D prescription register', 'CLINICAL'],
+      ['approve_scheduled_drugs', 'Approve dispensing of verified Schedule B/D medicines (pharmacist/qualified person)', 'CLINICAL'],
+      ['amend_scheduled_register', 'Record corrections, cancellations and manual entries on the Schedule B/D register', 'CLINICAL'],
+      ['audit_scheduled_register', 'Read-only audit access to the Schedule B/D register and its history', 'CLINICAL']
     ];
 
     for (const [code, desc, mod] of permissions) {
@@ -48,13 +53,13 @@ export function seedDatabase() {
       insertRolePermission.run(1, p.id);
     }
 
-    const pharmaCodes = ['view_sales', 'create_sales', 'return_sales', 'view_purchases', 'manage_inventory', 'manage_medicines', 'manage_patients', 'use_drug_ai'];
+    const pharmaCodes = ['view_sales', 'create_sales', 'return_sales', 'view_purchases', 'manage_inventory', 'manage_medicines', 'manage_patients', 'use_drug_ai', 'manage_drug_classification', 'view_scheduled_register', 'approve_scheduled_drugs', 'amend_scheduled_register'];
     for (const code of pharmaCodes) {
       const pId = permMap.get(code);
       if (pId) insertRolePermission.run(2, pId);
     }
 
-    const cashierCodes = ['view_sales', 'create_sales', 'manage_patients'];
+    const cashierCodes = ['view_sales', 'create_sales', 'manage_patients', 'view_scheduled_register'];
     for (const code of cashierCodes) {
       const pId = permMap.get(code);
       if (pId) insertRolePermission.run(3, pId);

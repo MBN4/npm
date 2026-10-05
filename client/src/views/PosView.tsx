@@ -56,6 +56,11 @@ export interface CartItem {
   looseUnits: number;
   originalUnitPrice?: number;
   rateOverridden?: boolean;
+  // Schedule B/D dispensing gate - populated when the medicine has a verified controlled-drug classification
+  schedule?: 'B' | 'D' | 'BOTH' | null;
+  scheduleClassifications?: any[];
+  prescriptionId?: number | null;
+  prescriptionItemId?: number | null;
 }
 
 export const BILL_LINE_CATEGORIES = [
@@ -71,8 +76,49 @@ interface PosViewProps {
   onNavigate?: (view: NavView) => void;
 }
 
+/** Lets the cashier pick which prescription line (for the medicine being sold) to link a Schedule B/D cart item to. */
+const PrescriptionItemPicker: React.FC<{ token: string | null; prescriptionId: number; medicineId: number; onPick: (itemId: number) => void }> = ({ token, prescriptionId, medicineId, onPick }) => {
+  const [rxItems, setRxItems] = useState<any[]>([]);
+  const [selected, setSelected] = useState<string>('');
+
+  useEffect(() => {
+    if (!token) return;
+    fetch(`/api/prescriptions/${prescriptionId}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.ok ? res.json() : { items: [] })
+      .then(data => setRxItems((data.items || []).filter((it: any) => it.medicine_id === medicineId)))
+      .catch(() => {});
+  }, [token, prescriptionId, medicineId]);
+
+  if (rxItems.length === 0) {
+    return <div style={{ color: 'var(--danger)', fontSize: '0.72rem', marginTop: '0.2rem' }}>This prescription has no line item for this medicine.</div>;
+  }
+
+  return (
+    <select
+      value={selected}
+      onChange={e => { setSelected(e.target.value); if (e.target.value) onPick(Number(e.target.value)); }}
+      style={{ width: '100%', marginTop: '0.25rem' }}
+    >
+      <option value="">Select prescription line item...</option>
+      {rxItems.map((it: any) => {
+        const remaining = it.authorized_quantity != null ? it.authorized_quantity - (it.dispensed_quantity || 0) : null;
+        return <option key={it.id} value={it.id}>{it.dosage} / {it.frequency} {remaining != null ? `(${remaining} remaining)` : '(unlimited)'}</option>;
+      })}
+    </select>
+  );
+};
+
 export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
-  const { token, user, hasRole } = useAuth();
+  const { token, user, hasRole, hasPermission } = useAuth();
+
+  // Schedule B/D dispensing gate state
+  const [scheduleApproval, setScheduleApproval] = useState<{ token: string; approvedByName: string; expiresAt: string } | null>(null);
+  const [showPharmacistApprovalModal, setShowPharmacistApprovalModal] = useState(false);
+  const [approverUsername, setApproverUsername] = useState('');
+  const [approverPassword, setApproverPassword] = useState('');
+  const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [myPrescriptions, setMyPrescriptions] = useState<any[]>([]);
+  const checkoutRequestKeyRef = useRef<string>('');
 
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -84,6 +130,47 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
   const cameraStreamRef = useRef<MediaStream | null>(null);
 
   const [cart, setCart] = useState<CartItem[]>([]);
+
+  const scheduledCartItems = cart.filter(it => !!it.schedule);
+
+  useEffect(() => {
+    if (scheduledCartItems.length === 0 || !token) return;
+    fetch('/api/prescriptions', { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.ok ? res.json() : { prescriptions: [] })
+      .then(data => setMyPrescriptions(data.prescriptions || []))
+      .catch(() => {});
+    // Invalidate any stale approval once the cart's scheduled items change.
+    setScheduleApproval(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduledCartItems.length, token]);
+
+  const setCartItemPrescription = (batchId: number, prescriptionId: number, prescriptionItemId: number) => {
+    setCart(prev => prev.map(it => it.batchId === batchId ? { ...it, prescriptionId, prescriptionItemId } : it));
+  };
+
+  const requestPharmacistApproval = async () => {
+    setApprovalError(null);
+    try {
+      const res = await fetch('/api/pos/schedule-bd/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          username: approverUsername,
+          password: approverPassword,
+          items: scheduledCartItems.map(it => ({ medicineId: it.medicineId, batchId: it.batchId, quantity: it.quantity }))
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Approval failed');
+      setScheduleApproval({ token: data.approvalToken, approvedByName: data.approvedByName, expiresAt: data.expiresAt });
+      setShowPharmacistApprovalModal(false);
+      setApproverUsername('');
+      setApproverPassword('');
+    } catch (err: any) {
+      setApprovalError(err.message || 'Approval failed');
+    }
+  };
+
   const [customers, setCustomers] = useState<{ id: number; name: string; mobile?: string; current_balance: number }[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [customSlipName, setCustomSlipName] = useState<string>('');
@@ -564,7 +651,11 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
         unitsPerPack,
         packs: isMultiTier ? Math.floor(looseUnitsToAdd / unitsPerPack) : looseUnitsToAdd,
         looseUnits: isMultiTier ? looseUnitsToAdd % unitsPerPack : 0,
-        packTypeOverride: isMultiTier ? (packaging.middle || 'Strip') : (packaging.unit || 'Bottle')
+        packTypeOverride: isMultiTier ? (packaging.middle || 'Strip') : (packaging.unit || 'Bottle'),
+        schedule: product.schedule || null,
+        scheduleClassifications: product.schedule_classifications || [],
+        prescriptionId: null,
+        prescriptionItemId: null
       };
       setCart([newItem, ...cart]);
     }
@@ -770,6 +861,22 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
       return;
     }
 
+    if (scheduledCartItems.length > 0) {
+      const missingRx = scheduledCartItems.find(it => !it.prescriptionId || !it.prescriptionItemId);
+      if (missingRx) {
+        setErrorMessage(`"${missingRx.brandName}" is a verified Schedule ${missingRx.schedule} medicine — link it to a prescription item in the Schedule B/D panel before checking out.`);
+        return;
+      }
+      if (!hasPermission('approve_scheduled_drugs') && !scheduleApproval) {
+        setErrorMessage('This sale requires pharmacist approval for a Schedule B/D medicine. Click "Request Pharmacist Approval" below.');
+        return;
+      }
+    }
+
+    if (!checkoutRequestKeyRef.current) {
+      checkoutRequestKeyRef.current = `POS-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+
     try {
       const res = await fetch('/api/pos/checkout', {
         method: 'POST',
@@ -779,6 +886,8 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
         },
         body: JSON.stringify({
           customerId: selectedCustomerId ? Number(selectedCustomerId) : null,
+          requestKey: checkoutRequestKeyRef.current,
+          scheduleBDApprovalToken: scheduleApproval?.token || null,
           items: cart.map(it => ({
             medicineId: it.medicineId,
             batchId: it.batchId,
@@ -790,7 +899,9 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
             packType: it.packTypeOverride,
             unitsPerPack: it.unitsPerPack,
             packs: it.packs,
-            looseUnits: it.looseUnits
+            looseUnits: it.looseUnits,
+            prescriptionId: it.prescriptionId || undefined,
+            prescriptionItemId: it.prescriptionItemId || undefined
           })),
           subtotal,
           discount: discountVal,
@@ -813,6 +924,9 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
         throw new Error(errData.error || 'Server rejected checkout');
       }
 
+      checkoutRequestKeyRef.current = '';
+      setScheduleApproval(null);
+
       const data = await res.json();
       const invoiceData = {
         ...data.invoice,
@@ -833,6 +947,10 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
       }
     } catch (err: any) {
       if (!navigator.onLine || err.message.includes('fetch') || err.message.includes('Network') || err.message.includes('Failed to fetch')) {
+        if (scheduledCartItems.length > 0) {
+          setErrorMessage('This sale contains a verified Schedule B/D medicine, which requires an online connection for prescription and pharmacist approval checks. Please retry once connectivity is restored.');
+          return;
+        }
         const offlineRecord = saveOfflineSale({
           customerId: selectedCustomerId ? Number(selectedCustomerId) : null,
           customerName: customSlipName.trim() || (selectedCustomerId ? customers.find(c => String(c.id) === selectedCustomerId)?.name : 'Walk-in Counter Patient'),
@@ -1774,6 +1892,53 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
               <span className="badge badge-info" style={{ fontSize: '0.65rem' }}>80mm ESC/POS</span>
             </div>
 
+            {scheduledCartItems.length > 0 && (
+              <div style={{ border: '1px solid #f59e0b', borderRadius: '6px', padding: '0.6rem', background: 'rgba(245,158,11,0.08)', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <strong style={{ color: '#f59e0b' }}>Schedule B/D Dispensing Requirements</strong>
+                {scheduledCartItems.map(it => {
+                  return (
+                    <div key={it.batchId} style={{ borderBottom: '1px dashed var(--border)', paddingBottom: '0.4rem' }}>
+                      <div><strong>{it.brandName}</strong> — Schedule {it.schedule} (classification {it.scheduleClassifications?.[0]?.verificationStatus || 'unknown'})</div>
+                      <select
+                        value={it.prescriptionId || ''}
+                        onChange={e => {
+                          const rxId = Number(e.target.value);
+                          setCart(prev => prev.map(ci => ci.batchId === it.batchId ? { ...ci, prescriptionId: rxId || null, prescriptionItemId: null } : ci));
+                        }}
+                        style={{ width: '100%', marginTop: '0.25rem' }}
+                      >
+                        <option value="">Select linked prescription...</option>
+                        {myPrescriptions.map(p => (
+                          <option key={p.id} value={p.id}>#{p.id} — {p.patient_name} ({new Date(p.created_at).toLocaleDateString()})</option>
+                        ))}
+                      </select>
+                      {it.prescriptionId && (
+                        <PrescriptionItemPicker
+                          token={token}
+                          prescriptionId={it.prescriptionId}
+                          medicineId={it.medicineId}
+                          onPick={(itemId: number) => setCartItemPrescription(it.batchId, it.prescriptionId!, itemId)}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+
+                {!hasPermission('approve_scheduled_drugs') && (
+                  <div>
+                    {scheduleApproval ? (
+                      <div style={{ color: 'var(--success)' }}>Approved by {scheduleApproval.approvedByName} (expires {new Date(scheduleApproval.expiresAt).toLocaleTimeString()})</div>
+                    ) : (
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowPharmacistApprovalModal(true)}>Request Pharmacist Approval</button>
+                    )}
+                  </div>
+                )}
+                {hasPermission('approve_scheduled_drugs') && (
+                  <div style={{ color: 'var(--success)' }}>Your account can self-approve Schedule B/D dispensing.</div>
+                )}
+              </div>
+            )}
+
             <button
               type="submit"
               className="btn btn-primary"
@@ -1786,6 +1951,24 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
           </form>
         </div>
       </div>
+
+      {showPharmacistApprovalModal && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '380px' }}>
+            <div style={{ padding: '1rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between' }}>
+              <strong>Pharmacist Approval</strong>
+              <button onClick={() => setShowPharmacistApprovalModal(false)}><X size={16} /></button>
+            </div>
+            <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>The approving pharmacist must sign in with their own credentials. This does not affect your own session.</p>
+              <input className="input" placeholder="Pharmacist username" value={approverUsername} onChange={e => setApproverUsername(e.target.value)} />
+              <input className="input" type="password" placeholder="Password" value={approverPassword} onChange={e => setApproverPassword(e.target.value)} />
+              {approvalError && <div style={{ color: 'var(--danger)', fontSize: '0.78rem' }}>{approvalError}</div>}
+              <button type="button" className="btn btn-primary" onClick={requestPharmacistApproval}>Approve Dispensing</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showHeldModal && (
         <div className="modal-overlay">

@@ -16,6 +16,7 @@ import { BillHistoryView } from './views/BillHistoryView.js';
 import { PatientsView } from './views/PatientsView.js';
 import { PrescriptionsView } from './views/PrescriptionsView.js';
 import { ReturnsView } from './views/ReturnsView.js';
+import { ScheduleBDView } from './views/ScheduleBDView.js';
 import { ExpiryView } from './views/ExpiryView.js';
 import { AccountsView } from './views/AccountsView.js';
 import { BalanceView } from './views/BalanceView.js';
@@ -80,6 +81,8 @@ export const AppContent: React.FC = () => {
         return <PatientsView />;
       case 'returns':
         return <ReturnsView />;
+      case 'schedule-bd':
+        return <ScheduleBDView />;
       case 'expiry':
         return <ExpiryView />;
       case 'accounts':

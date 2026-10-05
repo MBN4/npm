@@ -18,6 +18,8 @@ export interface PrescriptionItem {
   duration: string;
   timing: string;
   instructions: string;
+  authorizedQuantity: string;
+  unit: string;
 }
 
 const DOSAGE_PRESETS = [
@@ -108,9 +110,25 @@ export const PrescriptionsView: React.FC = () => {
       frequency: 'BD (Twice Daily)',
       duration: '5 days',
       timing: 'After Food',
-      instructions: ''
+      instructions: '',
+      authorizedQuantity: '',
+      unit: ''
     }
   ]);
+
+  // Schedule B/D register capture fields - required only when the applicable jurisdiction rule demands it
+  const [patientCnic, setPatientCnic] = useState('');
+  const [patientMobileOverride, setPatientMobileOverride] = useState('');
+  const [patientAddress, setPatientAddress] = useState('');
+  const [purchaserName, setPurchaserName] = useState('');
+  const [purchaserRelation, setPurchaserRelation] = useState('');
+  const [purchaserCnic, setPurchaserCnic] = useState('');
+  const [purchaserMobile, setPurchaserMobile] = useState('');
+  const [prescriberRegistrationNumber, setPrescriberRegistrationNumber] = useState('');
+  const [prescriberAddress, setPrescriberAddress] = useState('');
+  const [originalDocumentReference, setOriginalDocumentReference] = useState('');
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [showScheduleFields, setShowScheduleFields] = useState(false);
 
   const fetchPrescriptions = async () => {
     setIsLoading(true);
@@ -204,7 +222,9 @@ export const PrescriptionsView: React.FC = () => {
         frequency: 'OD (Once Daily)',
         duration: '5 days',
         timing: 'After Food',
-        instructions: ''
+        instructions: '',
+        authorizedQuantity: '',
+        unit: ''
       }
     ]);
   };
@@ -214,6 +234,8 @@ export const PrescriptionsView: React.FC = () => {
     setItems(items.filter((_, i) => i !== index));
   };
 
+  const [rxRegisterEntries, setRxRegisterEntries] = useState<any[]>([]);
+
   const handleOpenRxDetail = async (rxId: number) => {
     try {
       const res = await fetch(`/api/prescriptions/${rxId}`, {
@@ -222,6 +244,10 @@ export const PrescriptionsView: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setSelectedRx(data);
+      }
+      if (hasPermission('view_scheduled_register')) {
+        const regRes = await fetch(`/api/schedule-bd?prescriptionId=${rxId}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (regRes.ok) setRxRegisterEntries((await regRes.json()).entries || []);
       }
     } catch (err) {
       console.error(err);
@@ -256,13 +282,25 @@ export const PrescriptionsView: React.FC = () => {
           doctorId: doctorId ? Number(doctorId) : null,
           diagnosis: diagnosis.trim(),
           notes: notes.trim(),
+          patientCnic: patientCnic.trim() || null,
+          patientMobile: patientMobileOverride.trim() || null,
+          patientAddress: patientAddress.trim() || null,
+          purchaserName: purchaserName.trim() || null,
+          purchaserRelation: purchaserRelation.trim() || null,
+          purchaserCnic: purchaserCnic.trim() || null,
+          purchaserMobile: purchaserMobile.trim() || null,
+          prescriberRegistrationNumber: prescriberRegistrationNumber.trim() || null,
+          prescriberAddress: prescriberAddress.trim() || null,
+          originalDocumentReference: originalDocumentReference.trim() || null,
           items: items.map(it => ({
             medicineId: Number(it.medicineId),
             dosage: it.dosage,
             frequency: it.frequency,
             duration: it.duration,
             timing: it.timing,
-            instructions: it.instructions
+            instructions: it.instructions,
+            authorizedQuantity: it.authorizedQuantity === '' ? null : Number(it.authorizedQuantity),
+            unit: it.unit || null
           }))
         })
       });
@@ -273,6 +311,16 @@ export const PrescriptionsView: React.FC = () => {
         return;
       }
 
+      if (attachmentFile && data.prescriptionId) {
+        const formData = new FormData();
+        formData.append('file', attachmentFile);
+        await fetch(`/api/prescriptions/${data.prescriptionId}/attachment`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData
+        }).catch(() => {});
+      }
+
       setStatusMessage({ text: 'Prescription recorded successfully.', type: 'success' });
       setShowAddModal(false);
       setPatientId('');
@@ -281,6 +329,10 @@ export const PrescriptionsView: React.FC = () => {
       setEditingRxPatientId(null);
       setDiagnosis('');
       setNotes('');
+      setPatientCnic(''); setPatientMobileOverride(''); setPatientAddress('');
+      setPurchaserName(''); setPurchaserRelation(''); setPurchaserCnic(''); setPurchaserMobile('');
+      setPrescriberRegistrationNumber(''); setPrescriberAddress(''); setOriginalDocumentReference('');
+      setAttachmentFile(null); setShowScheduleFields(false);
       setItems([
         {
           medicineId: '',
@@ -288,7 +340,9 @@ export const PrescriptionsView: React.FC = () => {
           frequency: 'BD (Twice Daily)',
           duration: '5 days',
           timing: 'After Food',
-          instructions: ''
+          instructions: '',
+          authorizedQuantity: '',
+          unit: ''
         }
       ]);
       fetchPrescriptions();
@@ -495,6 +549,31 @@ export const PrescriptionsView: React.FC = () => {
                 />
               </div>
 
+              {/* Schedule B/D register capture fields - optional unless the applicable jurisdiction rule requires them */}
+              <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.75rem' }}>
+                <button type="button" onClick={() => setShowScheduleFields(s => !s)} className="btn btn-secondary btn-sm">
+                  {showScheduleFields ? 'Hide' : 'Show'} Schedule B/D Register Fields (purchaser, CNIC, prescriber reg. no., attachment)
+                </button>
+                {showScheduleFields && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.6rem', marginTop: '0.75rem' }}>
+                    <div><label className="form-label">Patient CNIC</label><input className="input" value={patientCnic} onChange={e => setPatientCnic(e.target.value)} placeholder="XXXXX-XXXXXXX-X" /></div>
+                    <div><label className="form-label">Patient Mobile (override)</label><input className="input" value={patientMobileOverride} onChange={e => setPatientMobileOverride(e.target.value)} /></div>
+                    <div><label className="form-label">Patient Address</label><input className="input" value={patientAddress} onChange={e => setPatientAddress(e.target.value)} /></div>
+                    <div><label className="form-label">Purchaser Name (if different)</label><input className="input" value={purchaserName} onChange={e => setPurchaserName(e.target.value)} /></div>
+                    <div><label className="form-label">Purchaser Relation</label><input className="input" value={purchaserRelation} onChange={e => setPurchaserRelation(e.target.value)} placeholder="e.g. Spouse, Attendant" /></div>
+                    <div><label className="form-label">Purchaser CNIC</label><input className="input" value={purchaserCnic} onChange={e => setPurchaserCnic(e.target.value)} /></div>
+                    <div><label className="form-label">Purchaser Mobile</label><input className="input" value={purchaserMobile} onChange={e => setPurchaserMobile(e.target.value)} /></div>
+                    <div><label className="form-label">Prescriber Registration No.</label><input className="input" value={prescriberRegistrationNumber} onChange={e => setPrescriberRegistrationNumber(e.target.value)} /></div>
+                    <div><label className="form-label">Prescriber Address</label><input className="input" value={prescriberAddress} onChange={e => setPrescriberAddress(e.target.value)} /></div>
+                    <div><label className="form-label">Original Document Reference</label><input className="input" value={originalDocumentReference} onChange={e => setOriginalDocumentReference(e.target.value)} placeholder="Paper Rx file/serial reference" /></div>
+                    <div>
+                      <label className="form-label">Prescription Attachment (image/PDF)</label>
+                      <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={e => setAttachmentFile(e.target.files?.[0] || null)} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Medicine items */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
@@ -516,6 +595,7 @@ export const PrescriptionsView: React.FC = () => {
                         <th style={{ minWidth: '160px', padding: '0.6rem 0.75rem', textAlign: 'left' }}>Frequency</th>
                         <th style={{ minWidth: '170px', padding: '0.6rem 0.75rem', textAlign: 'left' }}>Duration</th>
                         <th style={{ minWidth: '150px', padding: '0.6rem 0.75rem', textAlign: 'left' }}>Timing</th>
+                        <th style={{ minWidth: '110px', padding: '0.6rem 0.75rem', textAlign: 'left' }}>Authorized Qty</th>
                         <th style={{ width: '40px', padding: '0.6rem' }}></th>
                       </tr>
                     </thead>
@@ -644,6 +724,26 @@ export const PrescriptionsView: React.FC = () => {
                             </select>
                           </td>
 
+                          {/* Authorized quantity (Schedule B/D dispensing limit; optional for ordinary Rx items) */}
+                          <td style={{ padding: '0.5rem 0.75rem', verticalAlign: 'top' }}>
+                            <input
+                              className="input"
+                              type="number"
+                              min="0"
+                              value={it.authorizedQuantity}
+                              onChange={e => handleItemChange(idx, 'authorizedQuantity', e.target.value)}
+                              placeholder="Unlimited"
+                              style={{ width: '100%', height: '32px', fontSize: '0.78rem' }}
+                            />
+                            <input
+                              className="input"
+                              value={it.unit}
+                              onChange={e => handleItemChange(idx, 'unit', e.target.value)}
+                              placeholder="Unit (e.g. Tablet)"
+                              style={{ width: '100%', height: '28px', fontSize: '0.72rem', marginTop: '0.2rem' }}
+                            />
+                          </td>
+
                           {/* Action Delete */}
                           <td style={{ padding: '0.5rem 0.4rem', textAlign: 'center', verticalAlign: 'middle' }}>
                             {items.length > 1 && (
@@ -735,6 +835,7 @@ export const PrescriptionsView: React.FC = () => {
                     <th style={{ textAlign: 'left', padding: '0.4rem', background: 'transparent' }}>Frequency</th>
                     <th style={{ textAlign: 'left', padding: '0.4rem', background: 'transparent' }}>Duration</th>
                     <th style={{ textAlign: 'left', padding: '0.4rem', background: 'transparent' }}>Timing</th>
+                    <th style={{ textAlign: 'left', padding: '0.4rem', background: 'transparent' }}>Remaining</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -745,6 +846,9 @@ export const PrescriptionsView: React.FC = () => {
                       <td style={{ padding: '0.4rem' }}>{it.frequency}</td>
                       <td style={{ padding: '0.4rem' }}>{it.duration}</td>
                       <td style={{ padding: '0.4rem' }}>{it.timing}</td>
+                      <td style={{ padding: '0.4rem', fontSize: '0.78rem' }}>
+                        {it.authorized_quantity != null ? `${it.authorized_quantity - (it.dispensed_quantity || 0)} / ${it.authorized_quantity} remaining` : 'Unlimited'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -753,6 +857,12 @@ export const PrescriptionsView: React.FC = () => {
               {selectedRx.prescription.notes && (
                 <div style={{ fontSize: '0.8rem', color: '#555', borderTop: '1px dashed #ccc', paddingTop: '0.5rem' }}>
                   <strong>Instructions:</strong> {selectedRx.prescription.notes}
+                </div>
+              )}
+
+              {rxRegisterEntries.length > 0 && (
+                <div style={{ fontSize: '0.78rem', color: '#555', borderTop: '1px dashed #ccc', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+                  <strong>Schedule B/D Register Endorsement:</strong> this prescription was used to dispense register serial(s): {rxRegisterEntries.map((e: any) => e.serial_number).join(', ')}
                 </div>
               )}
             </div>
