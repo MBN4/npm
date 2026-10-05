@@ -27,6 +27,12 @@ export interface SyncDataExport {
   sales_returns: any[];
   sale_return_items: any[];
   replacement_items: any[];
+  drug_classifications: any[];
+  medicine_ingredients: any[];
+  medicine_classification_links: any[];
+  schedule_bd_register_entries: any[];
+  schedule_bd_register_amendments: any[];
+  schedule_bd_register_return_links: any[];
 }
 
 const DEFAULT_SYNC_PATH = path.resolve(process.cwd(), 'data', 'sync_data.json');
@@ -63,6 +69,12 @@ export function exportSyncData(outputPath: string = DEFAULT_SYNC_PATH): { succes
   const sales_returns = db.prepare('SELECT * FROM sales_returns').all();
   const sale_return_items = db.prepare('SELECT * FROM sale_return_items').all();
   const replacement_items = db.prepare('SELECT * FROM replacement_items').all();
+  const drug_classifications = db.prepare('SELECT * FROM drug_classifications').all();
+  const medicine_ingredients = db.prepare('SELECT * FROM medicine_ingredients').all();
+  const medicine_classification_links = db.prepare('SELECT * FROM medicine_classification_links').all();
+  const schedule_bd_register_entries = db.prepare('SELECT * FROM schedule_bd_register_entries').all();
+  const schedule_bd_register_amendments = db.prepare('SELECT * FROM schedule_bd_register_amendments').all();
+  const schedule_bd_register_return_links = db.prepare('SELECT * FROM schedule_bd_register_return_links').all();
 
   const counts = {
     categories: categories.length,
@@ -84,6 +96,12 @@ export function exportSyncData(outputPath: string = DEFAULT_SYNC_PATH): { succes
     sales_returns: sales_returns.length,
     sale_return_items: sale_return_items.length,
     replacement_items: replacement_items.length,
+    drug_classifications: drug_classifications.length,
+    medicine_ingredients: medicine_ingredients.length,
+    medicine_classification_links: medicine_classification_links.length,
+    schedule_bd_register_entries: schedule_bd_register_entries.length,
+    schedule_bd_register_amendments: schedule_bd_register_amendments.length,
+    schedule_bd_register_return_links: schedule_bd_register_return_links.length,
   };
 
   const payload: SyncDataExport = {
@@ -109,6 +127,12 @@ export function exportSyncData(outputPath: string = DEFAULT_SYNC_PATH): { succes
     sales_returns,
     sale_return_items,
     replacement_items,
+    drug_classifications,
+    medicine_ingredients,
+    medicine_classification_links,
+    schedule_bd_register_entries,
+    schedule_bd_register_amendments,
+    schedule_bd_register_return_links,
   };
 
   fs.writeFileSync(outputPath, JSON.stringify(payload, null, 2), 'utf8');
@@ -152,6 +176,12 @@ export function importSyncData(inputPath: string = DEFAULT_SYNC_PATH): { success
     sales_returns: [],
     sale_return_items: [],
     replacement_items: [],
+    drug_classifications: [],
+    medicine_ingredients: [],
+    medicine_classification_links: [],
+    schedule_bd_register_entries: [],
+    schedule_bd_register_amendments: [],
+    schedule_bd_register_return_links: [],
   });
 
   const importedCounts: Record<string, number> = {
@@ -174,6 +204,12 @@ export function importSyncData(inputPath: string = DEFAULT_SYNC_PATH): { success
     sales_returns: 0,
     sale_return_items: 0,
     replacement_items: 0,
+    drug_classifications: 0,
+    medicine_ingredients: 0,
+    medicine_classification_links: 0,
+    schedule_bd_register_entries: 0,
+    schedule_bd_register_amendments: 0,
+    schedule_bd_register_return_links: 0,
   };
 
   // Disable foreign keys outside transaction (SQLite requirement)
@@ -200,6 +236,12 @@ export function importSyncData(inputPath: string = DEFAULT_SYNC_PATH): { success
       importedCounts.sales_returns = upsertSyncRows(db, 'sales_returns', payload.sales_returns || []);
       importedCounts.sale_return_items = upsertSyncRows(db, 'sale_return_items', payload.sale_return_items || []);
       importedCounts.replacement_items = upsertSyncRows(db, 'replacement_items', payload.replacement_items || []);
+      importedCounts.drug_classifications = upsertSyncRows(db, 'drug_classifications', payload.drug_classifications || []);
+      importedCounts.medicine_ingredients = upsertSyncRows(db, 'medicine_ingredients', payload.medicine_ingredients || []);
+      importedCounts.medicine_classification_links = upsertSyncRows(db, 'medicine_classification_links', payload.medicine_classification_links || []);
+      importedCounts.schedule_bd_register_entries = upsertSyncRows(db, 'schedule_bd_register_entries', payload.schedule_bd_register_entries || []);
+      importedCounts.schedule_bd_register_amendments = upsertSyncRows(db, 'schedule_bd_register_amendments', payload.schedule_bd_register_amendments || []);
+      importedCounts.schedule_bd_register_return_links = upsertSyncRows(db, 'schedule_bd_register_return_links', payload.schedule_bd_register_return_links || []);
     });
 
     syncTx();
@@ -254,6 +296,12 @@ export function getSyncStatus(syncPath: string = DEFAULT_SYNC_PATH) {
       sales_returns: [],
       sale_return_items: [],
       replacement_items: [],
+      drug_classifications: [],
+      medicine_ingredients: [],
+      medicine_classification_links: [],
+      schedule_bd_register_entries: [],
+      schedule_bd_register_amendments: [],
+      schedule_bd_register_return_links: [],
     });
 
     return {

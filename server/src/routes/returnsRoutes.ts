@@ -11,6 +11,7 @@ import {
   computeReturnMath,
   DeductionType
 } from '../services/returnsService.js';
+import { linkReturn } from '../services/scheduleBDRegisterService.js';
 
 export const returnsRouter = Router();
 
@@ -383,10 +384,17 @@ returnsRouter.post('/', authenticateToken, requirePermission('return_sales'), (r
       `);
 
       for (const ri of processedReturnItems) {
-        insertReturnItem.run(
+        const returnItemResult = insertReturnItem.run(
           returnId, ri.saleItemId, ri.medicineId, ri.batchId, ri.quantityReturned, ri.unitPrice,
           ri.lineReturnAmount, ri.disposition, ri.descriptionSnapshot, ri.batchNumberSnapshot, ri.expiryDateSnapshot
         );
+
+        // If this sale item was a Schedule B/D dispense, keep its register entry linked to the return
+        // (financial refund stays separate from this inventory disposition - see disposition above).
+        const registerEntry = db.prepare('SELECT id FROM schedule_bd_register_entries WHERE sale_item_id = ?').get(ri.saleItemId) as { id: number } | undefined;
+        if (registerEntry) {
+          linkReturn(registerEntry.id, Number(returnId), Number(returnItemResult.lastInsertRowid), ri.quantityReturned);
+        }
 
         if (ri.disposition === 'RESTOCK_SELLABLE') {
           const batch = db.prepare('SELECT quantity FROM batches WHERE id = ?').get(ri.batchId) as any;

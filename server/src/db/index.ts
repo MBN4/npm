@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { upsertSyncRows } from '../services/syncRowHelpers.js';
 import { safeJsonParse } from '../utils/json.js';
+import { seedScheduleBDClassifications } from './seedScheduleBD.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -493,12 +494,117 @@ export function initDatabase() {
     // ignore
   }
 
+  // Auto-migrate medicines.route (dosage route is not modeled by dosage_form today)
+  const medicinesRouteInfo = db.pragma('table_info(medicines)') as Array<{ name: string }>;
+  if (medicinesRouteInfo && medicinesRouteInfo.length > 0 && !medicinesRouteInfo.some(c => c.name === 'route')) {
+    try {
+      db.exec("ALTER TABLE medicines ADD COLUMN route TEXT;");
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // Auto-migrate prescriptions table for Schedule B/D register capture fields
+  const prescriptionsInfo = db.pragma('table_info(prescriptions)') as Array<{ name: string }>;
+  if (prescriptionsInfo && prescriptionsInfo.length > 0) {
+    const existingCols = new Set(prescriptionsInfo.map(c => c.name));
+    const requiredCols: Array<[string, string]> = [
+      ['purchaser_name', 'TEXT'],
+      ['purchaser_relation', 'TEXT'],
+      ['purchaser_cnic', 'TEXT'],
+      ['purchaser_mobile', 'TEXT'],
+      ['patient_cnic', 'TEXT'],
+      ['patient_mobile', 'TEXT'],
+      ['patient_address', 'TEXT'],
+      ['prescriber_registration_number', 'TEXT'],
+      ['prescriber_address', 'TEXT'],
+      ['original_document_reference', 'TEXT'],
+      ['review_status', "TEXT DEFAULT 'PENDING'"],
+      ['review_comments', 'TEXT'],
+      ['reviewed_by', 'INTEGER'],
+      ['reviewed_at', 'DATETIME'],
+      ['attachment_path', 'TEXT'],
+      ['attachment_mime', 'TEXT'],
+      ['attachment_uploaded_by', 'INTEGER'],
+      ['attachment_uploaded_at', 'DATETIME']
+    ];
+    for (const [colName, colType] of requiredCols) {
+      if (!existingCols.has(colName)) {
+        try {
+          db.exec(`ALTER TABLE prescriptions ADD COLUMN ${colName} ${colType};`);
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+  }
+
+  // Auto-migrate prescription_items for authorized/dispensed quantity tracking
+  const prescriptionItemsInfo = db.pragma('table_info(prescription_items)') as Array<{ name: string }>;
+  if (prescriptionItemsInfo && prescriptionItemsInfo.length > 0) {
+    const existingCols = new Set(prescriptionItemsInfo.map(c => c.name));
+    const requiredCols: Array<[string, string]> = [
+      ['authorized_quantity', 'REAL'],
+      ['dispensed_quantity', 'REAL DEFAULT 0'],
+      ['unit', 'TEXT']
+    ];
+    for (const [colName, colType] of requiredCols) {
+      if (!existingCols.has(colName)) {
+        try {
+          db.exec(`ALTER TABLE prescription_items ADD COLUMN ${colName} ${colType};`);
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+  }
+
+  // Auto-migrate sales.request_key (closes an existing idempotency gap on checkout/offline-sync retries)
+  const salesIdemInfo = db.pragma('table_info(sales)') as Array<{ name: string }>;
+  if (salesIdemInfo && salesIdemInfo.length > 0 && !salesIdemInfo.some(c => c.name === 'request_key')) {
+    try {
+      db.exec('ALTER TABLE sales ADD COLUMN request_key TEXT;');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_request_key ON sales(request_key) WHERE request_key IS NOT NULL;');
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // Closes the matching idempotency gap on offline-sale sync retries
+  const salesOfflineIdInfo = db.pragma('table_info(sales)') as Array<{ name: string }>;
+  if (salesOfflineIdInfo && salesOfflineIdInfo.length > 0 && !salesOfflineIdInfo.some(c => c.name === 'offline_id')) {
+    try {
+      db.exec('ALTER TABLE sales ADD COLUMN offline_id TEXT;');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_offline_id ON sales(offline_id) WHERE offline_id IS NOT NULL;');
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // Seed Schedule B/D classification drafts (unverified) if none exist yet
+  try {
+    seedScheduleBDClassifications(db);
+  } catch (e) {
+    // ignore
+  }
+
   // Auto-import Git sync_data.json if present on disk
   try {
     const syncDataPath = path.resolve(__dirname, '../../data/sync_data.json');
     if (fs.existsSync(syncDataPath)) {
       const fileContent = fs.readFileSync(syncDataPath, 'utf8');
-      const payload = safeJsonParse<{ categories?: any[]; manufacturers?: any[]; generics?: any[]; suppliers?: any[]; medicines?: any[]; drug_clinical_info?: any[]; batches?: any[] }>(fileContent, {});
+      const payload = safeJsonParse<{
+        categories?: any[];
+        manufacturers?: any[];
+        generics?: any[];
+        suppliers?: any[];
+        medicines?: any[];
+        drug_clinical_info?: any[];
+        batches?: any[];
+        drug_classifications?: any[];
+        medicine_ingredients?: any[];
+        medicine_classification_links?: any[];
+      }>(fileContent, {});
 
       db.pragma('foreign_keys = OFF');
       try {
@@ -510,6 +616,9 @@ export function initDatabase() {
           upsertSyncRows(db, 'medicines', payload.medicines || []);
           upsertSyncRows(db, 'drug_clinical_info', payload.drug_clinical_info || []);
           upsertSyncRows(db, 'batches', payload.batches || []);
+          upsertSyncRows(db, 'drug_classifications', payload.drug_classifications || []);
+          upsertSyncRows(db, 'medicine_ingredients', payload.medicine_ingredients || []);
+          upsertSyncRows(db, 'medicine_classification_links', payload.medicine_classification_links || []);
         })();
       } finally {
         db.pragma('foreign_keys = ON');

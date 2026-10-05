@@ -7,7 +7,9 @@ const SYNC_TABLES = new Set([
   'purchases', 'purchase_items',
   'sales', 'sale_items',
   'prescriptions', 'prescription_items',
-  'sales_returns', 'sale_return_items', 'replacement_items'
+  'sales_returns', 'sale_return_items', 'replacement_items',
+  'drug_classifications', 'medicine_ingredients', 'medicine_classification_links',
+  'schedule_bd_register_entries', 'schedule_bd_register_amendments', 'schedule_bd_register_return_links'
 ]);
 
 /** Import a catalog row while resolving medicine relationships by name across devices. */

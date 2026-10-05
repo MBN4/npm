@@ -658,8 +658,34 @@ tr:hover td {
   #printable-barcode-sheet,
   #printable-barcode-sheet *,
   #printable-practice-rx,
-  #printable-practice-rx * {
+  #printable-practice-rx *,
+  .printable-register-list,
+  .printable-register-list *,
+  .printable-register-detail,
+  .printable-register-detail * {
     visibility: visible;
+  }
+
+  .printable-register-list {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11px !important;
+  }
+
+  .printable-register-detail {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #000000 !important;
   }
 
   .printable-receipt {

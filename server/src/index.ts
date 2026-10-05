@@ -30,6 +30,8 @@ import { medpracRouter } from './routes/medpracRoutes.js';
 import { udhaarRouter } from './routes/udhaarRoutes.js';
 import { billingPersonRouter } from './routes/billingPersonRoutes.js';
 import { activityRouter } from './routes/activityRoutes.js';
+import { classificationRouter } from './routes/classificationRoutes.js';
+import { scheduleBDRouter } from './routes/scheduleBDRoutes.js';
 import { securityHeaders } from './middleware/security.js';
 
 dotenv.config();
@@ -102,6 +104,8 @@ app.use('/api/medprac', medpracRouter);
 app.use('/api/udhaar', udhaarRouter);
 app.use('/api/billing-persons', billingPersonRouter);
 app.use('/api/activity', activityRouter);
+app.use('/api/classifications', classificationRouter);
+app.use('/api/schedule-bd', scheduleBDRouter);
 
 // Global 404 Handler
 app.use((req: Request, res: Response) => {

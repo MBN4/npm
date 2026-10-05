@@ -50,7 +50,13 @@ const snapshot = safeJsonParse<SyncDataExport>(fs.readFileSync(syncPath, 'utf8')
   prescription_items: [],
   sales_returns: [],
   sale_return_items: [],
-  replacement_items: []
+  replacement_items: [],
+  drug_classifications: [],
+  medicine_ingredients: [],
+  medicine_classification_links: [],
+  schedule_bd_register_entries: [],
+  schedule_bd_register_amendments: [],
+  schedule_bd_register_return_links: []
 });
 const byName = (name: string) => name.trim().toLowerCase();
 const categoryIds = new Map(snapshot.categories.map(row => [byName(row.name), row.id]));

@@ -1,11 +1,63 @@
 import { Router, Response } from 'express';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requirePermission, AuthenticatedRequest } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
 import { triggerAutoSync } from '../services/gitSyncService.js';
 import { safeJsonParse } from '../utils/json.js';
+import { getVerifiedScheduleForMedicine } from '../services/classificationService.js';
+import { createRegisterEntry } from '../services/scheduleBDRegisterService.js';
+import { allocateFefo } from '../services/fefoAllocationService.js';
 
 export const posRouter = Router();
+
+const SCHEDULE_BD_RULE_VERSION = 'punjab-2007-draft-v1';
+const SCHEDULE_BD_APPROVAL_TTL_MS = 10 * 60 * 1000;
+
+function itemsSignature(items: Array<{ medicineId: number; batchId: number; quantity: number }>): string {
+  const normalized = items
+    .map(i => `${i.medicineId}:${i.batchId}:${i.quantity}`)
+    .sort()
+    .join('|');
+  return crypto.createHash('sha256').update(normalized).digest('hex');
+}
+
+interface ScheduleGateResult {
+  scheduleInfo: ReturnType<typeof getVerifiedScheduleForMedicine>;
+  prescriptionItem: any;
+  prescription: any;
+}
+
+function resolveScheduleGate(item: any): ScheduleGateResult | null {
+  const scheduleInfo = getVerifiedScheduleForMedicine(Number(item.medicineId));
+  if (!scheduleInfo.schedule) return null;
+
+  const prescriptionItemId = Number(item.prescriptionItemId);
+  if (!prescriptionItemId) {
+    throw new Error(`A linked prescription is required to dispense a Schedule ${scheduleInfo.schedule} medicine (medicine ID ${item.medicineId}).`);
+  }
+
+  const prescriptionItem = db.prepare('SELECT * FROM prescription_items WHERE id = ?').get(prescriptionItemId) as any;
+  if (!prescriptionItem || prescriptionItem.medicine_id !== Number(item.medicineId)) {
+    throw new Error(`Linked prescription item does not match the medicine being dispensed (medicine ID ${item.medicineId}).`);
+  }
+
+  const prescription = db.prepare('SELECT * FROM prescriptions WHERE id = ?').get(prescriptionItem.prescription_id) as any;
+  if (!prescription) {
+    throw new Error('Linked prescription record was not found.');
+  }
+
+  const qty = Number(item.quantity);
+  if (prescriptionItem.authorized_quantity != null) {
+    const remaining = Number(prescriptionItem.authorized_quantity) - Number(prescriptionItem.dispensed_quantity || 0);
+    if (qty > remaining) {
+      throw new Error(`Requested quantity (${qty}) exceeds the remaining authorized quantity (${remaining}) on this prescription for medicine ID ${item.medicineId}.`);
+    }
+  }
+
+  return { scheduleInfo, prescriptionItem, prescription };
+}
 
 function buildDescriptionSnapshot(brandName: string, strength?: string | null): string {
   if (!strength) return brandName;
@@ -41,13 +93,13 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
 
   if (exactMatch) {
     const validBatches = db.prepare(`
-      SELECT 
+      SELECT
         b.id as batch_id, b.batch_number, b.expiry_date, b.sale_price, b.purchase_price,
         b.quantity, b.rack_location as batch_rack,
         CAST((julianday(b.expiry_date) - julianday('now')) AS INTEGER) as days_to_expiry
       FROM batches b
-      WHERE b.medicine_id = ? 
-        AND b.quantity > 0 
+      WHERE b.medicine_id = ?
+        AND b.quantity > 0
         AND b.expiry_date > date('now')
         AND b.status = 'ACTIVE'
       ORDER BY b.expiry_date ASC
@@ -55,13 +107,16 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
 
     const totalAvailableStock = validBatches.reduce((acc, b) => acc + b.quantity, 0);
     const fefoBatch = validBatches.length > 0 ? validBatches[0] : null;
+    const scheduleInfo = getVerifiedScheduleForMedicine(exactMatch.id);
 
     res.json({
       results: [{
         ...exactMatch,
         total_stock: totalAvailableStock,
         fefo_batch: fefoBatch,
-        available_batches: validBatches
+        available_batches: validBatches,
+        schedule: scheduleInfo.schedule,
+        schedule_classifications: scheduleInfo.classifications
       }]
     });
     return;
@@ -107,13 +162,13 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
 
   const results = medicines.map(med => {
     const validBatches = db.prepare(`
-      SELECT 
+      SELECT
         b.id as batch_id, b.batch_number, b.expiry_date, b.sale_price, b.purchase_price,
         b.quantity, b.rack_location as batch_rack,
         CAST((julianday(b.expiry_date) - julianday('now')) AS INTEGER) as days_to_expiry
       FROM batches b
-      WHERE b.medicine_id = ? 
-        AND b.quantity > 0 
+      WHERE b.medicine_id = ?
+        AND b.quantity > 0
         AND b.expiry_date > date('now')
         AND b.status = 'ACTIVE'
       ORDER BY b.expiry_date ASC
@@ -121,12 +176,15 @@ posRouter.get('/search', authenticateToken, (req: AuthenticatedRequest, res: Res
 
     const totalAvailableStock = validBatches.reduce((acc, b) => acc + b.quantity, 0);
     const fefoBatch = validBatches.length > 0 ? validBatches[0] : null;
+    const scheduleInfo = getVerifiedScheduleForMedicine(med.id);
 
     return {
       ...med,
       total_stock: totalAvailableStock,
       fefo_batch: fefoBatch,
-      available_batches: validBatches
+      available_batches: validBatches,
+      schedule: scheduleInfo.schedule,
+      schedule_classifications: scheduleInfo.classifications
     };
   });
 
@@ -155,13 +213,104 @@ posRouter.get('/medicines/:id/batches', authenticateToken, (req: AuthenticatedRe
 
 function generateInvoiceNumber(): string {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const countRow = db.prepare(`
-    SELECT COUNT(*) as cnt FROM sales WHERE invoice_number LIKE ?
-  `).get(`INV-${dateStr}-%`) as { cnt: number };
+  // MAX(suffix)+1 rather than COUNT(*): COUNT silently collides with an existing higher number
+  // whenever any row in between has been removed (e.g. a reversed/cleaned-up historical sale),
+  // since COUNT drops but the highest number already issued does not.
+  const maxRow = db.prepare(`
+    SELECT MAX(CAST(SUBSTR(invoice_number, -4) AS INTEGER)) as maxSeq FROM sales WHERE invoice_number LIKE ?
+  `).get(`INV-${dateStr}-%`) as { maxSeq: number | null };
 
-  const nextSeq = String(countRow.cnt + 1).padStart(4, '0');
+  const nextSeq = String((maxRow.maxSeq || 0) + 1).padStart(4, '0');
   return `INV-${dateStr}-${nextSeq}`;
 }
+
+/**
+ * COUNT(*)-based invoice numbering can race across concurrent requests/processes touching the
+ * same WAL database. Retries the whole transaction a few times (regenerating the invoice number
+ * each attempt) if that specific UNIQUE constraint fires, rather than failing the sale outright.
+ */
+function runWithInvoiceRetry<T>(fn: () => T, maxAttempts = 5): T {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return runTransaction(fn);
+    } catch (err: any) {
+      const message = String(err?.message || '');
+      if (attempt < maxAttempts && message.includes('UNIQUE constraint failed: sales.invoice_number')) {
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('Failed to allocate a unique invoice number after multiple attempts');
+}
+
+// Pharmacist (re-)authenticates with their OWN credentials to approve dispensing of verified
+// Schedule B/D items in the current cart, without disturbing the cashier's own session. Returns a
+// short-lived, single-use approval token that /checkout must present for the same exact item set.
+posRouter.post('/schedule-bd/approve', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const { username, password, items } = req.body;
+
+  if (!username || !password) {
+    res.status(400).json({ error: 'Pharmacist username and password are required to approve' });
+    return;
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    res.status(400).json({ error: 'No items to approve' });
+    return;
+  }
+
+  const approver = db.prepare(`
+    SELECT u.id, u.username, u.full_name, u.is_active, u.role_id, r.name as role_name
+    FROM users u JOIN roles r ON u.role_id = r.id
+    WHERE LOWER(u.username) = LOWER(?)
+  `).get(String(username).trim()) as any;
+
+  if (!approver || !approver.is_active) {
+    res.status(401).json({ error: 'Invalid pharmacist credentials' });
+    return;
+  }
+
+  const passwordHashRow = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(approver.id) as { password_hash: string };
+  if (!bcrypt.compareSync(password, passwordHashRow.password_hash)) {
+    res.status(401).json({ error: 'Invalid pharmacist credentials' });
+    return;
+  }
+
+  const approverPerms = db.prepare(`
+    SELECT p.code FROM permissions p JOIN role_permissions rp ON p.id = rp.permission_id WHERE rp.role_id = ?
+  `).all(approver.role_id) as { code: string }[];
+  const canApprove = approver.role_name === 'Admin' || approverPerms.some(p => p.code === 'approve_scheduled_drugs');
+
+  if (!canApprove) {
+    res.status(403).json({ error: `${approver.full_name} is not authorized to approve Schedule B/D dispensing` });
+    return;
+  }
+
+  const token = crypto.randomBytes(24).toString('hex');
+  const signature = itemsSignature(items);
+  const expiresAt = new Date(Date.now() + SCHEDULE_BD_APPROVAL_TTL_MS).toISOString();
+  const credentialsRef = `login:${approver.id}:${Date.now()}`;
+
+  db.prepare(`
+    INSERT INTO schedule_bd_pending_approvals (approval_token, cashier_id, approved_by_user_id, items_signature, credentials_ref, expires_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(token, req.user!.id, approver.id, signature, credentialsRef, expiresAt);
+
+  logAudit({
+    userId: approver.id,
+    action: 'APPROVE_SCHEDULE_BD_DISPENSE',
+    entity: 'SCHEDULE_BD_APPROVAL',
+    newValues: { approvedFor: req.user?.username, itemCount: items.length },
+    ipAddress: req.ip
+  });
+
+  res.status(201).json({
+    approvalToken: token,
+    approvedByUserId: approver.id,
+    approvedByName: approver.full_name,
+    expiresAt
+  });
+});
 
 posRouter.post('/checkout', authenticateToken, requirePermission('create_sales'), (req: AuthenticatedRequest, res: Response) => {
   const {
@@ -179,12 +328,23 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
     percentageChargeLabel,
     percentageChargeRate,
     percentageChargeAmount,
-    fixedChargeAmount
+    fixedChargeAmount,
+    requestKey,
+    scheduleBDApprovalToken
   } = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     res.status(400).json({ error: 'Cart is empty. At least one item is required.' });
     return;
+  }
+
+  const idemKey = requestKey ? String(requestKey).trim() : null;
+  if (idemKey) {
+    const existingSale = db.prepare('SELECT * FROM sales WHERE request_key = ?').get(idemKey) as any;
+    if (existingSale) {
+      res.status(200).json({ message: 'Sale already processed', invoice: { saleId: existingSale.id, invoiceNumber: existingSale.invoice_number }, idempotentReplay: true });
+      return;
+    }
   }
 
   const billTotal = Number(totalAmount) || 0;
@@ -205,11 +365,13 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
   }
 
   try {
-    const result = runTransaction(() => {
+    const result = runWithInvoiceRetry(() => {
       const invoiceNumber = generateInvoiceNumber();
       const today = new Date().toISOString().split('T')[0];
 
       const processedItems: any[] = [];
+      const scheduleItemsForSignature: Array<{ medicineId: number; batchId: number; quantity: number }> = [];
+      const pendingGates: Array<{ gate: ReturnType<typeof resolveScheduleGate>; item: any }> = [];
 
       for (const item of items) {
         const batchId = Number(item.batchId);
@@ -219,68 +381,153 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
           throw new Error('Invalid item quantity or batch selection');
         }
 
-        const batch = db.prepare(`
-          SELECT b.*, m.brand_name, m.strength, m.pack_size, COALESCE(m.tablets_per_pack, 10) as tablets_per_pack
-          FROM batches b
-          JOIN medicines m ON b.medicine_id = m.id
-          WHERE b.id = ?
-        `).get(batchId) as any;
+        const gate = resolveScheduleGate({ ...item, batchId, quantity: qty });
+        if (gate) {
+          scheduleItemsForSignature.push({ medicineId: Number(item.medicineId), batchId, quantity: qty });
+          pendingGates.push({ gate, item: { ...item, batchId, quantity: qty } });
+        } else {
+          pendingGates.push({ gate: null, item: { ...item, batchId, quantity: qty } });
+        }
+      }
 
-        if (!batch) {
-          throw new Error(`Batch ID ${batchId} does not exist`);
+      // Validate pharmacist approval ONCE for the whole cart if any verified Schedule B/D item is present.
+      let approvedByUserId: number | null = null;
+      let approvedByName: string | null = null;
+      let approvalCredentialsRef: string | null = null;
+      let approvedAt: string | null = null;
+      let consumeApprovalRowId: number | null = null;
+
+      if (scheduleItemsForSignature.length > 0) {
+        const selfApprovePerms = req.user!.permissions.includes('approve_scheduled_drugs') || req.user!.roleName === 'Admin';
+        if (selfApprovePerms) {
+          approvedByUserId = req.user!.id;
+          approvedByName = req.user!.fullName;
+          approvalCredentialsRef = `self:${req.user!.id}:${Date.now()}`;
+          approvedAt = new Date().toISOString();
+        } else {
+          if (!scheduleBDApprovalToken) {
+            throw new Error('This sale contains a verified Schedule B/D medicine and requires pharmacist approval before it can be completed.');
+          }
+          const approval = db.prepare(`
+            SELECT * FROM schedule_bd_pending_approvals
+            WHERE approval_token = ? AND cashier_id = ? AND consumed_at IS NULL AND expires_at > CURRENT_TIMESTAMP
+          `).get(String(scheduleBDApprovalToken), req.user!.id) as any;
+
+          if (!approval) {
+            throw new Error('Pharmacist approval is missing, expired, or already used. Please request approval again.');
+          }
+          if (approval.items_signature !== itemsSignature(scheduleItemsForSignature)) {
+            throw new Error('Pharmacist approval does not match the current cart items. Please re-approve after any cart change.');
+          }
+
+          const approverUser = db.prepare('SELECT full_name FROM users WHERE id = ?').get(approval.approved_by_user_id) as any;
+          approvedByUserId = approval.approved_by_user_id;
+          approvedByName = approverUser?.full_name || null;
+          approvalCredentialsRef = approval.credentials_ref;
+          approvedAt = approval.approved_at;
+          consumeApprovalRowId = approval.id;
+        }
+      }
+
+      if (consumeApprovalRowId) {
+        db.prepare('UPDATE schedule_bd_pending_approvals SET consumed_at = CURRENT_TIMESTAMP WHERE id = ?').run(consumeApprovalRowId);
+      }
+
+      for (const { gate, item } of pendingGates) {
+        const batchId = Number(item.batchId);
+        const qty = Number(item.quantity);
+
+        if (!gate) {
+          // Ordinary (non Schedule B/D) item: unchanged single-batch behavior.
+          const batch = db.prepare(`
+            SELECT b.*, m.brand_name, m.strength, m.pack_size, COALESCE(m.tablets_per_pack, 10) as tablets_per_pack
+            FROM batches b JOIN medicines m ON b.medicine_id = m.id WHERE b.id = ?
+          `).get(batchId) as any;
+
+          if (!batch) throw new Error(`Batch ID ${batchId} does not exist`);
+          if (batch.expiry_date <= today) {
+            throw new Error(`EXPIRED STOCK CANNOT BE SOLD! Batch ${batch.batch_number} of ${batch.brand_name} expired on ${batch.expiry_date}.`);
+          }
+          if (batch.quantity < qty) {
+            throw new Error(`Insufficient stock for ${batch.brand_name} (Batch ${batch.batch_number}). Requested: ${qty}, Available: ${batch.quantity}`);
+          }
+
+          const newBatchQty = batch.quantity - qty;
+          db.prepare('UPDATE batches SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newBatchQty, batchId);
+          db.prepare(`
+            INSERT INTO stock_movements (batch_id, movement_type, quantity_change, balance_after, reference_type, reference_id, notes, user_id)
+            VALUES (?, 'SALE', ?, ?, 'POS_SALE', ?, ?, ?)
+          `).run(batchId, -qty, newBatchQty, invoiceNumber, `Sale to ${customerId ? 'Customer #' + customerId : 'Walk-in Cashier Counter'}`, req.user?.id);
+
+          const unitPrice = Number(item.unitPrice) || batch.sale_price;
+          const itemDiscount = Number(item.discount) || 0;
+          const lineTotal = (unitPrice * qty) - itemDiscount;
+
+          processedItems.push({
+            medicineId: batch.medicine_id, batchId: batch.id, batchNumber: batch.batch_number, expiryDate: batch.expiry_date,
+            brandName: batch.brand_name, strength: batch.strength, packSize: batch.pack_size, tabletsPerPack: batch.tablets_per_pack,
+            quantity: qty, unitPrice, discount: itemDiscount, lineTotal, purchasePriceSnapshot: batch.purchase_price,
+            descriptionSnapshot: item.descriptionOverride ? String(item.descriptionOverride).trim() : buildDescriptionSnapshot(batch.brand_name, batch.strength),
+            categorySnapshot: item.category ? String(item.category).trim() : null,
+            packTypeSnapshot: item.packType ? String(item.packType).trim() : null,
+            unitsPerPackSnapshot: item.unitsPerPack !== undefined ? Number(item.unitsPerPack) : null,
+            packsSnapshot: item.packs !== undefined ? Number(item.packs) : null,
+            looseUnitsSnapshot: item.looseUnits !== undefined ? Number(item.looseUnits) : null,
+            scheduleGate: null
+          });
+          continue;
         }
 
-        if (batch.expiry_date <= today) {
-          throw new Error(`EXPIRED STOCK CANNOT BE SOLD! Batch ${batch.batch_number} of ${batch.brand_name} expired on ${batch.expiry_date}.`);
+        // Verified Schedule B/D item: split across FEFO batches so every allocation is individually traceable.
+        const medicineId = Number(item.medicineId);
+        const medicineRow = db.prepare(`
+          SELECT m.*, g.name as generic_name, mf.name as manufacturer_name
+          FROM medicines m LEFT JOIN generics g ON m.generic_id = g.id LEFT JOIN manufacturers mf ON m.manufacturer_id = mf.id
+          WHERE m.id = ?
+        `).get(medicineId) as any;
+
+        const allocations = allocateFefo(medicineId, batchId, qty, today);
+        const customer = gate.prescription.patient_id ? (db.prepare('SELECT * FROM customers WHERE id = ?').get(gate.prescription.patient_id) as any) : null;
+        const doctor = gate.prescription.doctor_id ? (db.prepare('SELECT * FROM doctors WHERE id = ?').get(gate.prescription.doctor_id) as any) : null;
+
+        for (const alloc of allocations) {
+          const batch = alloc.batch;
+          if (batch.expiry_date <= today) {
+            throw new Error(`EXPIRED STOCK CANNOT BE SOLD! Batch ${batch.batch_number} of ${batch.brand_name} expired on ${batch.expiry_date}.`);
+          }
+          const newBatchQty = batch.quantity - alloc.quantity;
+          db.prepare('UPDATE batches SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newBatchQty, alloc.batchId);
+          db.prepare(`
+            INSERT INTO stock_movements (batch_id, movement_type, quantity_change, balance_after, reference_type, reference_id, notes, user_id)
+            VALUES (?, 'SALE', ?, ?, 'POS_SALE', ?, ?, ?)
+          `).run(alloc.batchId, -alloc.quantity, newBatchQty, invoiceNumber, `Schedule ${gate.scheduleInfo.schedule} dispense to ${customerId ? 'Customer #' + customerId : 'Walk-in Cashier Counter'}`, req.user?.id);
+
+          const unitPrice = Number(item.unitPrice) || batch.sale_price;
+          const itemDiscount = allocations.length > 1 ? 0 : (Number(item.discount) || 0);
+          const lineTotal = (unitPrice * alloc.quantity) - itemDiscount;
+
+          processedItems.push({
+            medicineId, batchId: alloc.batchId, batchNumber: batch.batch_number, expiryDate: batch.expiry_date,
+            brandName: batch.brand_name, strength: batch.strength, packSize: batch.pack_size, tabletsPerPack: batch.tablets_per_pack,
+            quantity: alloc.quantity, unitPrice, discount: itemDiscount, lineTotal, purchasePriceSnapshot: batch.purchase_price,
+            descriptionSnapshot: item.descriptionOverride ? String(item.descriptionOverride).trim() : buildDescriptionSnapshot(batch.brand_name, batch.strength),
+            categorySnapshot: item.category ? String(item.category).trim() : null,
+            packTypeSnapshot: item.packType ? String(item.packType).trim() : null,
+            unitsPerPackSnapshot: null, packsSnapshot: null, looseUnitsSnapshot: null,
+            scheduleGate: {
+              scheduleInfo: gate.scheduleInfo,
+              prescriptionItem: gate.prescriptionItem,
+              prescription: gate.prescription,
+              medicineRow,
+              customer,
+              doctor,
+              batch
+            }
+          });
         }
 
-        if (batch.quantity < qty) {
-          throw new Error(`Insufficient stock for ${batch.brand_name} (Batch ${batch.batch_number}). Requested: ${qty}, Available: ${batch.quantity}`);
-        }
-
-        const newBatchQty = batch.quantity - qty;
-
-        db.prepare('UPDATE batches SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newBatchQty, batchId);
-
-        db.prepare(`
-          INSERT INTO stock_movements (
-            batch_id, movement_type, quantity_change, balance_after,
-            reference_type, reference_id, notes, user_id
-          ) VALUES (?, 'SALE', ?, ?, 'POS_SALE', ?, ?, ?)
-        `).run(
-          batchId,
-          -qty,
-          newBatchQty,
-          invoiceNumber,
-          `Sale to ${customerId ? 'Customer #' + customerId : 'Walk-in Cashier Counter'}`,
-          req.user?.id
-        );
-
-        const unitPrice = Number(item.unitPrice) || batch.sale_price;
-        const itemDiscount = Number(item.discount) || 0;
-        const lineTotal = (unitPrice * qty) - itemDiscount;
-
-        processedItems.push({
-          medicineId: batch.medicine_id,
-          batchId: batch.id,
-          batchNumber: batch.batch_number,
-          expiryDate: batch.expiry_date,
-          brandName: batch.brand_name,
-          strength: batch.strength,
-          packSize: batch.pack_size,
-          tabletsPerPack: batch.tablets_per_pack,
-          quantity: qty,
-          unitPrice,
-          discount: itemDiscount,
-          lineTotal,
-          purchasePriceSnapshot: batch.purchase_price,
-          descriptionSnapshot: item.descriptionOverride ? String(item.descriptionOverride).trim() : buildDescriptionSnapshot(batch.brand_name, batch.strength),
-          categorySnapshot: item.category ? String(item.category).trim() : null,
-          packTypeSnapshot: item.packType ? String(item.packType).trim() : null,
-          unitsPerPackSnapshot: item.unitsPerPack !== undefined ? Number(item.unitsPerPack) : null,
-          packsSnapshot: item.packs !== undefined ? Number(item.packs) : null,
-          looseUnitsSnapshot: item.looseUnits !== undefined ? Number(item.looseUnits) : null
-        });
+        // Keep remaining authorized quantity accurate for this prescription line across (possibly) multiple allocations.
+        db.prepare('UPDATE prescription_items SET dispensed_quantity = COALESCE(dispensed_quantity, 0) + ? WHERE id = ?').run(qty, gate.prescriptionItem.id);
       }
 
       const insertSale = db.prepare(`
@@ -289,8 +536,8 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
           subtotal, discount, tax,
           percentage_charge_label, percentage_charge_rate, percentage_charge_amount, fixed_charge_amount,
           total_amount, paid_amount, remaining_amount, change_amount, payment_method,
-          status, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)
+          status, notes, request_key
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)
       `);
 
       const saleResult = insertSale.run(
@@ -311,7 +558,8 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         remaining,
         change,
         paymentMethod || 'CASH',
-        notes || null
+        notes || null,
+        idemKey
       );
 
       const saleId = saleResult.lastInsertRowid;
@@ -325,8 +573,10 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
+      const registerEntryIds: number[] = [];
+
       for (const it of processedItems) {
-        insertSaleItem.run(
+        const saleItemResult = insertSaleItem.run(
           saleId,
           it.medicineId,
           it.batchId,
@@ -342,6 +592,54 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
           it.packsSnapshot,
           it.looseUnitsSnapshot
         );
+
+        if (it.scheduleGate) {
+          const g = it.scheduleGate;
+          const classifications = g.scheduleInfo.classifications;
+          const primaryClassification = classifications[0] || null;
+
+          const entryId = createRegisterEntry({
+            classificationId: primaryClassification ? primaryClassification.id : null,
+            classificationVersion: primaryClassification ? primaryClassification.version : null,
+            ruleVersion: SCHEDULE_BD_RULE_VERSION,
+            saleId: Number(saleId),
+            saleItemId: Number(saleItemResult.lastInsertRowid),
+            invoiceNumber,
+            prescriptionId: g.prescription.id,
+            prescriptionItemId: g.prescriptionItem.id,
+            originalDocumentReference: g.prescription.original_document_reference || null,
+            patientSnapshot: g.customer ? {
+              id: g.customer.id, name: g.customer.name, mobile: g.prescription.patient_mobile || g.customer.mobile,
+              cnic: g.prescription.patient_cnic || null, address: g.prescription.patient_address || null
+            } : null,
+            purchaserSnapshot: g.prescription.purchaser_name ? {
+              name: g.prescription.purchaser_name, relation: g.prescription.purchaser_relation || null,
+              cnic: g.prescription.purchaser_cnic || null, mobile: g.prescription.purchaser_mobile || null
+            } : null,
+            prescriberSnapshot: g.doctor ? {
+              name: g.doctor.name, registrationNumber: g.prescription.prescriber_registration_number || null,
+              address: g.prescription.prescriber_address || g.doctor.clinic_name || null
+            } : (g.prescription.prescriber_registration_number ? { name: null, registrationNumber: g.prescription.prescriber_registration_number, address: g.prescription.prescriber_address } : null),
+            medicineSnapshot: {
+              brandName: g.medicineRow.brand_name, genericName: g.medicineRow.generic_name, strength: g.medicineRow.strength,
+              dosageForm: g.medicineRow.dosage_form, route: g.medicineRow.route, manufacturer: g.medicineRow.manufacturer_name,
+              classifications: classifications.map((c: any) => ({ id: c.id, version: c.version, schedule: c.schedule, name: c.substanceName || c.groupDescription }))
+            },
+            batchId: it.batchId,
+            batchNumberSnapshot: it.batchNumber,
+            expiryDateSnapshot: it.expiryDate,
+            dispensedQuantity: it.quantity,
+            unit: g.medicineRow.stock_unit || null,
+            cashierId: req.user!.id,
+            cashierSnapshot: { id: req.user!.id, name: req.user!.fullName, username: req.user!.username },
+            approvedByUserId,
+            approvedAt,
+            approvalCredentialsRef: approvalCredentialsRef,
+            schedule: g.scheduleInfo.schedule
+          });
+
+          registerEntryIds.push(entryId);
+        }
       }
 
       const cashPortion = paymentMethod === 'CASH' ? Math.min(billPaid, billTotal) : (paymentMethod === 'SPLIT' ? Number(billPaid) : 0);
@@ -387,6 +685,17 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         ipAddress: req.ip
       });
 
+      if (registerEntryIds.length > 0) {
+        logAudit({
+          userId: req.user?.id,
+          action: 'DISPENSE_SCHEDULE_BD',
+          entity: 'SCHEDULE_BD_REGISTER',
+          entityId: Number(saleId),
+          newValues: { invoiceNumber, registerEntryIds, approvedByUserId, approvedByName },
+          ipAddress: req.ip
+        });
+      }
+
       let billingPersonName: string | null = null;
       if (billingPersonId) {
         const bp = db.prepare('SELECT name FROM billing_persons WHERE id = ?').get(Number(billingPersonId)) as any;
@@ -410,7 +719,11 @@ posRouter.post('/checkout', authenticateToken, requirePermission('create_sales')
         paidAmount: billPaid,
         changeAmount: change,
         remainingAmount: remaining,
-        items: processedItems,
+        items: processedItems.map(it => {
+          const { scheduleGate, ...rest } = it;
+          return scheduleGate ? { ...rest, isScheduledBD: true, schedule: scheduleGate.scheduleInfo.schedule } : rest;
+        }),
+        registerEntryIds,
         createdAt: new Date().toISOString()
       };
     });
@@ -592,7 +905,22 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
 
   for (const rawSale of sales) {
     try {
-      const syncResult = runTransaction(() => {
+      if (rawSale.offlineId) {
+        const existing = db.prepare('SELECT id, invoice_number FROM sales WHERE offline_id = ?').get(String(rawSale.offlineId)) as any;
+        if (existing) {
+          syncedInvoices.push({ offlineId: rawSale.offlineId, serverSaleId: existing.id, invoiceNumber: existing.invoice_number, status: 'SYNCED', idempotentReplay: true });
+          continue;
+        }
+      }
+
+      // Schedule B/D dispensing needs live server-side classification/prescription checks that an
+      // offline client cannot safely perform - block rather than silently skip the gate.
+      const blockedItem = (rawSale.items || []).find((it: any) => getVerifiedScheduleForMedicine(Number(it.medicineId)).schedule !== null);
+      if (blockedItem) {
+        throw new Error(`This sale contains a verified Schedule B/D medicine (medicine ID ${blockedItem.medicineId}) which requires an online connection for prescription and pharmacist approval checks. Please complete this sale while online.`);
+      }
+
+      const syncResult = runWithInvoiceRetry(() => {
         const {
           offlineId,
           customerId,
@@ -695,8 +1023,8 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
             subtotal, discount, tax,
             percentage_charge_label, percentage_charge_rate, percentage_charge_amount, fixed_charge_amount,
             total_amount, paid_amount, remaining_amount, change_amount, payment_method,
-            status, notes, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)
+            status, notes, created_at, offline_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?, ?)
         `).run(
           invoiceNumber,
           customerId || null,
@@ -716,7 +1044,8 @@ posRouter.post('/sync-offline', authenticateToken, requirePermission('create_sal
           change,
           paymentMethod || 'CASH',
           notes ? `[OFFLINE SYNC] ${notes}` : '[OFFLINE SYNC]',
-          timestamp || new Date().toISOString()
+          timestamp || new Date().toISOString(),
+          offlineId || null
         );
 
         const saleId = saleResult.lastInsertRowid;

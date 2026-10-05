@@ -917,6 +917,180 @@ CREATE TABLE IF NOT EXISTS label_print_jobs (
 CREATE INDEX IF NOT EXISTS idx_label_jobs_created ON label_print_jobs(requested_at);
 CREATE INDEX IF NOT EXISTS idx_label_jobs_barcode ON label_print_jobs(barcode);
 
+-- 16. Schedule B & D Prescription Register (controlled/prescription-drug dispensing register)
+-- Versioned drug-classification master. UNVERIFIED rows (e.g. poster-derived drafts) must never
+-- drive automatic POS gating - only verification_status = 'VERIFIED' rows are enforced.
+CREATE TABLE IF NOT EXISTS drug_classifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version INTEGER NOT NULL DEFAULT 1,
+  superseded_by_id INTEGER,
+  is_current INTEGER NOT NULL DEFAULT 1,
+  entry_type TEXT NOT NULL DEFAULT 'SUBSTANCE', -- SUBSTANCE, GROUP
+  substance_name TEXT,
+  group_description TEXT,
+  generic_id INTEGER,
+  strength TEXT,
+  dosage_form TEXT,
+  route TEXT,
+  schedule TEXT NOT NULL DEFAULT 'UNCLASSIFIED', -- B, D, BOTH, OTHER, UNCLASSIFIED
+  salts_derivatives_note TEXT,
+  restrictions_exemptions TEXT,
+  jurisdiction TEXT NOT NULL DEFAULT 'Punjab, Pakistan',
+  source_reference TEXT,
+  effective_date TEXT,
+  verification_status TEXT NOT NULL DEFAULT 'DRAFT_UNVERIFIED', -- DRAFT_UNVERIFIED, PENDING_REVIEW, VERIFIED, REJECTED
+  verified_by INTEGER,
+  verified_at DATETIME,
+  suspected_error_flag INTEGER NOT NULL DEFAULT 0,
+  suspected_error_note TEXT,
+  created_by INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (generic_id) REFERENCES generics(id) ON DELETE SET NULL,
+  FOREIGN KEY (superseded_by_id) REFERENCES drug_classifications(id) ON DELETE SET NULL,
+  FOREIGN KEY (verified_by) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Combination products can have more than one active ingredient (medicines.generic_id only models one).
+CREATE TABLE IF NOT EXISTS medicine_ingredients (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  medicine_id INTEGER NOT NULL,
+  generic_id INTEGER NOT NULL,
+  is_primary INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (medicine_id) REFERENCES medicines(id) ON DELETE CASCADE,
+  FOREIGN KEY (generic_id) REFERENCES generics(id) ON DELETE CASCADE,
+  UNIQUE(medicine_id, generic_id)
+);
+
+-- Resolved medicine <-> classification matches (a medicine can match more than one classification row,
+-- e.g. a combination product, or both a Schedule B and a Schedule D entry).
+CREATE TABLE IF NOT EXISTS medicine_classification_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  medicine_id INTEGER NOT NULL,
+  classification_id INTEGER NOT NULL,
+  match_basis TEXT NOT NULL DEFAULT 'INGREDIENT', -- INGREDIENT, BRAND, MANUAL
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (medicine_id) REFERENCES medicines(id) ON DELETE CASCADE,
+  FOREIGN KEY (classification_id) REFERENCES drug_classifications(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  UNIQUE(medicine_id, classification_id)
+);
+
+-- Documents what was/wasn't imported from the Schedule B/D poster source material, surfaced as a
+-- banner in the Classification Review tab so nobody mistakes the seeded drafts for a complete list.
+CREATE TABLE IF NOT EXISTS drug_classification_import_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_reference TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  gaps_note TEXT,
+  imported_count INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- One row per dispensed batch allocation of a verified Schedule B/D medicine. Append-only once
+-- status leaves 'COMPLETED' for a correction/cancellation/reversal - see schedule_bd_register_amendments.
+CREATE TABLE IF NOT EXISTS schedule_bd_register_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  serial_number TEXT UNIQUE NOT NULL, -- SBD-YYYY-NNNNNN
+  request_key TEXT UNIQUE,
+  classification_id INTEGER,
+  classification_version INTEGER,
+  rule_version TEXT,
+  sale_id INTEGER,
+  sale_item_id INTEGER,
+  invoice_number TEXT,
+  branch TEXT DEFAULT 'Hospital Road Branch',
+  pos_counter TEXT DEFAULT 'Counter 01',
+  prescription_id INTEGER,
+  prescription_item_id INTEGER,
+  original_document_reference TEXT,
+  patient_snapshot TEXT, -- JSON
+  purchaser_snapshot TEXT, -- JSON
+  prescriber_snapshot TEXT, -- JSON
+  medicine_snapshot TEXT NOT NULL, -- JSON: brand, generic, strength, dosage_form, manufacturer
+  batch_id INTEGER,
+  batch_number_snapshot TEXT,
+  expiry_date_snapshot TEXT,
+  dispensed_quantity REAL NOT NULL,
+  unit TEXT,
+  cashier_id INTEGER,
+  cashier_snapshot TEXT, -- JSON
+  approved_by_user_id INTEGER,
+  approved_at DATETIME,
+  approval_credentials_ref TEXT,
+  schedule TEXT NOT NULL, -- B, D, BOTH, OTHER
+  status TEXT NOT NULL DEFAULT 'COMPLETED', -- COMPLETED, CORRECTED, CANCELLED, REVERSED, MANUAL
+  entry_source TEXT NOT NULL DEFAULT 'POS', -- POS, MANUAL
+  original_dispensing_date TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (classification_id) REFERENCES drug_classifications(id) ON DELETE SET NULL,
+  FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE SET NULL,
+  FOREIGN KEY (sale_item_id) REFERENCES sale_items(id) ON DELETE SET NULL,
+  FOREIGN KEY (prescription_id) REFERENCES prescriptions(id) ON DELETE SET NULL,
+  FOREIGN KEY (prescription_item_id) REFERENCES prescription_items(id) ON DELETE SET NULL,
+  FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE SET NULL,
+  FOREIGN KEY (cashier_id) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (approved_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Append-only corrections/cancellations/reversals. Completed register entries are never edited in place.
+CREATE TABLE IF NOT EXISTS schedule_bd_register_amendments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  register_entry_id INTEGER NOT NULL,
+  amendment_type TEXT NOT NULL, -- CORRECTION, CANCELLATION, REVERSAL
+  reason TEXT NOT NULL,
+  author_user_id INTEGER,
+  before_values TEXT, -- JSON
+  after_values TEXT, -- JSON
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (register_entry_id) REFERENCES schedule_bd_register_entries(id) ON DELETE CASCADE,
+  FOREIGN KEY (author_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Links a register entry to a sales-return line, keeping financial refund (sales_returns) separate
+-- from inventory disposition (sale_return_items.disposition).
+CREATE TABLE IF NOT EXISTS schedule_bd_register_return_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  register_entry_id INTEGER NOT NULL,
+  sales_return_id INTEGER NOT NULL,
+  sale_return_item_id INTEGER NOT NULL,
+  quantity_returned REAL NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (register_entry_id) REFERENCES schedule_bd_register_entries(id) ON DELETE CASCADE,
+  FOREIGN KEY (sales_return_id) REFERENCES sales_returns(id) ON DELETE CASCADE,
+  FOREIGN KEY (sale_return_item_id) REFERENCES sale_return_items(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_drug_classifications_schedule ON drug_classifications(schedule, verification_status, is_current);
+CREATE INDEX IF NOT EXISTS idx_drug_classifications_generic ON drug_classifications(generic_id);
+CREATE INDEX IF NOT EXISTS idx_medicine_classification_links_medicine ON medicine_classification_links(medicine_id);
+CREATE INDEX IF NOT EXISTS idx_sbd_register_serial ON schedule_bd_register_entries(serial_number);
+CREATE INDEX IF NOT EXISTS idx_sbd_register_invoice ON schedule_bd_register_entries(invoice_number);
+CREATE INDEX IF NOT EXISTS idx_sbd_register_schedule_status ON schedule_bd_register_entries(schedule, status);
+CREATE INDEX IF NOT EXISTS idx_sbd_register_created ON schedule_bd_register_entries(created_at);
+CREATE INDEX IF NOT EXISTS idx_sbd_amendments_entry ON schedule_bd_register_amendments(register_entry_id);
+
+-- Short-lived pharmacist approval tokens consumed exactly once by a matching POS checkout.
+-- approved_by_user_id always comes from a server-verified login (see posRoutes /schedule-bd/approve),
+-- never from client-typed text.
+CREATE TABLE IF NOT EXISTS schedule_bd_pending_approvals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  approval_token TEXT UNIQUE NOT NULL,
+  cashier_id INTEGER NOT NULL,
+  approved_by_user_id INTEGER NOT NULL,
+  items_signature TEXT NOT NULL,
+  credentials_ref TEXT,
+  approved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME NOT NULL,
+  consumed_at DATETIME,
+  FOREIGN KEY (cashier_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (approved_by_user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_sbd_pending_approvals_token ON schedule_bd_pending_approvals(approval_token);
+
 
 
 
