@@ -1,12 +1,12 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-05T13:02:00.657Z",
+  "exportedAt": "2026-10-05T13:02:21.855Z",
   "counts": {
     "categories": 46,
     "manufacturers": 16,
-    "generics": 67,
+    "generics": 68,
     "suppliers": 63,
-    "medicines": 84,
+    "medicines": 85,
     "drug_clinical_info": 4,
     "batches": 38,
     "customers": 59,
@@ -14,8 +14,8 @@
     "billing_persons": 1,
     "purchases": 58,
     "purchase_items": 3,
-    "sales": 181,
-    "sale_items": 38,
+    "sales": 182,
+    "sale_items": 39,
     "prescriptions": 54,
     "prescription_items": 9,
     "sales_returns": 7,
@@ -898,6 +898,12 @@
     {
       "id": 211601,
       "name": "TestOpioidGeneric-1791205320608",
+      "therapeutic_class": "Test",
+      "description": null
+    },
+    {
+      "id": 211620,
+      "name": "TestOpioidGeneric-1791205341830",
       "therapeutic_class": "Test",
       "description": null
     }
@@ -4075,6 +4081,34 @@
       "sync_generic_name": "TestOpioidGeneric-1791205320608",
       "sync_category_name": null,
       "sync_manufacturer_name": null
+    },
+    {
+      "id": 200063,
+      "brand_name": "TestScheduleBMed-1791205341839",
+      "generic_id": 211620,
+      "category_id": null,
+      "manufacturer_id": null,
+      "strength": "10mg",
+      "dosage_form": "Tablet",
+      "pack_size": 1,
+      "barcode": null,
+      "custom_barcode": "NMP-154765",
+      "rack_location": null,
+      "min_stock_level": 10,
+      "reorder_level": 20,
+      "is_prescription_required": 1,
+      "is_active": 1,
+      "notes": null,
+      "created_at": "2026-10-05 13:02:21",
+      "updated_at": "2026-10-05 13:02:21",
+      "tablets_per_pack": 10,
+      "therapeutic_class": null,
+      "stock_unit": null,
+      "packaging_type": "MULTI_TIER",
+      "route": null,
+      "sync_generic_name": "TestOpioidGeneric-1791205341830",
+      "sync_category_name": null,
+      "sync_manufacturer_name": null
     }
   ],
   "drug_clinical_info": [
@@ -4133,7 +4167,7 @@
       "last_reviewed": "2026-09-01"
     },
     {
-      "id": 2415,
+      "id": 2418,
       "generic_id": 210338,
       "pregnancy_category": "C",
       "lactation_safety": "Excreted in small amounts in breast milk; compatible with breastfeeding.",
@@ -4142,7 +4176,7 @@
       "food_instructions": null,
       "hepatic_renal_precautions": "Avoid in severe renal impairment (eGFR < 30 mL/min). Monitor renal and hepatic parameters during prolonged therapy.",
       "common_side_effects": null,
-      "created_at": "2026-10-05 13:01:59",
+      "created_at": "2026-10-05 13:02:21",
       "atc_code": "M01AE02",
       "rx_status": "Rx/OTC",
       "pharmacological_class": "NSAID / Propionic Acid Derivative",
@@ -4187,7 +4221,7 @@
       "last_reviewed": "2026-09-01"
     },
     {
-      "id": 2416,
+      "id": 2419,
       "generic_id": 210025,
       "pregnancy_category": "C",
       "lactation_safety": "Avoid during breastfeeding unless essential.",
@@ -4196,7 +4230,7 @@
       "food_instructions": null,
       "hepatic_renal_precautions": "Start at 100mg once daily in mild-to-moderate hepatic impairment. Avoid in severe renal or hepatic failure.",
       "common_side_effects": null,
-      "created_at": "2026-10-05 13:01:59",
+      "created_at": "2026-10-05 13:02:21",
       "atc_code": "M01AE16",
       "rx_status": "Rx",
       "pharmacological_class": "NSAID / Phenylacetic Acid Derivative",
@@ -4241,7 +4275,7 @@
       "last_reviewed": "2026-09-01"
     },
     {
-      "id": 2417,
+      "id": 2420,
       "generic_id": 210026,
       "pregnancy_category": "B",
       "lactation_safety": "Compatible with breastfeeding (small amounts in milk).",
@@ -4250,7 +4284,7 @@
       "food_instructions": null,
       "hepatic_renal_precautions": "Contraindicated in severe active liver failure. Reduce max dose to 2000mg/day in chronic alcohol abuse or hepatic insufficiency. In CrCl < 10 mL/min, extend interval to q8h.",
       "common_side_effects": null,
-      "created_at": "2026-10-05 13:01:59",
+      "created_at": "2026-10-05 13:02:21",
       "atc_code": "N02BE01",
       "rx_status": "OTC",
       "pharmacological_class": "Analgesic / Antipyretic",
@@ -4326,7 +4360,7 @@
       "rack_location": "Rack D-1",
       "status": "ACTIVE",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-05 13:01:24"
+      "updated_at": "2026-10-05 13:02:00"
     },
     {
       "id": 2,
@@ -11715,6 +11749,31 @@
       "fixed_charge_amount": 0,
       "request_key": null,
       "offline_id": null
+    },
+    {
+      "id": 190,
+      "invoice_number": "INV-20261005-0010",
+      "customer_id": null,
+      "cashier_id": 3,
+      "subtotal": 3.5,
+      "discount": 0,
+      "tax": 0,
+      "total_amount": 3.5,
+      "paid_amount": 3.5,
+      "remaining_amount": 0,
+      "change_amount": 0,
+      "payment_method": "CASH",
+      "status": "COMPLETED",
+      "notes": null,
+      "created_at": "2026-10-05 13:02:00",
+      "billing_person_id": null,
+      "custom_slip_name": null,
+      "percentage_charge_label": "",
+      "percentage_charge_rate": 0,
+      "percentage_charge_amount": 0,
+      "fixed_charge_amount": 0,
+      "request_key": null,
+      "offline_id": null
     }
   ],
   "sale_items": [
@@ -12350,6 +12409,23 @@
     {
       "id": 194,
       "sale_id": 187,
+      "medicine_id": 1,
+      "batch_id": 1,
+      "quantity": 1,
+      "unit_price": 3.5,
+      "discount": 0,
+      "line_total": 3.5,
+      "purchase_price_snapshot": 3.5,
+      "description_snapshot": "Glucophage 250mg",
+      "category_snapshot": null,
+      "pack_type_snapshot": null,
+      "units_per_pack_snapshot": null,
+      "packs_snapshot": null,
+      "loose_units_snapshot": null
+    },
+    {
+      "id": 197,
+      "sale_id": 190,
       "medicine_id": 1,
       "batch_id": 1,
       "quantity": 1,
