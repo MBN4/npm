@@ -43,6 +43,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
+  // Server may be mid-restart (e.g. dev proxy with backend still compiling), which can
+  // yield a connection reset with an empty body — parse defensively instead of letting
+  // res.json() throw a raw "Unexpected end of JSON input" at the caller.
+  async function safeJson(res: Response): Promise<any> {
+    const text = await res.text();
+    if (!text) {
+      return { error: `Server is not responding yet (status ${res.status}). Please wait a moment and try again.` };
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: 'Received an unexpected response from the server. Please try again.' };
+    }
+  }
+
   useEffect(() => {
     async function verifyAuth() {
       if (!token) {
@@ -56,7 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
         if (res.ok) {
-          const data = await res.json();
+          const data = await safeJson(res);
           setUser(data.user);
         } else {
           // Token expired or invalid
@@ -82,7 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({ username, password })
       });
 
-      const data = await res.json();
+      const data = await safeJson(res);
       if (!res.ok) {
         return { success: false, error: data.error || 'Login failed' };
       }
