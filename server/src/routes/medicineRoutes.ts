@@ -166,6 +166,20 @@ medicineRouter.post('/', authenticateToken, requirePermission('manage_medicines'
     return;
   }
 
+  // Block exact re-creation of a product already in the catalog (same brand, strength and
+  // dosage form) — this is what causes duplicate rows to pile up in catalog pickers.
+  const duplicateProduct = db.prepare(`
+    SELECT id FROM medicines
+    WHERE LOWER(brand_name) = LOWER(?) AND LOWER(COALESCE(strength, '')) = LOWER(COALESCE(?, '')) AND LOWER(COALESCE(dosage_form, '')) = LOWER(COALESCE(?, ''))
+  `).get(brandName.trim(), strength || '', dosageForm || 'Tablet') as { id: number } | undefined;
+  if (duplicateProduct) {
+    res.status(409).json({
+      error: 'This medicine already exists in the catalog with the same strength and dosage form. Use "Add Batch to Existing Medicine" instead.',
+      existingMedicineId: duplicateProduct.id
+    });
+    return;
+  }
+
   // Check unique barcode if supplied
   if (barcode && barcode.trim()) {
     const existing = db.prepare('SELECT id FROM medicines WHERE barcode = ?').get(barcode.trim());
