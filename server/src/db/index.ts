@@ -587,6 +587,14 @@ export function initDatabase() {
     // ignore
   }
 
+  // Default Fixed POS Charge (slip tax) to ON / Rs. 2 per bill, without overwriting a value already set
+  try {
+    db.prepare(`INSERT OR IGNORE INTO settings (key, value, description) VALUES ('charge_fixed_enabled', 'true', 'Whether the flat per-invoice slip charge is applied')`).run();
+    db.prepare(`INSERT OR IGNORE INTO settings (key, value, description) VALUES ('charge_fixed_amount', '2', 'Flat amount (Rs.) added once per invoice')`).run();
+  } catch (e) {
+    // ignore
+  }
+
   // Auto-import Git sync_data.json if present on disk
   try {
     const syncDataPath = path.resolve(__dirname, '../../data/sync_data.json');
