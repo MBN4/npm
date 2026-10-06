@@ -26,6 +26,20 @@ export const LoginView: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Mirrors AuthContext's safeJson: avoids a raw "Unexpected end of JSON input"
+  // surfacing to the user when the server responds with an empty body.
+  const safeJson = async (res: Response): Promise<any> => {
+    const text = await res.text();
+    if (!text) {
+      return { error: `Server is not responding yet (status ${res.status}). Please wait a moment and try again.` };
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: 'Received an unexpected response from the server. Please try again.' };
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -53,7 +67,7 @@ export const LoginView: React.FC = () => {
         body: JSON.stringify({ usernameOrEmail: username || 'admin' })
       });
 
-      const data = await res.json();
+      const data = await safeJson(res);
       if (!res.ok) {
         setErrorMessage(data.error || 'Failed to dispatch security OTP.');
         return;
@@ -96,7 +110,7 @@ export const LoginView: React.FC = () => {
         body: JSON.stringify({ otp, newPassword })
       });
 
-      const data = await res.json();
+      const data = await safeJson(res);
       if (!res.ok) {
         setErrorMessage(data.error || 'Failed to verify OTP or update password.');
         return;

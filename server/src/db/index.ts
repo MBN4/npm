@@ -596,6 +596,59 @@ export function initDatabase() {
     // ignore
   }
 
+  // Merge duplicate medicine master rows (same brand/strength/dosage form created more than
+  // once, e.g. via repeated manual entry) into the oldest row, so catalog pickers stop showing
+  // the same product several times. Repoints every table that references medicines(id).
+  try {
+    const duplicateGroups = db.prepare(`
+      SELECT GROUP_CONCAT(id) as ids
+      FROM medicines
+      GROUP BY LOWER(brand_name), LOWER(COALESCE(strength, '')), LOWER(COALESCE(dosage_form, ''))
+      HAVING COUNT(*) > 1
+    `).all() as Array<{ ids: string }>;
+
+    const medicineRefTables: Array<[string, string]> = [
+      ['batches', 'medicine_id'],
+      ['purchase_items', 'medicine_id'],
+      ['sale_items', 'medicine_id'],
+      ['prescription_items', 'medicine_id'],
+      ['sale_return_items', 'medicine_id'],
+      ['replacement_items', 'medicine_id'],
+      ['medprac_visit_medicines', 'medicine_id'],
+      ['label_print_jobs', 'medicine_id'],
+      ['medicine_ingredients', 'medicine_id'],
+      ['medicine_classification_links', 'medicine_id']
+    ];
+
+    for (const group of duplicateGroups) {
+      const ids = group.ids.split(',').map(Number).sort((a, b) => a - b);
+      const canonicalId = ids[0];
+      for (const duplicateId of ids.slice(1)) {
+        for (const [table, column] of medicineRefTables) {
+          try {
+            db.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`).run(canonicalId, duplicateId);
+          } catch (e) {
+            // A row with this medicine_id already exists for the canonical product under a
+            // unique constraint (e.g. batches(medicine_id, batch_number)); leave it on the
+            // duplicate rather than aborting the whole cleanup.
+          }
+        }
+        const stillReferenced = medicineRefTables.some(([table, column]) =>
+          db.prepare(`SELECT 1 FROM ${table} WHERE ${column} = ? LIMIT 1`).get(duplicateId)
+        );
+        if (!stillReferenced) {
+          try {
+            db.prepare('DELETE FROM medicines WHERE id = ?').run(duplicateId);
+          } catch (e) {
+            // ignore
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+
   // Auto-import Git sync_data.json if present on disk
   try {
     const syncDataPath = path.resolve(__dirname, '../../data/sync_data.json');

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.js';
 import { TherapeuticCategorySelect, MASTER_THERAPEUTIC_CATEGORIES } from '../components/TherapeuticCategorySelect.js';
 import { DownwardSelect } from '../components/DownwardSelect.js';
+import { SearchableSelect } from '../components/SearchableSelect.js';
 import { StrengthInput } from '../components/StrengthInput.js';
 import { getProductPackaging } from '../utils/productPackaging.js';
 import { PRODUCT_CATEGORIES, getSubcategories } from '../utils/productCatalog.js';
@@ -464,6 +465,12 @@ export const InventoryView: React.FC = () => {
   const handleSaveDirectStock = async (e: React.FormEvent) => {
     e.preventDefault();
     setModalError(null);
+
+    if (entryMode === 'existing_med' && !selectedMedId) {
+      setModalError('Please select a medicine from the catalog before adding a batch.');
+      return;
+    }
+
     setModalLoading(true);
 
     try {
@@ -1310,19 +1317,25 @@ export const InventoryView: React.FC = () => {
                       <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.3rem' }}>
                         Select Existing Medicine *
                       </label>
-                      <select
-                        className="select"
+                      <SearchableSelect
                         value={selectedMedId}
-                        onChange={e => handleSelectExistingMed(e.target.value)}
-                        required
-                      >
-                        <option value="">-- Choose registered medicine from catalog --</option>
-                        {medicinesList.map(m => (
-                          <option key={m.id} value={m.id}>
-                            {m.brand_name} {m.strength} ({m.dosage_form}) • Rack: {m.rack_location || 'N/A'} • {getProductPackaging(m.dosage_form, m.stock_unit, m.category_name).outer}: {m.pack_size} {getProductPackaging(m.dosage_form, m.stock_unit, m.category_name).unitPlural.toLowerCase()}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={handleSelectExistingMed}
+                        placeholder="-- Choose registered medicine from catalog --"
+                        searchPlaceholder="Type a brand name, rack or generic..."
+                        emptyText="No medicine matches that search"
+                        options={
+                          // Defensive de-dupe: a catalog could still contain legacy duplicate
+                          // rows (same product entered more than once) before cleanup runs.
+                          Array.from(new Map(medicinesList.map(m => [m.id, m])).values()).map(m => {
+                            const packaging = getProductPackaging(m.dosage_form, m.stock_unit, m.category_name);
+                            return {
+                              value: String(m.id),
+                              label: `${m.brand_name}${m.strength ? ` ${m.strength}` : ''} (${m.dosage_form})`,
+                              sublabel: `Rack: ${m.rack_location || 'N/A'} • ${packaging.outer}: ${m.pack_size} ${packaging.unitPlural.toLowerCase()}`
+                            };
+                          })
+                        }
+                      />
                     </div>
                   ) : (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
