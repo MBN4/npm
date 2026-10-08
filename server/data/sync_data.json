@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-08T22:12:36.699Z",
+  "exportedAt": "2026-10-08T22:15:41.578Z",
   "counts": {
     "categories": 46,
     "manufacturers": 131,
@@ -18,8 +18,8 @@
     "sale_items": 15,
     "prescriptions": 1,
     "prescription_items": 2,
-    "sales_returns": 3,
-    "sale_return_items": 4,
+    "sales_returns": 4,
+    "sale_return_items": 5,
     "replacement_items": 1,
     "drug_classifications": 217,
     "medicine_ingredients": 0,
@@ -41917,13 +41917,13 @@
       "expiry_date": "2028-09-19",
       "purchase_price": 3,
       "sale_price": 4.5,
-      "quantity": 499,
+      "quantity": 500,
       "bonus_quantity": 0,
       "supplier_id": null,
       "rack_location": "Rack A-06",
       "status": "ACTIVE",
       "created_at": "2026-09-19 15:00:39",
-      "updated_at": "2026-10-08 22:12:36"
+      "updated_at": "2026-10-08 22:15:41"
     },
     {
       "id": 119,
@@ -55891,7 +55891,7 @@
       "remaining_amount": 0,
       "change_amount": 0,
       "payment_method": "CASH",
-      "status": "COMPLETED",
+      "status": "PARTIALLY_RETURNED",
       "notes": null,
       "created_at": "2026-10-08 22:12:36",
       "billing_person_id": 5,
@@ -56309,6 +56309,36 @@
       "reversed_at": null,
       "reversal_reason": null,
       "created_at": "2026-10-05 15:38:33"
+    },
+    {
+      "id": 4,
+      "return_number": "RET-2026-000004",
+      "sale_id": 10,
+      "invoice_number": "INV-20261008-0001",
+      "customer_id": null,
+      "cashier_id": 1,
+      "return_type": "RETURN",
+      "return_reason": "Doctor Changed Medicine",
+      "reason_notes": null,
+      "gross_return_amount": 4.5,
+      "deduction_type": "PERCENTAGE",
+      "deduction_value": 20,
+      "deduction_amount": 0.9,
+      "net_return_amount": 3.6,
+      "refund_method": null,
+      "cash_refund_amount": 0,
+      "credit_adjustment_amount": 0,
+      "replacement_sale_amount": 0,
+      "balance_due_from_customer": 0,
+      "balance_due_to_customer": 0,
+      "extra_charge_method": null,
+      "status": "COMPLETED",
+      "request_key": "01487ccc-1fcf-4507-8667-71ac5413137c",
+      "notes": null,
+      "reversed_by": null,
+      "reversed_at": null,
+      "reversal_reason": null,
+      "created_at": "2026-10-08 22:15:41"
     }
   ],
   "sale_return_items": [
@@ -56371,6 +56401,21 @@
       "batch_number_snapshot": "BN-2026-3906",
       "expiry_date_snapshot": "2028-09-24",
       "created_at": "2026-10-05 15:38:33"
+    },
+    {
+      "id": 5,
+      "sales_return_id": 4,
+      "sale_item_id": 13,
+      "medicine_id": 121,
+      "batch_id": 118,
+      "quantity_returned": 1,
+      "unit_price": 4.5,
+      "line_return_amount": 4.5,
+      "disposition": "RESTOCK_SELLABLE",
+      "description_snapshot": "healer 20mg",
+      "batch_number_snapshot": "BN-2026-4831",
+      "expiry_date_snapshot": "2028-09-19",
+      "created_at": "2026-10-08 22:15:41"
     }
   ],
   "replacement_items": [
