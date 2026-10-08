@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-08T22:17:27.511Z",
+  "exportedAt": "2026-10-08T22:25:43.840Z",
   "counts": {
     "categories": 46,
     "manufacturers": 131,
@@ -14,8 +14,8 @@
     "billing_persons": 5,
     "purchases": 1,
     "purchase_items": 1,
-    "sales": 10,
-    "sale_items": 15,
+    "sales": 11,
+    "sale_items": 18,
     "prescriptions": 1,
     "prescription_items": 2,
     "sales_returns": 6,
@@ -40525,13 +40525,13 @@
       "expiry_date": "2026-11-30",
       "purchase_price": 2.5,
       "sale_price": 3.5,
-      "quantity": 298,
+      "quantity": 297,
       "bonus_quantity": 0,
       "supplier_id": 1,
       "rack_location": "Rack D-1",
       "status": "ACTIVE",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-08 22:17:27"
+      "updated_at": "2026-10-08 22:25:43"
     },
     {
       "id": 2,
@@ -44205,13 +44205,13 @@
       "expiry_date": "2028-09-24",
       "purchase_price": 3,
       "sale_price": 4.5,
-      "quantity": 500,
+      "quantity": 499,
       "bonus_quantity": 0,
       "supplier_id": null,
       "rack_location": "Rack D - 05",
       "status": "ACTIVE",
       "created_at": "2026-09-24 08:40:56",
-      "updated_at": "2026-10-05 15:38:33"
+      "updated_at": "2026-10-08 22:25:43"
     },
     {
       "id": 718,
@@ -53453,13 +53453,13 @@
       "expiry_date": "2028-09-28",
       "purchase_price": 3,
       "sale_price": 4.5,
-      "quantity": 50,
+      "quantity": 49,
       "bonus_quantity": 0,
       "supplier_id": null,
       "rack_location": "Rack J-04",
       "status": "ACTIVE",
       "created_at": "2026-09-28 20:33:33",
-      "updated_at": "2026-09-28 20:33:33"
+      "updated_at": "2026-10-08 22:25:43"
     },
     {
       "id": 1296,
@@ -55902,6 +55902,31 @@
       "fixed_charge_amount": 2,
       "request_key": "POS-1791497556657-xavo7d",
       "offline_id": null
+    },
+    {
+      "id": 11,
+      "invoice_number": "INV-20261008-0002",
+      "customer_id": null,
+      "cashier_id": 1,
+      "subtotal": 12.5,
+      "discount": 0,
+      "tax": 2,
+      "total_amount": 14.5,
+      "paid_amount": 14.5,
+      "remaining_amount": 0,
+      "change_amount": 0,
+      "payment_method": "CASH",
+      "status": "COMPLETED",
+      "notes": null,
+      "created_at": "2026-10-08 22:25:43",
+      "billing_person_id": 1,
+      "custom_slip_name": "SABBIRE NISAR",
+      "percentage_charge_label": "",
+      "percentage_charge_rate": 0,
+      "percentage_charge_amount": 0,
+      "fixed_charge_amount": 2,
+      "request_key": "POS-1791498343804-f4xz4p",
+      "offline_id": null
     }
   ],
   "sale_items": [
@@ -56159,6 +56184,57 @@
       "units_per_pack_snapshot": 10,
       "packs_snapshot": 0,
       "loose_units_snapshot": 1
+    },
+    {
+      "id": 16,
+      "sale_id": 11,
+      "medicine_id": 200168,
+      "batch_id": 717,
+      "quantity": 1,
+      "unit_price": 4.5,
+      "discount": 0,
+      "line_total": 4.5,
+      "purchase_price_snapshot": 3,
+      "description_snapshot": "TADALIS 20mg",
+      "category_snapshot": "Tablets",
+      "pack_type_snapshot": "Pack",
+      "units_per_pack_snapshot": 10,
+      "packs_snapshot": 0,
+      "loose_units_snapshot": 1
+    },
+    {
+      "id": 17,
+      "sale_id": 11,
+      "medicine_id": 1,
+      "batch_id": 1,
+      "quantity": 1,
+      "unit_price": 3.5,
+      "discount": 0,
+      "line_total": 3.5,
+      "purchase_price_snapshot": 2.5,
+      "description_snapshot": "Panadol 500mg",
+      "category_snapshot": "Tablets",
+      "pack_type_snapshot": "Pack",
+      "units_per_pack_snapshot": 10,
+      "packs_snapshot": 0,
+      "loose_units_snapshot": 1
+    },
+    {
+      "id": 18,
+      "sale_id": 11,
+      "medicine_id": 200716,
+      "batch_id": 1295,
+      "quantity": 1,
+      "unit_price": 4.5,
+      "discount": 0,
+      "line_total": 4.5,
+      "purchase_price_snapshot": 3,
+      "description_snapshot": "KENACOMB 20g",
+      "category_snapshot": null,
+      "pack_type_snapshot": "Tube / Jar",
+      "units_per_pack_snapshot": 1,
+      "packs_snapshot": 1,
+      "loose_units_snapshot": 0
     }
   ],
   "prescriptions": [
