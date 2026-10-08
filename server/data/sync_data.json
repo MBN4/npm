@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-06T19:30:34.676Z",
+  "exportedAt": "2026-10-08T22:12:36.699Z",
   "counts": {
     "categories": 46,
     "manufacturers": 131,
@@ -11,11 +11,11 @@
     "batches": 938,
     "customers": 5,
     "doctors": 1,
-    "billing_persons": 4,
+    "billing_persons": 5,
     "purchases": 1,
     "purchase_items": 1,
-    "sales": 9,
-    "sale_items": 12,
+    "sales": 10,
+    "sale_items": 15,
     "prescriptions": 1,
     "prescription_items": 2,
     "sales_returns": 3,
@@ -40525,13 +40525,13 @@
       "expiry_date": "2026-11-30",
       "purchase_price": 2.5,
       "sale_price": 3.5,
-      "quantity": 298,
+      "quantity": 297,
       "bonus_quantity": 0,
       "supplier_id": 1,
       "rack_location": "Rack D-1",
       "status": "ACTIVE",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-05 15:38:33"
+      "updated_at": "2026-10-08 22:12:36"
     },
     {
       "id": 2,
@@ -41917,13 +41917,13 @@
       "expiry_date": "2028-09-19",
       "purchase_price": 3,
       "sale_price": 4.5,
-      "quantity": 500,
+      "quantity": 499,
       "bonus_quantity": 0,
       "supplier_id": null,
       "rack_location": "Rack A-06",
       "status": "ACTIVE",
       "created_at": "2026-09-19 15:00:39",
-      "updated_at": "2026-09-19 15:00:39"
+      "updated_at": "2026-10-08 22:12:36"
     },
     {
       "id": 119,
@@ -52093,13 +52093,13 @@
       "expiry_date": "2028-09-28",
       "purchase_price": 3,
       "sale_price": 4.5,
-      "quantity": 500,
+      "quantity": 499,
       "bonus_quantity": 0,
       "supplier_id": null,
       "rack_location": "Rack I-04",
       "status": "ACTIVE",
       "created_at": "2026-09-28 08:35:50",
-      "updated_at": "2026-09-28 08:35:50"
+      "updated_at": "2026-10-08 22:12:36"
     },
     {
       "id": 1211,
@@ -55608,6 +55608,12 @@
       "name": "ABDUL WASIF KHAN",
       "is_active": 1,
       "created_at": "2026-10-03 19:55:05"
+    },
+    {
+      "id": 5,
+      "name": "FAKHAR ZAMAN KHAN",
+      "is_active": 1,
+      "created_at": "2026-10-08 22:09:30"
     }
   ],
   "purchases": [
@@ -55871,6 +55877,31 @@
       "fixed_charge_amount": 0,
       "request_key": "POS-1791214524599-iz35rz",
       "offline_id": null
+    },
+    {
+      "id": 10,
+      "invoice_number": "INV-20261008-0001",
+      "customer_id": null,
+      "cashier_id": 1,
+      "subtotal": 12.5,
+      "discount": 0,
+      "tax": 2,
+      "total_amount": 14.5,
+      "paid_amount": 14.5,
+      "remaining_amount": 0,
+      "change_amount": 0,
+      "payment_method": "CASH",
+      "status": "COMPLETED",
+      "notes": null,
+      "created_at": "2026-10-08 22:12:36",
+      "billing_person_id": 5,
+      "custom_slip_name": "UBAID",
+      "percentage_charge_label": "",
+      "percentage_charge_rate": 0,
+      "percentage_charge_amount": 0,
+      "fixed_charge_amount": 2,
+      "request_key": "POS-1791497556657-xavo7d",
+      "offline_id": null
     }
   ],
   "sale_items": [
@@ -56072,6 +56103,57 @@
       "line_total": 4.5,
       "purchase_price_snapshot": 3,
       "description_snapshot": "TADALIS 20mg",
+      "category_snapshot": "Tablets",
+      "pack_type_snapshot": "Pack",
+      "units_per_pack_snapshot": 10,
+      "packs_snapshot": 0,
+      "loose_units_snapshot": 1
+    },
+    {
+      "id": 13,
+      "sale_id": 10,
+      "medicine_id": 121,
+      "batch_id": 118,
+      "quantity": 1,
+      "unit_price": 4.5,
+      "discount": 0,
+      "line_total": 4.5,
+      "purchase_price_snapshot": 3,
+      "description_snapshot": "healer 20mg",
+      "category_snapshot": null,
+      "pack_type_snapshot": "Strip",
+      "units_per_pack_snapshot": 10,
+      "packs_snapshot": 0,
+      "loose_units_snapshot": 1
+    },
+    {
+      "id": 14,
+      "sale_id": 10,
+      "medicine_id": 200656,
+      "batch_id": 1210,
+      "quantity": 1,
+      "unit_price": 4.5,
+      "discount": 0,
+      "line_total": 4.5,
+      "purchase_price_snapshot": 3,
+      "description_snapshot": "ZYLORIC 100",
+      "category_snapshot": "Tablets",
+      "pack_type_snapshot": "Pack",
+      "units_per_pack_snapshot": 10,
+      "packs_snapshot": 0,
+      "loose_units_snapshot": 1
+    },
+    {
+      "id": 15,
+      "sale_id": 10,
+      "medicine_id": 1,
+      "batch_id": 1,
+      "quantity": 1,
+      "unit_price": 3.5,
+      "discount": 0,
+      "line_total": 3.5,
+      "purchase_price_snapshot": 2.5,
+      "description_snapshot": "Panadol 500mg",
       "category_snapshot": "Tablets",
       "pack_type_snapshot": "Pack",
       "units_per_pack_snapshot": 10,
