@@ -1,12 +1,12 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-10T23:22:17.892Z",
+  "exportedAt": "2026-10-11T04:39:41.468Z",
   "counts": {
     "categories": 46,
     "manufacturers": 131,
     "generics": 107,
     "suppliers": 71,
-    "medicines": 1323,
+    "medicines": 1322,
     "drug_clinical_info": 7,
     "batches": 939,
     "customers": 5,
@@ -14,8 +14,8 @@
     "billing_persons": 5,
     "purchases": 1,
     "purchase_items": 1,
-    "sales": 13,
-    "sale_items": 20,
+    "sales": 14,
+    "sale_items": 21,
     "prescriptions": 1,
     "prescription_items": 2,
     "sales_returns": 7,
@@ -40118,34 +40118,6 @@
       "sync_generic_name": "HERBAL",
       "sync_category_name": "Herbal / Unani",
       "sync_manufacturer_name": "Qarshi"
-    },
-    {
-      "id": 200813,
-      "brand_name": "Qarshi Herbal Product",
-      "generic_id": 210612,
-      "category_id": 1824,
-      "manufacturer_id": 2387,
-      "strength": "Standard",
-      "dosage_form": "Syrup",
-      "pack_size": 1,
-      "barcode": "855434001273",
-      "custom_barcode": null,
-      "rack_location": "Rack A-01",
-      "min_stock_level": 10,
-      "reorder_level": 20,
-      "is_prescription_required": 0,
-      "is_active": 1,
-      "notes": null,
-      "created_at": "2026-10-10 22:50:25",
-      "updated_at": "2026-10-10 22:50:25",
-      "tablets_per_pack": 1,
-      "therapeutic_class": "General",
-      "stock_unit": "Bottle",
-      "packaging_type": "SIMPLE",
-      "route": null,
-      "sync_generic_name": "Herbal Supplement",
-      "sync_category_name": "Syrups & Oral Liquids",
-      "sync_manufacturer_name": "Qarshi Industries"
     }
   ],
   "drug_clinical_info": [
@@ -51289,13 +51261,13 @@
       "expiry_date": "2028-09-27",
       "purchase_price": 3,
       "sale_price": 4.5,
-      "quantity": 50,
+      "quantity": 49,
       "bonus_quantity": 0,
       "supplier_id": null,
       "rack_location": "Rack I-01",
       "status": "ACTIVE",
       "created_at": "2026-09-27 16:16:13",
-      "updated_at": "2026-10-03 20:02:20"
+      "updated_at": "2026-10-11 04:39:41"
     },
     {
       "id": 1159,
@@ -55539,7 +55511,7 @@
     },
     {
       "id": 1426,
-      "medicine_id": 200813,
+      "medicine_id": 200762,
       "batch_number": "BN-2026-6797",
       "mfg_date": null,
       "expiry_date": "2028-10-09",
@@ -56021,6 +55993,31 @@
       "fixed_charge_amount": 2,
       "request_key": "POS-1791674125673-ky6sr8",
       "offline_id": null
+    },
+    {
+      "id": 14,
+      "invoice_number": "INV-20261011-0001",
+      "customer_id": null,
+      "cashier_id": 1,
+      "subtotal": 4.5,
+      "discount": 0,
+      "tax": 2,
+      "total_amount": 6.5,
+      "paid_amount": 6.5,
+      "remaining_amount": 0,
+      "change_amount": 0,
+      "payment_method": "CASH",
+      "status": "COMPLETED",
+      "notes": null,
+      "created_at": "2026-10-11 04:39:41",
+      "billing_person_id": 1,
+      "custom_slip_name": "bilal",
+      "percentage_charge_label": "",
+      "percentage_charge_rate": 0,
+      "percentage_charge_amount": 0,
+      "fixed_charge_amount": 2,
+      "request_key": "POS-1791693581266-uhx3sn",
+      "offline_id": null
     }
   ],
   "sale_items": [
@@ -56363,6 +56360,23 @@
       "units_per_pack_snapshot": 10,
       "packs_snapshot": 0,
       "loose_units_snapshot": 1
+    },
+    {
+      "id": 21,
+      "sale_id": 14,
+      "medicine_id": 200604,
+      "batch_id": 1158,
+      "quantity": 1,
+      "unit_price": 4.5,
+      "discount": 0,
+      "line_total": 4.5,
+      "purchase_price_snapshot": 3,
+      "description_snapshot": "PANADOL 2-12 YEARS 120 mL",
+      "category_snapshot": "Syrups & Oral Liquids",
+      "pack_type_snapshot": "Bottle",
+      "units_per_pack_snapshot": 1,
+      "packs_snapshot": 1,
+      "loose_units_snapshot": 0
     }
   ],
   "prescriptions": [
