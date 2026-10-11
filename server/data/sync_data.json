@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-11T17:36:09.136Z",
+  "exportedAt": "2026-10-11T17:37:29.869Z",
   "counts": {
     "categories": 45,
     "manufacturers": 150,
@@ -9,7 +9,7 @@
     "medicines": 1406,
     "drug_clinical_info": 7,
     "batches": 1022,
-    "packing_references": 0,
+    "packing_references": 1,
     "customers": 5,
     "doctors": 1,
     "billing_persons": 5,
@@ -59729,7 +59729,27 @@
       "updated_at": "2026-10-11 17:21:49"
     }
   ],
-  "packing_references": [],
+  "packing_references": [
+    {
+      "id": 6,
+      "brand_name": "Ponstan Forte",
+      "strength": null,
+      "dosage_form": "Tablet",
+      "manufacturer": null,
+      "pack_type": "STRIP_BOX",
+      "units_per_strip": 10,
+      "strips_per_box": 20,
+      "container_volume_or_weight": null,
+      "containers_per_pack": null,
+      "saleable_unit_label": "Tablet",
+      "verification_status": "VERIFIED",
+      "source": "medicalstore.com.pk and dwatson.pk both list Ponstan Forte 500mg as Pack Size 200s (Pfizer)",
+      "verified_at": "2026-10-11T17:37:26.083Z",
+      "notes": "Strength on box is 500mg; medicine record currently has no strength value set - verify against physical box.",
+      "created_at": "2026-10-11T17:37:26.083Z",
+      "updated_at": "2026-10-11T17:37:26.083Z"
+    }
+  ],
   "customers": [
     {
       "id": 1,
