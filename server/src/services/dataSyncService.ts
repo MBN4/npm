@@ -15,6 +15,7 @@ export interface SyncDataExport {
   medicines: any[];
   drug_clinical_info: any[];
   batches: any[];
+  packing_references: any[];
   customers: any[];
   doctors: any[];
   billing_persons: any[];
@@ -57,6 +58,7 @@ export function exportSyncData(outputPath: string = DEFAULT_SYNC_PATH): { succes
     LEFT JOIN manufacturers mf ON mf.id = m.manufacturer_id`).all();
   const drug_clinical_info = db.prepare('SELECT * FROM drug_clinical_info').all();
   const batches = db.prepare('SELECT * FROM batches').all();
+  const packing_references = db.prepare('SELECT * FROM packing_references').all();
   const customers = db.prepare('SELECT * FROM customers').all();
   const doctors = db.prepare('SELECT * FROM doctors').all();
   const billing_persons = db.prepare('SELECT * FROM billing_persons').all();
@@ -84,6 +86,7 @@ export function exportSyncData(outputPath: string = DEFAULT_SYNC_PATH): { succes
     medicines: medicines.length,
     drug_clinical_info: drug_clinical_info.length,
     batches: batches.length,
+    packing_references: packing_references.length,
     customers: customers.length,
     doctors: doctors.length,
     billing_persons: billing_persons.length,
@@ -115,6 +118,7 @@ export function exportSyncData(outputPath: string = DEFAULT_SYNC_PATH): { succes
     medicines,
     drug_clinical_info,
     batches,
+    packing_references,
     customers,
     doctors,
     billing_persons,
@@ -164,6 +168,7 @@ export function importSyncData(inputPath: string = DEFAULT_SYNC_PATH): { success
     medicines: [],
     drug_clinical_info: [],
     batches: [],
+    packing_references: [],
     customers: [],
     doctors: [],
     billing_persons: [],
@@ -192,6 +197,7 @@ export function importSyncData(inputPath: string = DEFAULT_SYNC_PATH): { success
     medicines: 0,
     drug_clinical_info: 0,
     batches: 0,
+    packing_references: 0,
     customers: 0,
     doctors: 0,
     billing_persons: 0,
@@ -224,6 +230,7 @@ export function importSyncData(inputPath: string = DEFAULT_SYNC_PATH): { success
       importedCounts.medicines = upsertSyncRows(db, 'medicines', payload.medicines || []);
       importedCounts.drug_clinical_info = upsertSyncRows(db, 'drug_clinical_info', payload.drug_clinical_info || []);
       importedCounts.batches = upsertSyncRows(db, 'batches', payload.batches || []);
+      importedCounts.packing_references = upsertSyncRows(db, 'packing_references', payload.packing_references || []);
       importedCounts.customers = upsertSyncRows(db, 'customers', payload.customers || []);
       importedCounts.doctors = upsertSyncRows(db, 'doctors', payload.doctors || []);
       importedCounts.billing_persons = upsertSyncRows(db, 'billing_persons', payload.billing_persons || []);
@@ -284,6 +291,7 @@ export function getSyncStatus(syncPath: string = DEFAULT_SYNC_PATH) {
       medicines: [],
       drug_clinical_info: [],
       batches: [],
+      packing_references: [],
       customers: [],
       doctors: [],
       billing_persons: [],

@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-11T17:32:54.284Z",
+  "exportedAt": "2026-10-11T17:36:09.136Z",
   "counts": {
     "categories": 45,
     "manufacturers": 150,
@@ -9,6 +9,7 @@
     "medicines": 1406,
     "drug_clinical_info": 7,
     "batches": 1022,
+    "packing_references": 0,
     "customers": 5,
     "doctors": 1,
     "billing_persons": 5,
@@ -59728,6 +59729,7 @@
       "updated_at": "2026-10-11 17:21:49"
     }
   ],
+  "packing_references": [],
   "customers": [
     {
       "id": 1,

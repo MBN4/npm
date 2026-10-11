@@ -39,6 +39,7 @@ const snapshot = safeJsonParse<SyncDataExport>(fs.readFileSync(syncPath, 'utf8')
   medicines: [],
   drug_clinical_info: [],
   batches: [],
+  packing_references: [],
   customers: [],
   doctors: [],
   billing_persons: [],

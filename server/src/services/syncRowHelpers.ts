@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 
 const SYNC_TABLES = new Set([
   'categories', 'manufacturers', 'generics', 'suppliers',
-  'medicines', 'drug_clinical_info', 'batches',
+  'medicines', 'drug_clinical_info', 'batches', 'packing_references',
   'customers', 'doctors', 'billing_persons',
   'purchases', 'purchase_items',
   'sales', 'sale_items',

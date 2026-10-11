@@ -144,6 +144,31 @@ CREATE TABLE IF NOT EXISTS batches (
   UNIQUE(medicine_id, batch_number)
 );
 
+-- Verified commercial packing structure for a brand+strength+form+manufacturer, so purchase
+-- entry can convert a box/strip/unit rate into an exact per-unit cost without ever assuming a
+-- default pack size (e.g. "100 tablets per box"). Looked up once, reused on every later purchase.
+CREATE TABLE IF NOT EXISTS packing_references (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  brand_name TEXT NOT NULL,
+  strength TEXT,
+  dosage_form TEXT NOT NULL, -- Tablet, Capsule, Syrup, Cream, Injection, Sachet, IV Fluid, Spray, Drops, Milk, etc.
+  manufacturer TEXT,
+  pack_type TEXT NOT NULL, -- STRIP_BOX (tablets/capsules), TUBE (cream/ointment/gel), BOTTLE (syrup/drops/spray),
+                            -- VIAL_BOX (injection), SACHET_BOX, IV_BAG, OTHER
+  units_per_strip INTEGER, -- tablets/capsules per strip or blister (STRIP_BOX only)
+  strips_per_box INTEGER, -- strips per box (STRIP_BOX only)
+  container_volume_or_weight REAL, -- ml per bottle/bag, grams per tube, mg/ml strength per vial, etc.
+  containers_per_pack INTEGER, -- bottles/tubes/vials/ampoules/sachets per retail or distributor pack
+  saleable_unit_label TEXT NOT NULL, -- what one sale unit is: Tablet, Capsule, Bottle, Tube, Vial, Sachet, Bag
+  verification_status TEXT NOT NULL DEFAULT 'PENDING', -- VERIFIED, PENDING, MANUAL_OVERRIDE
+  source TEXT, -- manufacturer site / supplier listing / pharmacist confirmation, etc.
+  verified_at TEXT,
+  notes TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(brand_name, strength, dosage_form, manufacturer)
+);
+
 CREATE TABLE IF NOT EXISTS supplier_ledgers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   supplier_id INTEGER NOT NULL,
