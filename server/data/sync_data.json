@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-12T11:53:59.268Z",
+  "exportedAt": "2026-10-12T11:59:13.634Z",
   "counts": {
     "categories": 46,
     "manufacturers": 153,
@@ -15,8 +15,8 @@
     "billing_persons": 5,
     "purchases": 1,
     "purchase_items": 1,
-    "sales": 15,
-    "sale_items": 22,
+    "sales": 16,
+    "sale_items": 23,
     "prescriptions": 1,
     "prescription_items": 2,
     "sales_returns": 7,
@@ -59360,13 +59360,13 @@
       "expiry_date": "2028-09-27",
       "purchase_price": 3,
       "sale_price": 4.5,
-      "quantity": 43,
+      "quantity": 42,
       "bonus_quantity": 0,
       "supplier_id": null,
       "rack_location": "Rack I-01",
       "status": "ACTIVE",
       "created_at": "2026-09-27 16:17:08",
-      "updated_at": "2026-10-03 20:01:08"
+      "updated_at": "2026-10-12 11:59:13"
     },
     {
       "id": 1160,
@@ -69151,6 +69151,31 @@
       "fixed_charge_amount": 2,
       "request_key": "POS-1791806039233-ll3qxg",
       "offline_id": null
+    },
+    {
+      "id": 16,
+      "invoice_number": "INV-20261012-0002",
+      "customer_id": null,
+      "cashier_id": 1,
+      "subtotal": 4.5,
+      "discount": 0,
+      "tax": 2,
+      "total_amount": 6.5,
+      "paid_amount": 6.5,
+      "remaining_amount": 0,
+      "change_amount": 0,
+      "payment_method": "CARD",
+      "status": "COMPLETED",
+      "notes": null,
+      "created_at": "2026-10-12 11:59:13",
+      "billing_person_id": null,
+      "custom_slip_name": null,
+      "percentage_charge_label": "",
+      "percentage_charge_rate": 0,
+      "percentage_charge_amount": 0,
+      "fixed_charge_amount": 2,
+      "request_key": "POS-1791806353608-ybzybx",
+      "offline_id": null
     }
   ],
   "sale_items": [
@@ -69527,6 +69552,23 @@
       "units_per_pack_snapshot": 10,
       "packs_snapshot": 0,
       "loose_units_snapshot": 1
+    },
+    {
+      "id": 23,
+      "sale_id": 16,
+      "medicine_id": 200605,
+      "batch_id": 1159,
+      "quantity": 1,
+      "unit_price": 4.5,
+      "discount": 0,
+      "line_total": 4.5,
+      "purchase_price_snapshot": 3,
+      "description_snapshot": "PANADOL 30 mL",
+      "category_snapshot": "Syrups & Oral Liquids",
+      "pack_type_snapshot": "Dropper Bottle",
+      "units_per_pack_snapshot": 1,
+      "packs_snapshot": 1,
+      "loose_units_snapshot": 0
     }
   ],
   "prescriptions": [
