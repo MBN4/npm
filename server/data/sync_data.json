@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-13T14:11:20.190Z",
+  "exportedAt": "2026-10-13T18:42:17.437Z",
   "counts": {
     "categories": 46,
     "manufacturers": 153,
@@ -8,7 +8,7 @@
     "suppliers": 71,
     "medicines": 1752,
     "drug_clinical_info": 7,
-    "batches": 1470,
+    "batches": 1471,
     "packing_references": 0,
     "customers": 5,
     "doctors": 1,
@@ -77573,6 +77573,22 @@
       "status": "ACTIVE",
       "created_at": "2026-10-12 20:40:43",
       "updated_at": "2026-10-12 20:40:43"
+    },
+    {
+      "id": 1961,
+      "medicine_id": 387,
+      "batch_number": "00015686",
+      "mfg_date": "2025-06-01",
+      "expiry_date": "2027-05-31",
+      "purchase_price": 125,
+      "sale_price": 143.75,
+      "quantity": 4,
+      "bonus_quantity": 0,
+      "supplier_id": null,
+      "rack_location": "Rack C-04",
+      "status": "ACTIVE",
+      "created_at": "2026-10-13 18:42:17",
+      "updated_at": "2026-10-13 18:42:17"
     }
   ],
   "packing_references": [],
