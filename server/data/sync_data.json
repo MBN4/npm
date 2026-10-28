@@ -1,20 +1,20 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-28T14:24:06.037Z",
+  "exportedAt": "2026-10-28T14:25:31.464Z",
   "counts": {
     "categories": 46,
     "manufacturers": 153,
-    "generics": 332,
-    "suppliers": 75,
-    "medicines": 1752,
+    "generics": 334,
+    "suppliers": 76,
+    "medicines": 1754,
     "drug_clinical_info": 7,
-    "batches": 1490,
+    "batches": 1495,
     "packing_references": 0,
-    "customers": 10,
-    "doctors": 5,
+    "customers": 11,
+    "doctors": 6,
     "billing_persons": 0,
-    "purchases": 4,
-    "purchase_items": 4,
+    "purchases": 5,
+    "purchase_items": 5,
     "sales": 29,
     "sale_items": 33,
     "prescriptions": 4,
@@ -22,7 +22,7 @@
     "sales_returns": 0,
     "sale_return_items": 0,
     "replacement_items": 0,
-    "drug_classifications": 222,
+    "drug_classifications": 224,
     "medicine_ingredients": 0,
     "medicine_classification_links": 0,
     "schedule_bd_register_entries": 16,
@@ -3724,6 +3724,18 @@
       "name": "TestOpioidGeneric-1793197446019",
       "therapeutic_class": "Test",
       "description": null
+    },
+    {
+      "id": 214873,
+      "name": "TestOpioidGeneric-1793197466810",
+      "therapeutic_class": "Test",
+      "description": null
+    },
+    {
+      "id": 214892,
+      "name": "TestOpioidGeneric-1793197531450",
+      "therapeutic_class": "Test",
+      "description": null
     }
   ],
   "suppliers": [
@@ -3736,7 +3748,7 @@
       "address": "Circular Road, Lahore",
       "tax_number": null,
       "opening_balance": 0,
-      "current_balance": 51900,
+      "current_balance": 52900,
       "is_active": 1,
       "created_at": "2026-09-07 12:00:22"
     },
@@ -4701,6 +4713,19 @@
       "current_balance": 5000,
       "is_active": 1,
       "created_at": "2026-10-28 14:23:51"
+    },
+    {
+      "id": 2268,
+      "name": "Prime Healthcare Distributors 1793197454730",
+      "contact_person": "Khurram Shehzad",
+      "phone": "0300-9876543",
+      "email": null,
+      "address": null,
+      "tax_number": null,
+      "opening_balance": 5000,
+      "current_balance": 5000,
+      "is_active": 1,
+      "created_at": "2026-10-28 14:24:14"
     }
   ],
   "medicines": [
@@ -4838,7 +4863,7 @@
       "is_active": 1,
       "notes": "Pharmacy Medicines List PDF Item",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-28 14:23:49",
+      "updated_at": "2026-10-28 14:24:11",
       "route": null,
       "sync_generic_name": "Metformin HCl ER",
       "sync_category_name": "Tablets",
@@ -53759,6 +53784,62 @@
       "sync_generic_name": "TestOpioidGeneric-1793197446019",
       "sync_category_name": null,
       "sync_manufacturer_name": null
+    },
+    {
+      "id": 201265,
+      "brand_name": "TestScheduleBMed-1793197466814",
+      "generic_id": 214873,
+      "category_id": null,
+      "manufacturer_id": null,
+      "strength": "10mg",
+      "dosage_form": "Tablet",
+      "therapeutic_class": null,
+      "stock_unit": null,
+      "tablets_per_pack": 10,
+      "packaging_type": "MULTI_TIER",
+      "pack_size": 1,
+      "barcode": null,
+      "custom_barcode": "NMP-945563",
+      "rack_location": null,
+      "min_stock_level": 10,
+      "reorder_level": 20,
+      "is_prescription_required": 1,
+      "is_active": 1,
+      "notes": null,
+      "created_at": "2026-10-28 14:24:26",
+      "updated_at": "2026-10-28 14:24:26",
+      "route": null,
+      "sync_generic_name": "TestOpioidGeneric-1793197466810",
+      "sync_category_name": null,
+      "sync_manufacturer_name": null
+    },
+    {
+      "id": 201266,
+      "brand_name": "TestScheduleBMed-1793197531454",
+      "generic_id": 214892,
+      "category_id": null,
+      "manufacturer_id": null,
+      "strength": "10mg",
+      "dosage_form": "Tablet",
+      "therapeutic_class": null,
+      "stock_unit": null,
+      "tablets_per_pack": 10,
+      "packaging_type": "MULTI_TIER",
+      "pack_size": 1,
+      "barcode": null,
+      "custom_barcode": "NMP-868583",
+      "rack_location": null,
+      "min_stock_level": 10,
+      "reorder_level": 20,
+      "is_prescription_required": 1,
+      "is_active": 1,
+      "notes": null,
+      "created_at": "2026-10-28 14:25:31",
+      "updated_at": "2026-10-28 14:25:31",
+      "route": null,
+      "sync_generic_name": "TestOpioidGeneric-1793197531450",
+      "sync_category_name": null,
+      "sync_manufacturer_name": null
     }
   ],
   "drug_clinical_info": [
@@ -53971,7 +54052,7 @@
       "created_at": "2026-10-05 13:18:01"
     },
     {
-      "id": 2895,
+      "id": 2940,
       "generic_id": 1,
       "atc_code": "M01AE02",
       "rx_status": "Rx/OTC",
@@ -54020,10 +54101,10 @@
       "clinical_source": "USP-NF / DailyMed / BNF 86 Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 14:24:05"
+      "created_at": "2026-10-28 14:25:31"
     },
     {
-      "id": 2896,
+      "id": 2941,
       "generic_id": 2,
       "atc_code": "M01AE16",
       "rx_status": "Rx",
@@ -54072,10 +54153,10 @@
       "clinical_source": "DRAP / BNF 86 / MHRA Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 14:24:05"
+      "created_at": "2026-10-28 14:25:31"
     },
     {
-      "id": 2897,
+      "id": 2942,
       "generic_id": 3,
       "atc_code": "N02BE01",
       "rx_status": "OTC",
@@ -54124,7 +54205,7 @@
       "clinical_source": "USP-NF / DailyMed / BNF 86 Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 14:24:05"
+      "created_at": "2026-10-28 14:25:31"
     }
   ],
   "batches": [
@@ -54222,7 +54303,7 @@
       "rack_location": "Rack D-1",
       "status": "EXPIRED",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-28 14:23:49"
+      "updated_at": "2026-10-28 14:24:11"
     },
     {
       "id": 6,
@@ -77967,6 +78048,86 @@
       "status": "ACTIVE",
       "created_at": "2026-10-28 14:24:04",
       "updated_at": "2026-10-28 14:24:04"
+    },
+    {
+      "id": 1981,
+      "medicine_id": 201262,
+      "batch_number": "SBD-A-1793197446061",
+      "mfg_date": "2025-01-01",
+      "expiry_date": "2030-01-01",
+      "purchase_price": 10,
+      "sale_price": 20,
+      "quantity": 5,
+      "bonus_quantity": 0,
+      "supplier_id": null,
+      "rack_location": null,
+      "status": "ACTIVE",
+      "created_at": "2026-10-28 14:24:06",
+      "updated_at": "2026-10-28 14:24:06"
+    },
+    {
+      "id": 1982,
+      "medicine_id": 201262,
+      "batch_number": "SBD-B-1793197446061",
+      "mfg_date": "2025-01-01",
+      "expiry_date": "2030-06-01",
+      "purchase_price": 10,
+      "sale_price": 20,
+      "quantity": 10,
+      "bonus_quantity": 0,
+      "supplier_id": null,
+      "rack_location": null,
+      "status": "ACTIVE",
+      "created_at": "2026-10-28 14:24:06",
+      "updated_at": "2026-10-28 14:24:06"
+    },
+    {
+      "id": 1983,
+      "medicine_id": 1,
+      "batch_number": "PAN-PUR-8414",
+      "mfg_date": "2026-01-01",
+      "expiry_date": "2028-06-30",
+      "purchase_price": 2.5,
+      "sale_price": 3.5,
+      "quantity": 550,
+      "bonus_quantity": 50,
+      "supplier_id": 1,
+      "rack_location": null,
+      "status": "ACTIVE",
+      "created_at": "2026-10-28 14:24:14",
+      "updated_at": "2026-10-28 14:24:14"
+    },
+    {
+      "id": 1984,
+      "medicine_id": 201265,
+      "batch_number": "SBD-A-1793197466847",
+      "mfg_date": "2025-01-01",
+      "expiry_date": "2030-01-01",
+      "purchase_price": 10,
+      "sale_price": 20,
+      "quantity": 5,
+      "bonus_quantity": 0,
+      "supplier_id": null,
+      "rack_location": null,
+      "status": "ACTIVE",
+      "created_at": "2026-10-28 14:24:26",
+      "updated_at": "2026-10-28 14:24:26"
+    },
+    {
+      "id": 1985,
+      "medicine_id": 201265,
+      "batch_number": "SBD-B-1793197466848",
+      "mfg_date": "2025-01-01",
+      "expiry_date": "2030-06-01",
+      "purchase_price": 10,
+      "sale_price": 20,
+      "quantity": 10,
+      "bonus_quantity": 0,
+      "supplier_id": null,
+      "rack_location": null,
+      "status": "ACTIVE",
+      "created_at": "2026-10-28 14:24:26",
+      "updated_at": "2026-10-28 14:24:26"
     }
   ],
   "packing_references": [],
@@ -78100,6 +78261,19 @@
       "is_active": 1,
       "created_at": "2026-10-28 14:23:54",
       "cnic": null
+    },
+    {
+      "id": 17,
+      "name": "Rashid Mahmood",
+      "mobile": "03219378823",
+      "age": 55,
+      "gender": "MALE",
+      "allergy_notes": null,
+      "credit_limit": 15000,
+      "current_balance": 0,
+      "is_active": 1,
+      "created_at": "2026-10-28 14:24:07",
+      "cnic": null
     }
   ],
   "doctors": [
@@ -78152,6 +78326,16 @@
       "email": null,
       "is_active": 1,
       "created_at": "2026-10-28 14:23:54"
+    },
+    {
+      "id": 6,
+      "name": "Prof. Dr. Tariq Asim",
+      "specialization": "Consultant Physician & Cardiologist",
+      "clinic_name": "Civil Hospital Complex",
+      "phone": "0300-5556677",
+      "email": null,
+      "is_active": 1,
+      "created_at": "2026-10-28 14:24:07"
     }
   ],
   "billing_persons": [],
@@ -78223,6 +78407,23 @@
       "created_by": 1,
       "notes": null,
       "created_at": "2026-10-28 14:23:51"
+    },
+    {
+      "id": 5,
+      "invoice_number": "PINV-776628",
+      "supplier_id": 1,
+      "purchase_date": "2026-09-07",
+      "subtotal": 1500,
+      "discount": 0,
+      "tax": 0,
+      "total_amount": 1500,
+      "paid_amount": 500,
+      "remaining_amount": 1000,
+      "payment_status": "PARTIAL",
+      "payment_method": "CASH",
+      "created_by": 1,
+      "notes": null,
+      "created_at": "2026-10-28 14:24:14"
     }
   ],
   "purchase_items": [
@@ -78277,6 +78478,21 @@
       "medicine_id": 1,
       "batch_id": 1979,
       "batch_number": "PAN-PUR-2346",
+      "expiry_date": "2028-06-30",
+      "mfg_date": "2026-01-01",
+      "purchase_price": 2.5,
+      "sale_price": 3.5,
+      "quantity": 500,
+      "bonus_quantity": 50,
+      "line_discount": 0,
+      "line_total": 1250
+    },
+    {
+      "id": 5,
+      "purchase_id": 5,
+      "medicine_id": 1,
+      "batch_id": 1983,
+      "batch_number": "PAN-PUR-8414",
       "expiry_date": "2028-06-30",
       "mfg_date": "2026-01-01",
       "purchase_price": 2.5,
@@ -85720,6 +85936,58 @@
       "suspected_error_note": null,
       "created_by": 1,
       "created_at": "2026-10-28 14:23:47"
+    },
+    {
+      "id": 228,
+      "version": 1,
+      "superseded_by_id": null,
+      "is_current": 1,
+      "entry_type": "SUBSTANCE",
+      "substance_name": "TestOpioidGeneric",
+      "group_description": null,
+      "generic_id": 214620,
+      "strength": null,
+      "dosage_form": null,
+      "route": null,
+      "schedule": "B",
+      "salts_derivatives_note": null,
+      "restrictions_exemptions": null,
+      "jurisdiction": "Punjab, Pakistan",
+      "source_reference": null,
+      "effective_date": null,
+      "verification_status": "VERIFIED",
+      "verified_by": 1,
+      "verified_at": "2026-10-28 14:24:06",
+      "suspected_error_flag": 0,
+      "suspected_error_note": null,
+      "created_by": 1,
+      "created_at": "2026-10-28 14:24:06"
+    },
+    {
+      "id": 229,
+      "version": 1,
+      "superseded_by_id": null,
+      "is_current": 1,
+      "entry_type": "SUBSTANCE",
+      "substance_name": "TestOpioidGeneric",
+      "group_description": null,
+      "generic_id": 214873,
+      "strength": null,
+      "dosage_form": null,
+      "route": null,
+      "schedule": "B",
+      "salts_derivatives_note": null,
+      "restrictions_exemptions": null,
+      "jurisdiction": "Punjab, Pakistan",
+      "source_reference": null,
+      "effective_date": null,
+      "verification_status": "VERIFIED",
+      "verified_by": 1,
+      "verified_at": "2026-10-28 14:24:26",
+      "suspected_error_flag": 0,
+      "suspected_error_note": null,
+      "created_by": 1,
+      "created_at": "2026-10-28 14:24:26"
     }
   ],
   "medicine_ingredients": [],
