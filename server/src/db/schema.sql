@@ -378,9 +378,17 @@ CREATE TABLE IF NOT EXISTS prescriptions (
   diagnosis TEXT,
   image_path TEXT,
   notes TEXT,
-  clinical_notes TEXT,
+  clinical_notes TEXT, -- legacy single free-text field, kept for older records; new entries use the structured fields below
+  presenting_complaint TEXT,
+  history_present_illness TEXT,
+  relevant_medical_history TEXT,
+  examination_findings TEXT,
+  allergies_notes TEXT,
+  current_medicines_notes TEXT,
   clinical_advice TEXT,
+  advice_categories TEXT, -- JSON array of selected "Clinical Advice" category tags
   treatment_plan TEXT,
+  treatment_categories TEXT, -- JSON array of selected "Treatment Plan" category tags
   follow_up_date TEXT,
   follow_up_instructions TEXT,
   pulse_bpm INTEGER,
@@ -438,18 +446,75 @@ CREATE TABLE IF NOT EXISTS prescription_referrals (
   department TEXT,
   specialist_name TEXT,
   reason TEXT,
+  reason_categories TEXT, -- JSON array of selected "Reason for Referral" category tags, e.g. ["Specialist Assessment"]
   priority TEXT DEFAULT 'Routine', -- Routine | Urgent | Emergency
   clinical_summary TEXT,
+  summary_categories TEXT, -- JSON array of selected "Relevant Clinical Summary" category tags
   reports_attached TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (prescription_id) REFERENCES prescriptions(id) ON DELETE CASCADE
 );
+
+-- Structured, multiple diagnoses per visit (each with its own category and Provisional/Confirmed status),
+-- replacing the single free-text prescriptions.diagnosis column as the primary diagnosis record. That
+-- column is kept (and still written as a joined summary) so older records/list views keep working.
+CREATE TABLE IF NOT EXISTS prescription_diagnoses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  prescription_id INTEGER NOT NULL,
+  category TEXT, -- e.g. Respiratory, Cardiovascular - optional, never auto-filled from selection alone
+  diagnosis_text TEXT NOT NULL,
+  status TEXT DEFAULT 'Provisional', -- Provisional | Confirmed
+  is_custom INTEGER DEFAULT 0,
+  FOREIGN KEY (prescription_id) REFERENCES prescriptions(id) ON DELETE CASCADE
+);
+
+-- Reusable clinical text snippets, scoped to a section + category. Selecting a category never inserts
+-- text by itself - a template row only applies when a user explicitly clicks to insert it, and the
+-- inserted text stays freely editable afterward. Seeded with categories only (no canned template text),
+-- since fabricating clinical wording here would itself violate "never auto-invent clinical content";
+-- authorised users (manage_settings) build up the actual snippet library as they use the system.
+CREATE TABLE IF NOT EXISTS clinical_templates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  section TEXT NOT NULL, -- diagnosis | advice | treatment | referral_reason
+  category TEXT NOT NULL,
+  template_text TEXT, -- NULL when the row is just a selectable category tag with no canned snippet yet
+  is_active INTEGER DEFAULT 1,
+  created_by INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+-- Lets INSERT OR IGNORE dedupe the fixed starting category tags below across every server restart
+-- (schema.sql re-runs its CREATE/INSERT statements on every boot), while still allowing an admin to
+-- add further real templates (actual template_text) for the same section+category later.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_clinical_templates_bare_category
+  ON clinical_templates(section, category) WHERE template_text IS NULL;
 
 INSERT OR IGNORE INTO clinic_providers (name, credentials, designation, hospital, sort_order) VALUES
   ('Dr. Yasir Iqbal', 'MBBS MCPS (RMP)', 'Senior Member YDA, PPWS', 'Mayo Hospital, Lahore', 1),
   ('Dr. Abdul Waris Khan PT', 'DPT HUP (PUNJAB), MPPTA', 'Sports Physio F.F.C (LHR) • CEO PPWS', 'Mayo Hospital, Lahore', 2),
   ('Dr. Abdul Rehman', 'MBBS K.E (RMP)', 'Senior Member YDA, PPWS', 'Ganga Ram Hospital, Lahore', 3),
   ('Chief Abdul Wajid', NULL, 'Chief NMC, NMP', NULL, 4);
+
+-- Fixed starting category tags (no canned template text - see clinical_templates comment above).
+INSERT OR IGNORE INTO clinical_templates (section, category) VALUES
+  ('clinical_notes', 'Presenting Complaint'), ('clinical_notes', 'History of Present Illness'),
+  ('clinical_notes', 'Relevant Medical History'), ('clinical_notes', 'Examination Findings'),
+  ('clinical_notes', 'Allergies'), ('clinical_notes', 'Current Medicines'),
+  ('diagnosis', 'General Medicine'), ('diagnosis', 'Respiratory'), ('diagnosis', 'Cardiovascular'),
+  ('diagnosis', 'Gastrointestinal'), ('diagnosis', 'Endocrine/Diabetes'), ('diagnosis', 'Neurological'),
+  ('diagnosis', 'Musculoskeletal'), ('diagnosis', 'Dermatology'), ('diagnosis', 'ENT'),
+  ('diagnosis', 'Urinary/Renal'), ('diagnosis', 'Other'),
+  ('advice', 'Diet'), ('advice', 'Hydration'), ('advice', 'Activity/Rest'),
+  ('advice', 'Medicine Instructions'), ('advice', 'Monitoring'), ('advice', 'Follow-up'),
+  ('advice', 'Return Precautions'),
+  ('treatment', 'Medicines'), ('treatment', 'Investigations'), ('treatment', 'Non-drug Management'),
+  ('treatment', 'Physiotherapy'), ('treatment', 'Monitoring'), ('treatment', 'Follow-up'), ('treatment', 'Referral'),
+  ('summary', 'Main Complaint'), ('summary', 'Relevant History'), ('summary', 'Examination'),
+  ('summary', 'Investigations'), ('summary', 'Treatment Given'), ('summary', 'Response to Treatment'),
+  ('referral_reason', 'Specialist Assessment'), ('referral_reason', 'Further Investigations'),
+  ('referral_reason', 'Procedure/Surgical Assessment'), ('referral_reason', 'Persistent Symptoms'),
+  ('referral_reason', 'Treatment Review'), ('referral_reason', 'Urgent Assessment');
 
 -- 9b. Returns, Refunds & Replacements
 CREATE TABLE IF NOT EXISTS sales_returns (

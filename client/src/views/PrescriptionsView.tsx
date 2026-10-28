@@ -42,14 +42,16 @@ interface ReferralState {
   department: string;
   specialistName: string;
   reason: string;
+  reasonCategories: string[];
   priority: 'Routine' | 'Urgent' | 'Emergency';
   clinicalSummary: string;
+  summaryCategories: string[];
   reportsAttached: string;
 }
 
 const emptyReferral: ReferralState = {
   hospitalName: '', customHospital: '', department: '', specialistName: '',
-  reason: '', priority: 'Routine', clinicalSummary: '', reportsAttached: ''
+  reason: '', reasonCategories: [], priority: 'Routine', clinicalSummary: '', summaryCategories: [], reportsAttached: ''
 };
 
 const emptyItem = (): PrescriptionItem => ({
@@ -151,13 +153,35 @@ export const PrescriptionsView: React.FC = () => {
   const [temperatureValue, setTemperatureValue] = useState('');
   const [temperatureUnit, setTemperatureUnit] = useState<'C' | 'F'>('C');
 
-  // Clinical
-  const [diagnosis, setDiagnosis] = useState('');
-  const [clinicalNotes, setClinicalNotes] = useState('');
+  // Clinical - structured, multiple diagnoses (each with its own optional category + Provisional/Confirmed status)
+  const [diagnoses, setDiagnoses] = useState<Array<{ category: string; diagnosisText: string; status: 'Provisional' | 'Confirmed'; isCustom: boolean }>>([]);
+  const [diagnosisDraftText, setDiagnosisDraftText] = useState('');
+  const [diagnosisDraftCategory, setDiagnosisDraftCategory] = useState('');
+  const [diagnosisDraftStatus, setDiagnosisDraftStatus] = useState<'Provisional' | 'Confirmed'>('Provisional');
+
+  // Clinical Notes - structured optional sub-sections instead of one free-text box
+  const [presentingComplaint, setPresentingComplaint] = useState('');
+  const [historyPresentIllness, setHistoryPresentIllness] = useState('');
+  const [relevantMedicalHistory, setRelevantMedicalHistory] = useState('');
+  const [examinationFindings, setExaminationFindings] = useState('');
+  const [allergiesNotes, setAllergiesNotes] = useState('');
+  const [currentMedicinesNotes, setCurrentMedicinesNotes] = useState('');
+
   const [clinicalAdvice, setClinicalAdvice] = useState('');
+  const [adviceCategories, setAdviceCategories] = useState<string[]>([]);
   const [treatmentPlan, setTreatmentPlan] = useState('');
+  const [treatmentCategories, setTreatmentCategories] = useState<string[]>([]);
   const [followUpDate, setFollowUpDate] = useState('');
   const [followUpInstructions, setFollowUpInstructions] = useState('');
+
+  // Category tags available per section - fixed defaults, extended with anything an authorised user adds later
+  const [templateCategories, setTemplateCategories] = useState<Record<string, string[]>>({
+    diagnosis: ['General Medicine', 'Respiratory', 'Cardiovascular', 'Gastrointestinal', 'Endocrine/Diabetes', 'Neurological', 'Musculoskeletal', 'Dermatology', 'ENT', 'Urinary/Renal', 'Other'],
+    advice: ['Diet', 'Hydration', 'Activity/Rest', 'Medicine Instructions', 'Monitoring', 'Follow-up', 'Return Precautions'],
+    treatment: ['Medicines', 'Investigations', 'Non-drug Management', 'Physiotherapy', 'Monitoring', 'Follow-up', 'Referral'],
+    summary: ['Main Complaint', 'Relevant History', 'Examination', 'Investigations', 'Treatment Given', 'Response to Treatment'],
+    referral_reason: ['Specialist Assessment', 'Further Investigations', 'Procedure/Surgical Assessment', 'Persistent Symptoms', 'Treatment Review', 'Urgent Assessment']
+  });
 
   // Medicines
   const [items, setItems] = useState<PrescriptionItem[]>([emptyItem()]);
@@ -212,6 +236,23 @@ export const PrescriptionsView: React.FC = () => {
       if (provRes.ok) setProviders((await provRes.json()).providers);
     } catch (err) {
       console.error('Error fetching metadata:', err);
+    }
+
+    // Live category tags per section - extends the built-in defaults with anything an authorised
+    // user has added since, without ever losing the fixed starting list if a fetch fails.
+    try {
+      const sections = ['diagnosis', 'advice', 'treatment', 'summary', 'referral_reason'];
+      const results = await Promise.all(sections.map(s => fetch(`/api/prescriptions/templates?section=${s}`, { headers: { Authorization: `Bearer ${token}` } })));
+      const next: Record<string, string[]> = {};
+      for (let i = 0; i < sections.length; i++) {
+        if (!results[i].ok) continue;
+        const data = await results[i].json();
+        const categories = Array.from(new Set((data.templates || []).map((t: any) => t.category)));
+        if (categories.length) next[sections[i]] = categories as string[];
+      }
+      if (Object.keys(next).length) setTemplateCategories(current => ({ ...current, ...next }));
+    } catch (err) {
+      console.error('Error fetching template categories:', err);
     }
   };
 
@@ -270,7 +311,10 @@ export const PrescriptionsView: React.FC = () => {
     setAgeYears(''); setAgeMonths('');
     setPulseBpm(''); setBpSystolic(''); setBpDiastolic(''); setSpo2Percent('');
     setRandomSugar(''); setFastingSugar(''); setWeightKg(''); setTemperatureValue(''); setTemperatureUnit('C');
-    setDiagnosis(''); setClinicalNotes(''); setClinicalAdvice(''); setTreatmentPlan('');
+    setDiagnoses([]); setDiagnosisDraftText(''); setDiagnosisDraftCategory(''); setDiagnosisDraftStatus('Provisional');
+    setPresentingComplaint(''); setHistoryPresentIllness(''); setRelevantMedicalHistory('');
+    setExaminationFindings(''); setAllergiesNotes(''); setCurrentMedicinesNotes('');
+    setClinicalAdvice(''); setAdviceCategories([]); setTreatmentPlan(''); setTreatmentCategories([]);
     setFollowUpDate(''); setFollowUpInstructions('');
     setItems([emptyItem()]);
     setInvestigations([]); setInvestigationQuery(''); setInvestigationInstructions('');
@@ -281,6 +325,16 @@ export const PrescriptionsView: React.FC = () => {
     setPrescriberRegistrationNumber(''); setPrescriberAddress(''); setOriginalDocumentReference('');
     setAttachmentFile(null); setShowScheduleFields(false);
   };
+
+  const addDiagnosis = () => {
+    const text = diagnosisDraftText.trim();
+    if (!text) return;
+    const isCustom = diagnosisDraftCategory !== '' && !templateCategories.diagnosis.includes(diagnosisDraftCategory);
+    setDiagnoses([...diagnoses, { category: diagnosisDraftCategory, diagnosisText: text, status: diagnosisDraftStatus, isCustom }]);
+    setDiagnosisDraftText(''); setDiagnosisDraftCategory(''); setDiagnosisDraftStatus('Provisional');
+  };
+
+  const removeDiagnosis = (index: number) => setDiagnoses(diagnoses.filter((_, i) => i !== index));
 
   const handleItemChange = (index: number, field: keyof PrescriptionItem, value: string) => {
     const updated = [...items];
@@ -426,10 +480,18 @@ export const PrescriptionsView: React.FC = () => {
       setWeightKg(p.weight_kg != null ? String(p.weight_kg) : '');
       setTemperatureValue(p.temperature_value != null ? String(p.temperature_value) : '');
       setTemperatureUnit(p.temperature_unit === 'F' ? 'F' : 'C');
-      setDiagnosis(p.diagnosis || '');
-      setClinicalNotes(p.clinical_notes || '');
+      setDiagnoses((data.diagnoses || []).map((d: any) => ({ category: d.category || '', diagnosisText: d.diagnosis_text, status: d.status === 'Confirmed' ? 'Confirmed' : 'Provisional', isCustom: !!d.is_custom })));
+      setDiagnosisDraftText(''); setDiagnosisDraftCategory(''); setDiagnosisDraftStatus('Provisional');
+      setPresentingComplaint(p.presenting_complaint || '');
+      setHistoryPresentIllness(p.history_present_illness || '');
+      setRelevantMedicalHistory(p.relevant_medical_history || '');
+      setExaminationFindings(p.examination_findings || '');
+      setAllergiesNotes(p.allergies_notes || '');
+      setCurrentMedicinesNotes(p.current_medicines_notes || '');
       setClinicalAdvice(p.clinical_advice || '');
+      setAdviceCategories(Array.isArray(p.advice_categories) ? p.advice_categories : []);
       setTreatmentPlan(p.treatment_plan || '');
+      setTreatmentCategories(Array.isArray(p.treatment_categories) ? p.treatment_categories : []);
       setFollowUpDate(p.follow_up_date || '');
       setFollowUpInstructions(p.follow_up_instructions || '');
 
@@ -459,8 +521,10 @@ export const PrescriptionsView: React.FC = () => {
           department: data.referral.department || '',
           specialistName: data.referral.specialist_name || '',
           reason: data.referral.reason || '',
+          reasonCategories: Array.isArray(data.referral.reason_categories) ? data.referral.reason_categories : [],
           priority: ['Routine', 'Urgent', 'Emergency'].includes(data.referral.priority) ? data.referral.priority : 'Routine',
           clinicalSummary: data.referral.clinical_summary || '',
+          summaryCategories: Array.isArray(data.referral.summary_categories) ? data.referral.summary_categories : [],
           reportsAttached: data.referral.reports_attached || ''
         });
       } else {
@@ -491,10 +555,17 @@ export const PrescriptionsView: React.FC = () => {
       visitDate: visitDate || null,
       ageYears: ageYears === '' ? null : ageYears,
       ageMonths: ageMonths === '' ? null : ageMonths,
-      diagnosis: diagnosis.trim(),
-      clinicalNotes: clinicalNotes.trim() || null,
+      diagnoses: diagnoses.map(d => ({ category: d.category || null, diagnosisText: d.diagnosisText, status: d.status, isCustom: d.isCustom })),
+      presentingComplaint: presentingComplaint.trim() || null,
+      historyPresentIllness: historyPresentIllness.trim() || null,
+      relevantMedicalHistory: relevantMedicalHistory.trim() || null,
+      examinationFindings: examinationFindings.trim() || null,
+      allergiesNotes: allergiesNotes.trim() || null,
+      currentMedicinesNotes: currentMedicinesNotes.trim() || null,
       clinicalAdvice: clinicalAdvice.trim() || null,
+      adviceCategories,
       treatmentPlan: treatmentPlan.trim() || null,
+      treatmentCategories,
       followUpDate: followUpDate || null,
       followUpInstructions: followUpInstructions.trim() || null,
       pulseBpm: pulseBpm === '' ? null : pulseBpm,
@@ -537,8 +608,10 @@ export const PrescriptionsView: React.FC = () => {
             department: referral.department,
             specialistName: referral.specialistName,
             reason: referral.reason,
+            reasonCategories: referral.reasonCategories,
             priority: referral.priority,
             clinicalSummary: referral.clinicalSummary,
+            summaryCategories: referral.summaryCategories,
             reportsAttached: referral.reportsAttached
           }
         : null
@@ -907,26 +980,62 @@ export const PrescriptionsView: React.FC = () => {
                 </div>
               </section>
 
-              {/* 3. Clinical Information */}
+              {/* 3a. Diagnosis */}
               <section>
-                <SectionHeading icon={<ClipboardList size={16} />} title="Clinical Information" optional />
+                <SectionHeading icon={<ClipboardList size={16} />} title="Diagnosis" optional />
+                <CategoryChips options={templateCategories.diagnosis} selected={diagnosisDraftCategory ? [diagnosisDraftCategory] : []} onChange={next => setDiagnosisDraftCategory(next.find(c => c !== diagnosisDraftCategory) || '')} />
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                  <input className="input" style={{ flex: '1 1 220px' }} placeholder="e.g. Acute Pharyngitis" value={diagnosisDraftText} onChange={e => setDiagnosisDraftText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addDiagnosis(); } }} />
+                  <select className="select" style={{ width: '140px' }} value={diagnosisDraftStatus} onChange={e => setDiagnosisDraftStatus(e.target.value as 'Provisional' | 'Confirmed')}>
+                    <option value="Provisional">Provisional</option>
+                    <option value="Confirmed">Confirmed</option>
+                  </select>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={addDiagnosis}><Plus size={13} /> Add</button>
+                </div>
+                {diagnoses.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', marginTop: '0.6rem' }}>
+                    {diagnoses.map((dx, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.4rem 0.6rem', fontSize: '0.82rem' }}>
+                        <span>
+                          <strong>{dx.diagnosisText}</strong>
+                          {dx.category && <span style={{ color: 'var(--text-muted)' }}> — {dx.category}</span>}
+                          <span className="badge" style={{ marginLeft: '0.5rem', background: dx.status === 'Confirmed' ? 'var(--success-light)' : 'var(--primary-light)', color: dx.status === 'Confirmed' ? 'var(--success-text)' : 'var(--primary)' }}>{dx.status}</span>
+                        </span>
+                        <X size={14} style={{ cursor: 'pointer', color: 'var(--danger)' }} onClick={() => removeDiagnosis(i)} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {/* 3b. Clinical Notes */}
+              <section>
+                <SectionHeading icon={<ClipboardList size={16} />} title="Clinical Notes" optional />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.9rem' }}>
-                  <div>
-                    <label className="form-label">Diagnosis</label>
-                    <input className="input" placeholder="e.g. Acute Pharyngitis, Type 2 Diabetes..." value={diagnosis} onChange={e => setDiagnosis(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="form-label">Clinical Notes</label>
-                    <input className="input" placeholder="Findings on examination..." value={clinicalNotes} onChange={e => setClinicalNotes(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="form-label">Clinical Advice</label>
-                    <input className="input" placeholder="Advice to patient..." value={clinicalAdvice} onChange={e => setClinicalAdvice(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="form-label">Treatment Plan</label>
-                    <input className="input" placeholder="Overall treatment plan..." value={treatmentPlan} onChange={e => setTreatmentPlan(e.target.value)} />
-                  </div>
+                  <div><label className="form-label">Presenting Complaint</label><input className="input" value={presentingComplaint} onChange={e => setPresentingComplaint(e.target.value)} /></div>
+                  <div><label className="form-label">History of Present Illness</label><input className="input" value={historyPresentIllness} onChange={e => setHistoryPresentIllness(e.target.value)} /></div>
+                  <div><label className="form-label">Relevant Medical History</label><input className="input" value={relevantMedicalHistory} onChange={e => setRelevantMedicalHistory(e.target.value)} /></div>
+                  <div><label className="form-label">Examination Findings</label><input className="input" value={examinationFindings} onChange={e => setExaminationFindings(e.target.value)} /></div>
+                  <div><label className="form-label">Allergies</label><input className="input" value={allergiesNotes} onChange={e => setAllergiesNotes(e.target.value)} /></div>
+                  <div><label className="form-label">Current Medicines</label><input className="input" value={currentMedicinesNotes} onChange={e => setCurrentMedicinesNotes(e.target.value)} /></div>
+                </div>
+              </section>
+
+              {/* 3c. Clinical Advice & Treatment Plan */}
+              <section>
+                <SectionHeading icon={<ClipboardList size={16} />} title="Clinical Advice" optional />
+                <CategoryChips options={templateCategories.advice} selected={adviceCategories} onChange={setAdviceCategories} />
+                <textarea className="input" style={{ marginTop: '0.5rem', minHeight: '60px' }} placeholder="Advice to patient..." value={clinicalAdvice} onChange={e => setClinicalAdvice(e.target.value)} />
+              </section>
+
+              <section>
+                <SectionHeading icon={<ClipboardList size={16} />} title="Treatment Plan" optional />
+                <CategoryChips options={templateCategories.treatment} selected={treatmentCategories} onChange={setTreatmentCategories} />
+                <textarea className="input" style={{ marginTop: '0.5rem', minHeight: '60px' }} placeholder="Overall treatment plan..." value={treatmentPlan} onChange={e => setTreatmentPlan(e.target.value)} />
+              </section>
+
+              <section>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.9rem' }}>
                   <div>
                     <label className="form-label">Follow-up Date</label>
                     <input className="input" type="date" value={followUpDate} onChange={e => setFollowUpDate(e.target.value)} />
@@ -1017,11 +1126,13 @@ export const PrescriptionsView: React.FC = () => {
                   </div>
                   <div style={{ gridColumn: '1 / -1' }}>
                     <label className="form-label">Reason for Referral</label>
-                    <input className="input" value={referral.reason} onChange={e => setReferral({ ...referral, reason: e.target.value })} placeholder="Enter reason for specialist assessment..." />
+                    <CategoryChips options={templateCategories.referral_reason} selected={referral.reasonCategories} onChange={next => setReferral({ ...referral, reasonCategories: next })} />
+                    <input className="input" style={{ marginTop: '0.4rem' }} value={referral.reason} onChange={e => setReferral({ ...referral, reason: e.target.value })} placeholder="Enter reason for specialist assessment..." />
                   </div>
                   <div style={{ gridColumn: '1 / -1' }}>
                     <label className="form-label">Relevant Clinical Summary (optional)</label>
-                    <input className="input" value={referral.clinicalSummary} onChange={e => setReferral({ ...referral, clinicalSummary: e.target.value })} />
+                    <CategoryChips options={templateCategories.summary} selected={referral.summaryCategories} onChange={next => setReferral({ ...referral, summaryCategories: next })} />
+                    <input className="input" style={{ marginTop: '0.4rem' }} value={referral.clinicalSummary} onChange={e => setReferral({ ...referral, clinicalSummary: e.target.value })} />
                   </div>
                   <div style={{ gridColumn: '1 / -1' }}>
                     <label className="form-label">Reports / Attachments to Include (optional)</label>
@@ -1219,14 +1330,72 @@ const VitalInput: React.FC<{ label: string; value: string; onChange: (v: string)
   </div>
 );
 
+// Optional, multi-select category tags with a custom-entry option. Toggling a tag never inserts or
+// generates any clinical text by itself - it only records which categories apply, alongside whatever
+// free text the clinician writes separately.
+const CategoryChips: React.FC<{ options: string[]; selected: string[]; onChange: (next: string[]) => void }> = ({ options, selected, onChange }) => {
+  const [customInput, setCustomInput] = useState('');
+  const toggle = (opt: string) => onChange(selected.includes(opt) ? selected.filter(o => o !== opt) : [...selected, opt]);
+  const addCustom = () => {
+    const v = customInput.trim();
+    if (!v || selected.includes(v)) { setCustomInput(''); return; }
+    onChange([...selected, v]);
+    setCustomInput('');
+  };
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
+      {options.map(opt => (
+        <button
+          key={opt}
+          type="button"
+          onClick={() => toggle(opt)}
+          style={{
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-full)',
+            padding: '0.2rem 0.65rem',
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            background: selected.includes(opt) ? 'var(--primary)' : 'transparent',
+            color: selected.includes(opt) ? '#fff' : 'var(--text-muted)'
+          }}
+        >
+          {opt}
+        </button>
+      ))}
+      {selected.filter(s => !options.includes(s)).map(custom => (
+        <span key={custom} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', border: '1px solid var(--primary-border)', background: 'var(--primary-light)', color: 'var(--primary)', borderRadius: 'var(--radius-full)', padding: '0.2rem 0.5rem', fontSize: '0.75rem', fontWeight: 600 }}>
+          {custom}
+          <X size={11} style={{ cursor: 'pointer' }} onClick={() => toggle(custom)} />
+        </span>
+      ))}
+      <input
+        className="input"
+        value={customInput}
+        onChange={e => setCustomInput(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }}
+        onBlur={addCustom}
+        placeholder="+ Custom..."
+        style={{ width: '110px', height: '26px', fontSize: '0.75rem', padding: '0.1rem 0.4rem' }}
+      />
+    </div>
+  );
+};
+
 // ---- Shared A4 prescription body (used for both the on-screen preview and the print document) ----
 const RxDocumentBody: React.FC<{ data: any; rxRegisterEntries: any[] }> = ({ data, rxRegisterEntries }) => {
   const p = data.prescription;
   const items = data.items || [];
   const investigations = data.investigations || [];
   const referral = data.referral;
+  const diagnoses = data.diagnoses || [];
+  const clinicalNoteFields: Array<[string, string | null]> = [
+    ['Presenting Complaint', p.presenting_complaint], ['History of Present Illness', p.history_present_illness],
+    ['Relevant Medical History', p.relevant_medical_history], ['Examination Findings', p.examination_findings],
+    ['Allergies', p.allergies_notes], ['Current Medicines', p.current_medicines_notes]
+  ];
   const vitalsPresent = [p.pulse_bpm, p.bp_systolic, p.spo2_percent, p.random_sugar_mgdl, p.fasting_sugar_mgdl, p.weight_kg, p.temperature_value].some(v => v != null);
-  const clinicalPresent = p.diagnosis || p.clinical_notes || p.clinical_advice || p.treatment_plan;
+  const clinicalPresent = diagnoses.length > 0 || p.diagnosis || clinicalNoteFields.some(([, v]) => v) || p.clinical_notes || p.clinical_advice || p.treatment_plan;
   const followUpPresent = p.follow_up_date || p.follow_up_instructions;
 
   return (
@@ -1266,8 +1435,18 @@ const RxDocumentBody: React.FC<{ data: any; rxRegisterEntries: any[] }> = ({ dat
 
       {clinicalPresent && (
         <div style={{ marginBottom: '1rem', fontSize: '0.85rem' }}>
-          {p.diagnosis && <div><strong>Diagnosis:</strong> {p.diagnosis}</div>}
-          {p.clinical_notes && <div><strong>Clinical Notes:</strong> {p.clinical_notes}</div>}
+          {diagnoses.length > 0 ? (
+            <div>
+              <strong>Diagnosis:</strong>{' '}
+              {diagnoses.map((d: any, i: number) => (
+                <span key={i}>{i > 0 ? ', ' : ''}{d.diagnosis_text}{d.category ? ` (${d.category})` : ''} [{d.status}]</span>
+              ))}
+            </div>
+          ) : p.diagnosis && <div><strong>Diagnosis:</strong> {p.diagnosis}</div>}
+          {clinicalNoteFields.filter(([, v]) => v).map(([label, v]) => (
+            <div key={label}><strong>{label}:</strong> {v}</div>
+          ))}
+          {!clinicalNoteFields.some(([, v]) => v) && p.clinical_notes && <div><strong>Clinical Notes:</strong> {p.clinical_notes}</div>}
           {p.treatment_plan && <div><strong>Treatment Plan:</strong> {p.treatment_plan}</div>}
         </div>
       )}

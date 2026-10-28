@@ -548,7 +548,15 @@ export function initDatabase() {
       ['temperature_unit', 'TEXT'],
       ['request_key', 'TEXT'],
       ['updated_by', 'INTEGER'],
-      ['updated_at', 'DATETIME']
+      ['updated_at', 'DATETIME'],
+      ['presenting_complaint', 'TEXT'],
+      ['history_present_illness', 'TEXT'],
+      ['relevant_medical_history', 'TEXT'],
+      ['examination_findings', 'TEXT'],
+      ['allergies_notes', 'TEXT'],
+      ['current_medicines_notes', 'TEXT'],
+      ['advice_categories', 'TEXT'],
+      ['treatment_categories', 'TEXT']
     ];
     for (const [colName, colType] of requiredCols) {
       if (!existingCols.has(colName)) {
@@ -661,12 +669,65 @@ export function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (prescription_id) REFERENCES prescriptions(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS prescription_diagnoses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      prescription_id INTEGER NOT NULL,
+      category TEXT,
+      diagnosis_text TEXT NOT NULL,
+      status TEXT DEFAULT 'Provisional',
+      is_custom INTEGER DEFAULT 0,
+      FOREIGN KEY (prescription_id) REFERENCES prescriptions(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS clinical_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      section TEXT NOT NULL,
+      category TEXT NOT NULL,
+      template_text TEXT,
+      is_active INTEGER DEFAULT 1,
+      created_by INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (created_by) REFERENCES users(id)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_clinical_templates_bare_category
+      ON clinical_templates(section, category) WHERE template_text IS NULL;
     INSERT OR IGNORE INTO clinic_providers (name, credentials, designation, hospital, sort_order) VALUES
       ('Dr. Yasir Iqbal', 'MBBS MCPS (RMP)', 'Senior Member YDA, PPWS', 'Mayo Hospital, Lahore', 1),
       ('Dr. Abdul Waris Khan PT', 'DPT HUP (PUNJAB), MPPTA', 'Sports Physio F.F.C (LHR) • CEO PPWS', 'Mayo Hospital, Lahore', 2),
       ('Dr. Abdul Rehman', 'MBBS K.E (RMP)', 'Senior Member YDA, PPWS', 'Ganga Ram Hospital, Lahore', 3),
       ('Chief Abdul Wajid', NULL, 'Chief NMC, NMP', NULL, 4);
+    INSERT OR IGNORE INTO clinical_templates (section, category) VALUES
+      ('clinical_notes', 'Presenting Complaint'), ('clinical_notes', 'History of Present Illness'),
+      ('clinical_notes', 'Relevant Medical History'), ('clinical_notes', 'Examination Findings'),
+      ('clinical_notes', 'Allergies'), ('clinical_notes', 'Current Medicines'),
+      ('diagnosis', 'General Medicine'), ('diagnosis', 'Respiratory'), ('diagnosis', 'Cardiovascular'),
+      ('diagnosis', 'Gastrointestinal'), ('diagnosis', 'Endocrine/Diabetes'), ('diagnosis', 'Neurological'),
+      ('diagnosis', 'Musculoskeletal'), ('diagnosis', 'Dermatology'), ('diagnosis', 'ENT'),
+      ('diagnosis', 'Urinary/Renal'), ('diagnosis', 'Other'),
+      ('advice', 'Diet'), ('advice', 'Hydration'), ('advice', 'Activity/Rest'),
+      ('advice', 'Medicine Instructions'), ('advice', 'Monitoring'), ('advice', 'Follow-up'),
+      ('advice', 'Return Precautions'),
+      ('treatment', 'Medicines'), ('treatment', 'Investigations'), ('treatment', 'Non-drug Management'),
+      ('treatment', 'Physiotherapy'), ('treatment', 'Monitoring'), ('treatment', 'Follow-up'), ('treatment', 'Referral'),
+      ('summary', 'Main Complaint'), ('summary', 'Relevant History'), ('summary', 'Examination'),
+      ('summary', 'Investigations'), ('summary', 'Treatment Given'), ('summary', 'Response to Treatment'),
+      ('referral_reason', 'Specialist Assessment'), ('referral_reason', 'Further Investigations'),
+      ('referral_reason', 'Procedure/Surgical Assessment'), ('referral_reason', 'Persistent Symptoms'),
+      ('referral_reason', 'Treatment Review'), ('referral_reason', 'Urgent Assessment');
   `);
+
+  // Auto-migrate prescription_referrals for the new Reason/Summary category tag columns
+  const referralsInfo = db.pragma('table_info(prescription_referrals)') as Array<{ name: string }>;
+  if (referralsInfo && referralsInfo.length > 0) {
+    for (const col of ['reason_categories', 'summary_categories']) {
+      if (!referralsInfo.some(c => c.name === col)) {
+        try {
+          db.exec(`ALTER TABLE prescription_referrals ADD COLUMN ${col} TEXT;`);
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+  }
 
   // Auto-migrate customers.cnic (patient CNIC, used for duplicate-aware patient search)
   const customersInfo = db.pragma('table_info(customers)') as Array<{ name: string }>;

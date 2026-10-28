@@ -7,6 +7,7 @@ import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requirePermission, AuthenticatedRequest } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
 import { triggerAutoSync } from '../services/gitSyncService.js';
+import { safeJsonParse } from '../utils/json.js';
 
 export const prescriptionRouter = Router();
 
@@ -49,6 +50,49 @@ prescriptionRouter.get('/doctors', authenticateToken, (req: AuthenticatedRequest
 prescriptionRouter.get('/providers', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const providers = db.prepare('SELECT * FROM clinic_providers WHERE is_active = 1 ORDER BY sort_order ASC').all();
   res.json({ providers });
+});
+
+const TEMPLATE_SECTIONS = new Set(['clinical_notes', 'diagnosis', 'advice', 'treatment', 'summary', 'referral_reason']);
+
+// Category tags + any saved reusable snippets for a section (diagnosis/advice/treatment/summary/referral_reason/clinical_notes).
+// Selecting a category here is purely informational on the client - it never inserts text by itself.
+prescriptionRouter.get('/templates', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const section = String(req.query.section || '');
+  if (!TEMPLATE_SECTIONS.has(section)) {
+    res.status(400).json({ error: `section must be one of: ${[...TEMPLATE_SECTIONS].join(', ')}` });
+    return;
+  }
+  const templates = db.prepare('SELECT * FROM clinical_templates WHERE section = ? AND is_active = 1 ORDER BY category ASC, id ASC').all(section);
+  res.json({ templates });
+});
+
+// Authorised template/category management (add a category or a reusable snippet of text within one)
+prescriptionRouter.post('/templates', authenticateToken, requirePermission('manage_settings'), (req: AuthenticatedRequest, res: Response) => {
+  const { section, category, templateText } = req.body;
+  if (!TEMPLATE_SECTIONS.has(section)) {
+    res.status(400).json({ error: `section must be one of: ${[...TEMPLATE_SECTIONS].join(', ')}` });
+    return;
+  }
+  if (!category || !String(category).trim()) {
+    res.status(400).json({ error: 'Category is required' });
+    return;
+  }
+  const result = db.prepare('INSERT INTO clinical_templates (section, category, template_text, created_by) VALUES (?, ?, ?, ?)')
+    .run(section, String(category).trim(), templateText ? String(templateText).trim() : null, req.user?.id);
+  logAudit({ userId: req.user?.id, action: 'CREATE_CLINICAL_TEMPLATE', entity: 'CLINICAL_TEMPLATES', entityId: Number(result.lastInsertRowid), newValues: { section, category, templateText }, ipAddress: req.ip });
+  res.status(201).json({ message: 'Template saved', templateId: result.lastInsertRowid });
+});
+
+prescriptionRouter.delete('/templates/:id', authenticateToken, requirePermission('manage_settings'), (req: AuthenticatedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const existing = db.prepare('SELECT * FROM clinical_templates WHERE id = ?').get(id);
+  if (!existing) {
+    res.status(404).json({ error: 'Template not found' });
+    return;
+  }
+  db.prepare('UPDATE clinical_templates SET is_active = 0 WHERE id = ?').run(id);
+  logAudit({ userId: req.user?.id, action: 'DEACTIVATE_CLINICAL_TEMPLATE', entity: 'CLINICAL_TEMPLATES', entityId: id, oldValues: existing, ipAddress: req.ip });
+  res.json({ message: 'Template removed' });
 });
 
 prescriptionRouter.post('/doctors', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
@@ -143,9 +187,17 @@ prescriptionRouter.get('/:id', authenticateToken, (req: AuthenticatedRequest, re
   `).all(id);
 
   const investigations = db.prepare('SELECT * FROM prescription_investigations WHERE prescription_id = ?').all(id);
-  const referral = db.prepare('SELECT * FROM prescription_referrals WHERE prescription_id = ?').get(id) || null;
+  const diagnoses = db.prepare('SELECT * FROM prescription_diagnoses WHERE prescription_id = ?').all(id);
+  const referralRow = db.prepare('SELECT * FROM prescription_referrals WHERE prescription_id = ?').get(id) as any;
+  const referral = referralRow
+    ? { ...referralRow, reason_categories: safeJsonParse(referralRow.reason_categories, []), summary_categories: safeJsonParse(referralRow.summary_categories, []) }
+    : null;
 
-  res.json({ prescription, items, investigations, referral });
+  const p = prescription as any;
+  p.advice_categories = safeJsonParse(p.advice_categories, []);
+  p.treatment_categories = safeJsonParse(p.treatment_categories, []);
+
+  res.json({ prescription, items, investigations, diagnoses, referral });
 });
 
 // Parses an optional numeric field: '' / null / undefined -> null (never 0), otherwise a validated number.
@@ -167,8 +219,11 @@ function insertItems(prescriptionId: number | bigint, items: any[]) {
   for (const it of items || []) {
     const medicineId = it.medicineId ? Number(it.medicineId) : null;
     const medicineName = (it.medicineName || '').trim() || null;
-    const hasAnyContent = medicineId || medicineName || (it.dosage || '').trim() || (it.strength || '').trim();
-    if (!hasAnyContent) continue; // ignore completely empty rows
+    const strength = (it.strength || '').trim();
+    // A row's identity is its medicine (id/name) or a manually-entered strength - dosage/frequency carry
+    // UI convenience defaults (e.g. "1 Tablet"/"BD") even on an untouched row, so they can't be used to
+    // tell a genuinely empty row from a filled one. No medicine identity at all -> silently skip the row.
+    if (!medicineId && !medicineName && !strength) continue;
 
     if (!medicineId && !medicineName) {
       throw new Error('Each medicine row needs at least a medicine name (catalogue or manual entry)');
@@ -179,7 +234,7 @@ function insertItems(prescriptionId: number | bigint, items: any[]) {
       medicineId,
       medicineName,
       (it.genericName || '').trim() || null,
-      (it.strength || '').trim() || null,
+      strength || null,
       (it.route || '').trim() || null,
       (it.dosage || '').trim() || null,
       (it.frequency || '').trim() || null,
@@ -212,25 +267,43 @@ function upsertReferral(prescriptionId: number | bigint, referral: any) {
 
   const priority = ['Routine', 'Urgent', 'Emergency'].includes(referral.priority) ? referral.priority : 'Routine';
   db.prepare(`
-    INSERT INTO prescription_referrals (prescription_id, hospital_name, department, specialist_name, reason, priority, clinical_summary, reports_attached)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO prescription_referrals (prescription_id, hospital_name, department, specialist_name, reason, reason_categories, priority, clinical_summary, summary_categories, reports_attached)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     prescriptionId,
     (referral.hospitalName || '').trim() || null,
     (referral.department || '').trim() || null,
     (referral.specialistName || '').trim() || null,
     (referral.reason || '').trim() || null,
+    Array.isArray(referral.reasonCategories) && referral.reasonCategories.length ? JSON.stringify(referral.reasonCategories) : null,
     priority,
     (referral.clinicalSummary || '').trim() || null,
+    Array.isArray(referral.summaryCategories) && referral.summaryCategories.length ? JSON.stringify(referral.summaryCategories) : null,
     (referral.reportsAttached || '').trim() || null
   );
+}
+
+function insertDiagnoses(prescriptionId: number | bigint, diagnoses: any[]) {
+  const insertDx = db.prepare(`
+    INSERT INTO prescription_diagnoses (prescription_id, category, diagnosis_text, status, is_custom)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  for (const dx of diagnoses || []) {
+    const text = (dx.diagnosisText || '').trim();
+    if (!text) continue; // ignore completely empty rows
+    const status = dx.status === 'Confirmed' ? 'Confirmed' : 'Provisional';
+    insertDx.run(prescriptionId, (dx.category || '').trim() || null, text, status, dx.isCustom ? 1 : 0);
+  }
 }
 
 // Create prescription
 prescriptionRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const {
     patientId, doctorId, providerId, visitDate, ageYears, ageMonths,
-    diagnosis, notes, clinicalNotes, clinicalAdvice, treatmentPlan,
+    diagnosis, diagnoses, notes,
+    clinicalNotes, presentingComplaint, historyPresentIllness, relevantMedicalHistory,
+    examinationFindings, allergiesNotes, currentMedicinesNotes,
+    clinicalAdvice, adviceCategories, treatmentPlan, treatmentCategories,
     followUpDate, followUpInstructions,
     pulseBpm, bpSystolic, bpDiastolic, spo2Percent, randomSugar, fastingSugar, weightKg, temperatureValue, temperatureUnit,
     items, investigations, referral, requestKey,
@@ -243,6 +316,12 @@ prescriptionRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res:
     res.status(400).json({ error: 'Patient is required' });
     return;
   }
+
+  // The legacy single diagnosis column stays in sync as a joined summary (for list views / older
+  // clients); the structured, multi-diagnosis detail lives in prescription_diagnoses.
+  const diagnosisSummary = Array.isArray(diagnoses) && diagnoses.length
+    ? diagnoses.map((d: any) => (d.diagnosisText || '').trim()).filter(Boolean).join(', ')
+    : (diagnosis || null);
 
   // Idempotency: a repeated click with the same requestKey returns the already-saved record instead of duplicating it.
   if (requestKey) {
@@ -277,7 +356,10 @@ prescriptionRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res:
       const pResult = db.prepare(`
         INSERT INTO prescriptions (
           patient_id, doctor_id, provider_id, visit_date, age_years, age_months,
-          diagnosis, notes, clinical_notes, clinical_advice, treatment_plan,
+          diagnosis, notes, clinical_notes,
+          presenting_complaint, history_present_illness, relevant_medical_history,
+          examination_findings, allergies_notes, current_medicines_notes,
+          clinical_advice, advice_categories, treatment_plan, treatment_categories,
           follow_up_date, follow_up_instructions,
           pulse_bpm, bp_systolic, bp_diastolic, spo2_percent, random_sugar_mgdl, fasting_sugar_mgdl, weight_kg, temperature_value, temperature_unit,
           request_key, created_by,
@@ -285,10 +367,14 @@ prescriptionRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res:
           patient_cnic, patient_mobile, patient_address,
           prescriber_registration_number, prescriber_address, original_document_reference,
           review_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
       `).run(
         patientId, doctorId || null, providerId || null, visitDate || null, vitals.ageYears, vitals.ageMonths,
-        diagnosis || null, notes || null, clinicalNotes || null, clinicalAdvice || null, treatmentPlan || null,
+        diagnosisSummary, notes || null, clinicalNotes || null,
+        presentingComplaint || null, historyPresentIllness || null, relevantMedicalHistory || null,
+        examinationFindings || null, allergiesNotes || null, currentMedicinesNotes || null,
+        clinicalAdvice || null, Array.isArray(adviceCategories) && adviceCategories.length ? JSON.stringify(adviceCategories) : null,
+        treatmentPlan || null, Array.isArray(treatmentCategories) && treatmentCategories.length ? JSON.stringify(treatmentCategories) : null,
         followUpDate || null, followUpInstructions || null,
         vitals.pulseBpm, vitals.bpSystolic, vitals.bpDiastolic, vitals.spo2Percent, vitals.randomSugar, vitals.fastingSugar, vitals.weightKg, vitals.temperatureValue, temperatureUnit || null,
         requestKey || null, req.user?.id,
@@ -301,6 +387,7 @@ prescriptionRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res:
       insertItems(prescriptionId, items);
       insertInvestigations(prescriptionId, investigations);
       upsertReferral(prescriptionId, referral);
+      insertDiagnoses(prescriptionId, diagnoses);
 
       logAudit({
         userId: req.user?.id,
@@ -332,11 +419,18 @@ prescriptionRouter.put('/:id', authenticateToken, (req: AuthenticatedRequest, re
 
   const {
     doctorId, providerId, visitDate, ageYears, ageMonths,
-    diagnosis, notes, clinicalNotes, clinicalAdvice, treatmentPlan,
+    diagnosis, diagnoses, notes,
+    clinicalNotes, presentingComplaint, historyPresentIllness, relevantMedicalHistory,
+    examinationFindings, allergiesNotes, currentMedicinesNotes,
+    clinicalAdvice, adviceCategories, treatmentPlan, treatmentCategories,
     followUpDate, followUpInstructions,
     pulseBpm, bpSystolic, bpDiastolic, spo2Percent, randomSugar, fastingSugar, weightKg, temperatureValue, temperatureUnit,
     items, investigations, referral
   } = req.body;
+
+  const diagnosisSummary = Array.isArray(diagnoses) && diagnoses.length
+    ? diagnoses.map((d: any) => (d.diagnosisText || '').trim()).filter(Boolean).join(', ')
+    : (diagnosis || null);
 
   try {
     let vitals: Record<string, number | null>;
@@ -362,14 +456,21 @@ prescriptionRouter.put('/:id', authenticateToken, (req: AuthenticatedRequest, re
       db.prepare(`
         UPDATE prescriptions SET
           doctor_id = ?, provider_id = ?, visit_date = ?, age_years = ?, age_months = ?,
-          diagnosis = ?, notes = ?, clinical_notes = ?, clinical_advice = ?, treatment_plan = ?,
+          diagnosis = ?, notes = ?, clinical_notes = ?,
+          presenting_complaint = ?, history_present_illness = ?, relevant_medical_history = ?,
+          examination_findings = ?, allergies_notes = ?, current_medicines_notes = ?,
+          clinical_advice = ?, advice_categories = ?, treatment_plan = ?, treatment_categories = ?,
           follow_up_date = ?, follow_up_instructions = ?,
           pulse_bpm = ?, bp_systolic = ?, bp_diastolic = ?, spo2_percent = ?, random_sugar_mgdl = ?, fasting_sugar_mgdl = ?, weight_kg = ?, temperature_value = ?, temperature_unit = ?,
           updated_by = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(
         doctorId || null, providerId || null, visitDate || null, vitals.ageYears, vitals.ageMonths,
-        diagnosis || null, notes || null, clinicalNotes || null, clinicalAdvice || null, treatmentPlan || null,
+        diagnosisSummary, notes || null, clinicalNotes || null,
+        presentingComplaint || null, historyPresentIllness || null, relevantMedicalHistory || null,
+        examinationFindings || null, allergiesNotes || null, currentMedicinesNotes || null,
+        clinicalAdvice || null, Array.isArray(adviceCategories) && adviceCategories.length ? JSON.stringify(adviceCategories) : null,
+        treatmentPlan || null, Array.isArray(treatmentCategories) && treatmentCategories.length ? JSON.stringify(treatmentCategories) : null,
         followUpDate || null, followUpInstructions || null,
         vitals.pulseBpm, vitals.bpSystolic, vitals.bpDiastolic, vitals.spo2Percent, vitals.randomSugar, vitals.fastingSugar, vitals.weightKg, vitals.temperatureValue, temperatureUnit || null,
         req.user?.id, id
@@ -378,10 +479,12 @@ prescriptionRouter.put('/:id', authenticateToken, (req: AuthenticatedRequest, re
       db.prepare('DELETE FROM prescription_items WHERE prescription_id = ?').run(id);
       db.prepare('DELETE FROM prescription_investigations WHERE prescription_id = ?').run(id);
       db.prepare('DELETE FROM prescription_referrals WHERE prescription_id = ?').run(id);
+      db.prepare('DELETE FROM prescription_diagnoses WHERE prescription_id = ?').run(id);
 
       insertItems(id, items);
       insertInvestigations(id, investigations);
       upsertReferral(id, referral);
+      insertDiagnoses(id, diagnoses);
 
       logAudit({
         userId: req.user?.id,
