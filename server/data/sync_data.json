@@ -1,28 +1,28 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-28T14:23:44.029Z",
+  "exportedAt": "2026-10-28T14:24:03.787Z",
   "counts": {
     "categories": 46,
     "manufacturers": 153,
-    "generics": 330,
-    "suppliers": 74,
-    "medicines": 1750,
+    "generics": 331,
+    "suppliers": 75,
+    "medicines": 1751,
     "drug_clinical_info": 7,
-    "batches": 1486,
+    "batches": 1489,
     "packing_references": 0,
-    "customers": 9,
-    "doctors": 4,
+    "customers": 10,
+    "doctors": 5,
     "billing_persons": 0,
-    "purchases": 3,
-    "purchase_items": 3,
-    "sales": 26,
-    "sale_items": 30,
+    "purchases": 4,
+    "purchase_items": 4,
+    "sales": 28,
+    "sale_items": 32,
     "prescriptions": 4,
     "prescription_items": 8,
     "sales_returns": 0,
     "sale_return_items": 0,
     "replacement_items": 0,
-    "drug_classifications": 221,
+    "drug_classifications": 222,
     "medicine_ingredients": 0,
     "medicine_classification_links": 0,
     "schedule_bd_register_entries": 16,
@@ -3712,6 +3712,12 @@
       "name": "TestOpioidGeneric-1793190962844",
       "therapeutic_class": "Test",
       "description": null
+    },
+    {
+      "id": 214367,
+      "name": "TestOpioidGeneric-1793197427087",
+      "therapeutic_class": "Test",
+      "description": null
     }
   ],
   "suppliers": [
@@ -3724,7 +3730,7 @@
       "address": "Circular Road, Lahore",
       "tax_number": null,
       "opening_balance": 0,
-      "current_balance": 50900,
+      "current_balance": 51900,
       "is_active": 1,
       "created_at": "2026-09-07 12:00:22"
     },
@@ -4676,6 +4682,19 @@
       "current_balance": 5000,
       "is_active": 1,
       "created_at": "2026-10-28 12:36:09"
+    },
+    {
+      "id": 2213,
+      "name": "Prime Healthcare Distributors 1793197431741",
+      "contact_person": "Khurram Shehzad",
+      "phone": "0300-9876543",
+      "email": null,
+      "address": null,
+      "tax_number": null,
+      "opening_balance": 5000,
+      "current_balance": 5000,
+      "is_active": 1,
+      "created_at": "2026-10-28 14:23:51"
     }
   ],
   "medicines": [
@@ -4813,7 +4832,7 @@
       "is_active": 1,
       "notes": "Pharmacy Medicines List PDF Item",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-28 12:36:05",
+      "updated_at": "2026-10-28 14:23:49",
       "route": null,
       "sync_generic_name": "Metformin HCl ER",
       "sync_category_name": "Tablets",
@@ -53678,6 +53697,34 @@
       "sync_generic_name": "TestOpioidGeneric-1793190962844",
       "sync_category_name": null,
       "sync_manufacturer_name": null
+    },
+    {
+      "id": 201258,
+      "brand_name": "TestScheduleBMed-1793197427094",
+      "generic_id": 214367,
+      "category_id": null,
+      "manufacturer_id": null,
+      "strength": "10mg",
+      "dosage_form": "Tablet",
+      "therapeutic_class": null,
+      "stock_unit": null,
+      "tablets_per_pack": 10,
+      "packaging_type": "MULTI_TIER",
+      "pack_size": 1,
+      "barcode": null,
+      "custom_barcode": "NMP-612670",
+      "rack_location": null,
+      "min_stock_level": 10,
+      "reorder_level": 20,
+      "is_prescription_required": 1,
+      "is_active": 1,
+      "notes": null,
+      "created_at": "2026-10-28 14:23:47",
+      "updated_at": "2026-10-28 14:23:47",
+      "route": null,
+      "sync_generic_name": "TestOpioidGeneric-1793197427087",
+      "sync_category_name": null,
+      "sync_manufacturer_name": null
     }
   ],
   "drug_clinical_info": [
@@ -53890,7 +53937,7 @@
       "created_at": "2026-10-05 13:18:01"
     },
     {
-      "id": 2844,
+      "id": 2889,
       "generic_id": 1,
       "atc_code": "M01AE02",
       "rx_status": "Rx/OTC",
@@ -53939,10 +53986,10 @@
       "clinical_source": "USP-NF / DailyMed / BNF 86 Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 14:23:43"
+      "created_at": "2026-10-28 14:24:03"
     },
     {
-      "id": 2845,
+      "id": 2890,
       "generic_id": 2,
       "atc_code": "M01AE16",
       "rx_status": "Rx",
@@ -53991,10 +54038,10 @@
       "clinical_source": "DRAP / BNF 86 / MHRA Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 14:23:43"
+      "created_at": "2026-10-28 14:24:03"
     },
     {
-      "id": 2846,
+      "id": 2891,
       "generic_id": 3,
       "atc_code": "N02BE01",
       "rx_status": "OTC",
@@ -54043,7 +54090,7 @@
       "clinical_source": "USP-NF / DailyMed / BNF 86 Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 14:23:43"
+      "created_at": "2026-10-28 14:24:03"
     }
   ],
   "batches": [
@@ -54077,7 +54124,7 @@
       "rack_location": "Rack D-1",
       "status": "ACTIVE",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-28 14:23:44"
+      "updated_at": "2026-10-28 14:24:03"
     },
     {
       "id": 2,
@@ -54141,7 +54188,7 @@
       "rack_location": "Rack D-1",
       "status": "EXPIRED",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-28 12:36:05"
+      "updated_at": "2026-10-28 14:23:49"
     },
     {
       "id": 6,
@@ -68039,13 +68086,13 @@
       "expiry_date": "2028-10-02",
       "purchase_price": 3,
       "sale_price": 4.5,
-      "quantity": 480,
+      "quantity": 475,
       "bonus_quantity": 0,
       "supplier_id": null,
       "rack_location": "Rack -OTC",
       "status": "ACTIVE",
       "created_at": "2026-10-02 16:25:09",
-      "updated_at": "2026-10-28 12:35:59"
+      "updated_at": "2026-10-28 14:23:44"
     },
     {
       "id": 1363,
@@ -77822,6 +77869,54 @@
       "status": "ACTIVE",
       "created_at": "2026-10-28 14:23:42",
       "updated_at": "2026-10-28 14:23:42"
+    },
+    {
+      "id": 1977,
+      "medicine_id": 201258,
+      "batch_number": "SBD-A-1793197427152",
+      "mfg_date": "2025-01-01",
+      "expiry_date": "2030-01-01",
+      "purchase_price": 10,
+      "sale_price": 20,
+      "quantity": 5,
+      "bonus_quantity": 0,
+      "supplier_id": null,
+      "rack_location": null,
+      "status": "ACTIVE",
+      "created_at": "2026-10-28 14:23:47",
+      "updated_at": "2026-10-28 14:23:47"
+    },
+    {
+      "id": 1978,
+      "medicine_id": 201258,
+      "batch_number": "SBD-B-1793197427152",
+      "mfg_date": "2025-01-01",
+      "expiry_date": "2030-06-01",
+      "purchase_price": 10,
+      "sale_price": 20,
+      "quantity": 10,
+      "bonus_quantity": 0,
+      "supplier_id": null,
+      "rack_location": null,
+      "status": "ACTIVE",
+      "created_at": "2026-10-28 14:23:47",
+      "updated_at": "2026-10-28 14:23:47"
+    },
+    {
+      "id": 1979,
+      "medicine_id": 1,
+      "batch_number": "PAN-PUR-2346",
+      "mfg_date": "2026-01-01",
+      "expiry_date": "2028-06-30",
+      "purchase_price": 2.5,
+      "sale_price": 3.5,
+      "quantity": 550,
+      "bonus_quantity": 50,
+      "supplier_id": 1,
+      "rack_location": null,
+      "status": "ACTIVE",
+      "created_at": "2026-10-28 14:23:51",
+      "updated_at": "2026-10-28 14:23:51"
     }
   ],
   "packing_references": [],
@@ -77942,6 +78037,19 @@
       "is_active": 1,
       "created_at": "2026-10-28 12:36:11",
       "cnic": null
+    },
+    {
+      "id": 15,
+      "name": "Rashid Mahmood",
+      "mobile": "03217809896",
+      "age": 55,
+      "gender": "MALE",
+      "allergy_notes": null,
+      "credit_limit": 15000,
+      "current_balance": 0,
+      "is_active": 1,
+      "created_at": "2026-10-28 14:23:54",
+      "cnic": null
     }
   ],
   "doctors": [
@@ -77984,6 +78092,16 @@
       "email": null,
       "is_active": 1,
       "created_at": "2026-10-28 12:36:11"
+    },
+    {
+      "id": 5,
+      "name": "Prof. Dr. Tariq Asim",
+      "specialization": "Consultant Physician & Cardiologist",
+      "clinic_name": "Civil Hospital Complex",
+      "phone": "0300-5556677",
+      "email": null,
+      "is_active": 1,
+      "created_at": "2026-10-28 14:23:54"
     }
   ],
   "billing_persons": [],
@@ -78038,6 +78156,23 @@
       "created_by": 1,
       "notes": null,
       "created_at": "2026-10-28 12:36:09"
+    },
+    {
+      "id": 4,
+      "invoice_number": "PINV-811554",
+      "supplier_id": 1,
+      "purchase_date": "2026-09-07",
+      "subtotal": 1500,
+      "discount": 0,
+      "tax": 0,
+      "total_amount": 1500,
+      "paid_amount": 500,
+      "remaining_amount": 1000,
+      "payment_status": "PARTIAL",
+      "payment_method": "CASH",
+      "created_by": 1,
+      "notes": null,
+      "created_at": "2026-10-28 14:23:51"
     }
   ],
   "purchase_items": [
@@ -78077,6 +78212,21 @@
       "medicine_id": 1,
       "batch_id": 1975,
       "batch_number": "PAN-PUR-1206",
+      "expiry_date": "2028-06-30",
+      "mfg_date": "2026-01-01",
+      "purchase_price": 2.5,
+      "sale_price": 3.5,
+      "quantity": 500,
+      "bonus_quantity": 50,
+      "line_discount": 0,
+      "line_total": 1250
+    },
+    {
+      "id": 4,
+      "purchase_id": 4,
+      "medicine_id": 1,
+      "batch_id": 1979,
+      "batch_number": "PAN-PUR-2346",
       "expiry_date": "2028-06-30",
       "mfg_date": "2026-01-01",
       "purchase_price": 2.5,
@@ -78737,6 +78887,56 @@
       "created_at": "2026-10-28 14:23:44",
       "request_key": null,
       "offline_id": null
+    },
+    {
+      "id": 27,
+      "invoice_number": "INV-20261028-0027",
+      "customer_id": 1,
+      "cashier_id": 3,
+      "billing_person_id": null,
+      "custom_slip_name": null,
+      "subtotal": 17.5,
+      "discount": 0,
+      "tax": 0,
+      "percentage_charge_label": "",
+      "percentage_charge_rate": 0,
+      "percentage_charge_amount": 0,
+      "fixed_charge_amount": 0,
+      "total_amount": 17.5,
+      "paid_amount": 0,
+      "remaining_amount": 17.5,
+      "change_amount": 0,
+      "payment_method": "CREDIT",
+      "status": "COMPLETED",
+      "notes": null,
+      "created_at": "2026-10-28 14:23:44",
+      "request_key": null,
+      "offline_id": null
+    },
+    {
+      "id": 28,
+      "invoice_number": "INV-20261028-0028",
+      "customer_id": null,
+      "cashier_id": 3,
+      "billing_person_id": null,
+      "custom_slip_name": null,
+      "subtotal": 35,
+      "discount": 0,
+      "tax": 0,
+      "percentage_charge_label": "",
+      "percentage_charge_rate": 0,
+      "percentage_charge_amount": 0,
+      "fixed_charge_amount": 0,
+      "total_amount": 35,
+      "paid_amount": 50,
+      "remaining_amount": 0,
+      "change_amount": 15,
+      "payment_method": "CASH",
+      "status": "COMPLETED",
+      "notes": null,
+      "created_at": "2026-10-28 14:24:03",
+      "request_key": null,
+      "offline_id": null
     }
   ],
   "sale_items": [
@@ -79236,6 +79436,40 @@
     {
       "id": 30,
       "sale_id": 26,
+      "medicine_id": 1,
+      "batch_id": 1,
+      "quantity": 10,
+      "unit_price": 3.5,
+      "discount": 0,
+      "line_total": 35,
+      "purchase_price_snapshot": 2.5,
+      "description_snapshot": "Panadol 500mg",
+      "category_snapshot": null,
+      "pack_type_snapshot": null,
+      "units_per_pack_snapshot": null,
+      "packs_snapshot": null,
+      "loose_units_snapshot": null
+    },
+    {
+      "id": 31,
+      "sale_id": 27,
+      "medicine_id": 200605,
+      "batch_id": 1362,
+      "quantity": 5,
+      "unit_price": 3.5,
+      "discount": 0,
+      "line_total": 17.5,
+      "purchase_price_snapshot": 3,
+      "description_snapshot": "PANADOL 30 mL",
+      "category_snapshot": null,
+      "pack_type_snapshot": null,
+      "units_per_pack_snapshot": null,
+      "packs_snapshot": null,
+      "loose_units_snapshot": null
+    },
+    {
+      "id": 32,
+      "sale_id": 28,
       "medicine_id": 1,
       "batch_id": 1,
       "quantity": 10,
@@ -85368,6 +85602,32 @@
       "suspected_error_note": null,
       "created_by": 1,
       "created_at": "2026-10-28 12:36:02"
+    },
+    {
+      "id": 227,
+      "version": 1,
+      "superseded_by_id": null,
+      "is_current": 1,
+      "entry_type": "SUBSTANCE",
+      "substance_name": "TestOpioidGeneric",
+      "group_description": null,
+      "generic_id": 214367,
+      "strength": null,
+      "dosage_form": null,
+      "route": null,
+      "schedule": "B",
+      "salts_derivatives_note": null,
+      "restrictions_exemptions": null,
+      "jurisdiction": "Punjab, Pakistan",
+      "source_reference": null,
+      "effective_date": null,
+      "verification_status": "VERIFIED",
+      "verified_by": 1,
+      "verified_at": "2026-10-28 14:23:47",
+      "suspected_error_flag": 0,
+      "suspected_error_note": null,
+      "created_by": 1,
+      "created_at": "2026-10-28 14:23:47"
     }
   ],
   "medicine_ingredients": [],
