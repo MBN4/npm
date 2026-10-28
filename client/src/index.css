@@ -734,7 +734,11 @@ tr:hover td {
   .printable-register-list,
   .printable-register-list *,
   .printable-register-detail,
-  .printable-register-detail * {
+  .printable-register-detail *,
+  .printable-rx-a4,
+  .printable-rx-a4 *,
+  .printable-referral-a4,
+  .printable-referral-a4 * {
     visibility: visible;
   }
 
@@ -801,6 +805,66 @@ tr:hover td {
     padding: 6mm;
     background: #ffffff !important;
     color: #000000 !important;
+  }
+
+  /* A4 Clinic Prescription / Referral Letter: 210mm x 297mm, ~12mm margins, continues across pages as needed */
+  @page {
+    size: A4 portrait;
+  }
+
+  .printable-rx-a4,
+  .printable-referral-a4 {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 210mm; /* true A4 page width, independent of the app's sidebar layout or browser viewport */
+    margin: 0;
+    padding: 12mm; /* 210mm page - 12mm margins each side */
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11.5pt;
+    line-height: 1.4;
+    box-sizing: border-box;
+  }
+
+  .printable-rx-a4 table thead,
+  .printable-referral-a4 table thead {
+    display: table-header-group; /* repeats medicine-table headings on continuation pages */
+  }
+
+  .printable-rx-a4 tr,
+  .printable-referral-a4 tr {
+    page-break-inside: avoid;
+  }
+
+  .printable-rx-a4 img,
+  .printable-referral-a4 img {
+    filter: grayscale(100%);
+  }
+
+  .rx-a4-footer {
+    margin-top: 1.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #000;
+    font-size: 9pt;
+    text-align: center;
+    color: #333;
+  }
+
+  .rx-a4-watermark {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 120mm;
+    opacity: 0.06;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .rx-a4-content {
+    position: relative;
+    z-index: 1;
   }
 }
 
