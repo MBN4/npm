@@ -354,32 +354,100 @@ CREATE TABLE IF NOT EXISTS doctors (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Fixed clinic provider directory (Dr. Yasir Iqbal, Dr. Abdul Waris Khan PT, Dr. Abdul Rehman, Chief Abdul Wajid).
+-- Seeded below with INSERT OR IGNORE; editable later without a code change if the clinic adds/retires a provider.
+CREATE TABLE IF NOT EXISTS clinic_providers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  credentials TEXT, -- e.g. "MBBS MCPS (RMP)"
+  designation TEXT, -- e.g. "Senior Member YDA, PPWS"
+  hospital TEXT,
+  sort_order INTEGER DEFAULT 0,
+  is_active INTEGER DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS prescriptions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   patient_id INTEGER NOT NULL,
   doctor_id INTEGER,
+  provider_id INTEGER,
+  visit_date TEXT, -- editable prescription date (YYYY-MM-DD), defaults to today client-side
+  age_years INTEGER,
+  age_months INTEGER,
   diagnosis TEXT,
   image_path TEXT,
   notes TEXT,
+  clinical_notes TEXT,
+  clinical_advice TEXT,
+  treatment_plan TEXT,
+  follow_up_date TEXT,
+  follow_up_instructions TEXT,
+  pulse_bpm INTEGER,
+  bp_systolic INTEGER,
+  bp_diastolic INTEGER,
+  spo2_percent REAL,
+  random_sugar_mgdl REAL,
+  fasting_sugar_mgdl REAL,
+  weight_kg REAL,
+  temperature_value REAL,
+  temperature_unit TEXT, -- 'C' or 'F'
+  request_key TEXT, -- idempotency key: prevents duplicate records from repeated submit clicks
   created_by INTEGER,
+  updated_by INTEGER,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME,
   FOREIGN KEY (patient_id) REFERENCES customers(id) ON DELETE CASCADE,
   FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE SET NULL,
+  FOREIGN KEY (provider_id) REFERENCES clinic_providers(id) ON DELETE SET NULL,
   FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS prescription_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   prescription_id INTEGER NOT NULL,
-  medicine_id INTEGER NOT NULL,
-  dosage TEXT NOT NULL, -- e.g. 1 Tablet, 5ml
-  frequency TEXT NOT NULL, -- OD, BD, TDS, QID, SOS
+  medicine_id INTEGER, -- null when manually typed (no catalogue match)
+  medicine_name TEXT, -- free-text name, used when medicine_id is null
+  strength TEXT, -- free-text strength override for manual entries
+  route TEXT, -- e.g. Oral, Topical, IV, IM
+  dosage TEXT, -- e.g. 1 Tablet, 5ml
+  frequency TEXT, -- OD, BD, TDS, QID, SOS
   duration TEXT, -- e.g. 5 days, 1 month
   timing TEXT, -- Before Food, After Food, With Meals
   instructions TEXT,
   FOREIGN KEY (prescription_id) REFERENCES prescriptions(id) ON DELETE CASCADE,
   FOREIGN KEY (medicine_id) REFERENCES medicines(id)
 );
+
+-- Investigations / Lab Tests Advised: free selection + custom entries, independent of the medicines list.
+CREATE TABLE IF NOT EXISTS prescription_investigations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  prescription_id INTEGER NOT NULL,
+  test_name TEXT NOT NULL,
+  is_custom INTEGER DEFAULT 0,
+  instructions TEXT,
+  FOREIGN KEY (prescription_id) REFERENCES prescriptions(id) ON DELETE CASCADE
+);
+
+-- Referred To: Hospital / Specialist. One referral section per prescription.
+CREATE TABLE IF NOT EXISTS prescription_referrals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  prescription_id INTEGER NOT NULL UNIQUE,
+  hospital_name TEXT,
+  department TEXT,
+  specialist_name TEXT,
+  reason TEXT,
+  priority TEXT DEFAULT 'Routine', -- Routine | Urgent | Emergency
+  clinical_summary TEXT,
+  reports_attached TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (prescription_id) REFERENCES prescriptions(id) ON DELETE CASCADE
+);
+
+INSERT OR IGNORE INTO clinic_providers (name, credentials, designation, hospital, sort_order) VALUES
+  ('Dr. Yasir Iqbal', 'MBBS MCPS (RMP)', 'Senior Member YDA, PPWS', 'Mayo Hospital, Lahore', 1),
+  ('Dr. Abdul Waris Khan PT', 'DPT HUP (PUNJAB), MPPTA', 'Sports Physio F.F.C (LHR) • CEO PPWS', 'Mayo Hospital, Lahore', 2),
+  ('Dr. Abdul Rehman', 'MBBS K.E (RMP)', 'Senior Member YDA, PPWS', 'Ganga Ram Hospital, Lahore', 3),
+  ('Chief Abdul Wajid', NULL, 'Chief NMC, NMP', NULL, 4);
 
 -- 9b. Returns, Refunds & Replacements
 CREATE TABLE IF NOT EXISTS sales_returns (

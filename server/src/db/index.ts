@@ -526,7 +526,29 @@ export function initDatabase() {
       ['attachment_path', 'TEXT'],
       ['attachment_mime', 'TEXT'],
       ['attachment_uploaded_by', 'INTEGER'],
-      ['attachment_uploaded_at', 'DATETIME']
+      ['attachment_uploaded_at', 'DATETIME'],
+      // Clinic/referral module: provider selection, visit-specific age, vitals, clinical fields, follow-up, idempotency
+      ['provider_id', 'INTEGER'],
+      ['visit_date', 'TEXT'],
+      ['age_years', 'INTEGER'],
+      ['age_months', 'INTEGER'],
+      ['clinical_notes', 'TEXT'],
+      ['clinical_advice', 'TEXT'],
+      ['treatment_plan', 'TEXT'],
+      ['follow_up_date', 'TEXT'],
+      ['follow_up_instructions', 'TEXT'],
+      ['pulse_bpm', 'INTEGER'],
+      ['bp_systolic', 'INTEGER'],
+      ['bp_diastolic', 'INTEGER'],
+      ['spo2_percent', 'REAL'],
+      ['random_sugar_mgdl', 'REAL'],
+      ['fasting_sugar_mgdl', 'REAL'],
+      ['weight_kg', 'REAL'],
+      ['temperature_value', 'REAL'],
+      ['temperature_unit', 'TEXT'],
+      ['request_key', 'TEXT'],
+      ['updated_by', 'INTEGER'],
+      ['updated_at', 'DATETIME']
     ];
     for (const [colName, colType] of requiredCols) {
       if (!existingCols.has(colName)) {
@@ -537,16 +559,26 @@ export function initDatabase() {
         }
       }
     }
+    try {
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_prescriptions_request_key ON prescriptions(request_key) WHERE request_key IS NOT NULL;');
+    } catch (e) {
+      // ignore
+    }
   }
 
-  // Auto-migrate prescription_items for authorized/dispensed quantity tracking
-  const prescriptionItemsInfo = db.pragma('table_info(prescription_items)') as Array<{ name: string }>;
+  // Auto-migrate prescription_items for authorized/dispensed quantity tracking, manual (non-catalogue) entries, and route.
+  // medicine_id/dosage/frequency also get rebuilt below to drop their old NOT NULL constraint, since zero-medicine
+  // (investigation/referral-only) prescriptions and partially-filled rows are now allowed.
+  const prescriptionItemsInfo = db.pragma('table_info(prescription_items)') as Array<{ name: string; notnull: number }>;
   if (prescriptionItemsInfo && prescriptionItemsInfo.length > 0) {
     const existingCols = new Set(prescriptionItemsInfo.map(c => c.name));
     const requiredCols: Array<[string, string]> = [
       ['authorized_quantity', 'REAL'],
       ['dispensed_quantity', 'REAL DEFAULT 0'],
-      ['unit', 'TEXT']
+      ['unit', 'TEXT'],
+      ['medicine_name', 'TEXT'],
+      ['strength', 'TEXT'],
+      ['route', 'TEXT']
     ];
     for (const [colName, colType] of requiredCols) {
       if (!existingCols.has(colName)) {
@@ -557,7 +589,82 @@ export function initDatabase() {
         }
       }
     }
+
+    const hasOldNotNull = prescriptionItemsInfo.some(c => ['medicine_id', 'dosage', 'frequency'].includes(c.name) && c.notnull === 1);
+    if (hasOldNotNull) {
+      try {
+        db.exec(`
+          CREATE TABLE prescription_items_rebuild (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prescription_id INTEGER NOT NULL,
+            medicine_id INTEGER,
+            medicine_name TEXT,
+            strength TEXT,
+            route TEXT,
+            dosage TEXT,
+            frequency TEXT,
+            duration TEXT,
+            timing TEXT,
+            instructions TEXT,
+            authorized_quantity REAL,
+            dispensed_quantity REAL DEFAULT 0,
+            unit TEXT,
+            FOREIGN KEY (prescription_id) REFERENCES prescriptions(id) ON DELETE CASCADE,
+            FOREIGN KEY (medicine_id) REFERENCES medicines(id)
+          );
+          INSERT INTO prescription_items_rebuild (
+            id, prescription_id, medicine_id, strength, route, dosage, frequency, duration, timing,
+            instructions, authorized_quantity, dispensed_quantity, unit
+          )
+          SELECT id, prescription_id, medicine_id, strength, route, dosage, frequency, duration, timing,
+            instructions, authorized_quantity, dispensed_quantity, unit
+          FROM prescription_items;
+          DROP TABLE prescription_items;
+          ALTER TABLE prescription_items_rebuild RENAME TO prescription_items;
+        `);
+      } catch (e) {
+        // ignore - leave old schema in place rather than risk partial migration
+      }
+    }
   }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS clinic_providers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      credentials TEXT,
+      designation TEXT,
+      hospital TEXT,
+      sort_order INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS prescription_investigations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      prescription_id INTEGER NOT NULL,
+      test_name TEXT NOT NULL,
+      is_custom INTEGER DEFAULT 0,
+      instructions TEXT,
+      FOREIGN KEY (prescription_id) REFERENCES prescriptions(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS prescription_referrals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      prescription_id INTEGER NOT NULL UNIQUE,
+      hospital_name TEXT,
+      department TEXT,
+      specialist_name TEXT,
+      reason TEXT,
+      priority TEXT DEFAULT 'Routine',
+      clinical_summary TEXT,
+      reports_attached TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (prescription_id) REFERENCES prescriptions(id) ON DELETE CASCADE
+    );
+    INSERT OR IGNORE INTO clinic_providers (name, credentials, designation, hospital, sort_order) VALUES
+      ('Dr. Yasir Iqbal', 'MBBS MCPS (RMP)', 'Senior Member YDA, PPWS', 'Mayo Hospital, Lahore', 1),
+      ('Dr. Abdul Waris Khan PT', 'DPT HUP (PUNJAB), MPPTA', 'Sports Physio F.F.C (LHR) • CEO PPWS', 'Mayo Hospital, Lahore', 2),
+      ('Dr. Abdul Rehman', 'MBBS K.E (RMP)', 'Senior Member YDA, PPWS', 'Ganga Ram Hospital, Lahore', 3),
+      ('Chief Abdul Wajid', NULL, 'Chief NMC, NMP', NULL, 4);
+  `);
 
   // Auto-migrate sales.request_key (closes an existing idempotency gap on checkout/offline-sync retries)
   const salesIdemInfo = db.pragma('table_info(sales)') as Array<{ name: string }>;
