@@ -660,7 +660,7 @@ export const PrescriptionsView: React.FC = () => {
       {showAddModal && (
         <div className="modal-overlay">
           <div className="modal-content" style={{ maxWidth: '1040px', width: '95%' }}>
-            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-card)' }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-surface-elevated)' }}>
               <h3 style={{ fontSize: '1.15rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-main)' }}>
                 <Stethoscope size={22} style={{ color: 'var(--primary)' }} />
                 <span>{editingPrescriptionId ? 'Edit Prescription (Rx)' : 'Write Medical Prescription (Rx)'}</span>
@@ -749,7 +749,7 @@ export const PrescriptionsView: React.FC = () => {
                 })()}
 
                 {showNewPatient && (
-                  <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--bg-card)', marginTop: '0.75rem' }}>
+                  <div style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--bg-surface-elevated)', marginTop: '0.75rem' }}>
                     <strong style={{ fontSize: '0.9rem' }}>{editingRxPatientId ? 'Edit selected patient' : 'Register patient for this prescription'}</strong>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', marginTop: '0.75rem' }}>
                       <div><label className="form-label">Name *</label><input className="input" value={newPatient.name} onChange={e => setNewPatient({ ...newPatient, name: e.target.value })} maxLength={150} /></div>
@@ -839,9 +839,9 @@ export const PrescriptionsView: React.FC = () => {
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addInvestigation(investigationQuery, !COMMON_INVESTIGATIONS.includes(investigationQuery.trim())); } }}
                   />
                   {investigationQuery.trim() && matchingInvestigations.length > 0 && (
-                    <div style={{ position: 'absolute', zIndex: 5, top: '100%', left: 0, right: 0, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', maxHeight: '180px', overflowY: 'auto', marginTop: '0.2rem' }}>
+                    <div style={{ position: 'absolute', zIndex: 50, top: '100%', left: 0, right: 0, background: 'var(--bg-surface-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-md)', maxHeight: '180px', overflowY: 'auto', marginTop: '0.2rem' }}>
                       {matchingInvestigations.map(t => (
-                        <div key={t} onClick={() => addInvestigation(t, false)} style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', fontSize: '0.82rem' }}
+                        <div key={t} onClick={() => addInvestigation(t, false)} style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', fontSize: '0.82rem', background: 'var(--bg-surface-elevated)' }}
                           onMouseDown={ev => ev.preventDefault()}>
                           {t}
                         </div>
@@ -942,9 +942,9 @@ export const PrescriptionsView: React.FC = () => {
                           placeholder="Search catalogue or type manually..."
                         />
                         {medicineDropdownOpenIdx === idx && matchingMedicines(it.medicineName).length > 0 && (
-                          <div style={{ position: 'absolute', zIndex: 5, top: '100%', left: 0, right: 0, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', maxHeight: '180px', overflowY: 'auto' }}>
+                          <div style={{ position: 'absolute', zIndex: 50, top: '100%', left: 0, right: 0, background: 'var(--bg-surface-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-md)', maxHeight: '180px', overflowY: 'auto' }}>
                             {matchingMedicines(it.medicineName).map(m => (
-                              <div key={m.id} onMouseDown={() => selectCatalogMedicine(idx, m)} style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', fontSize: '0.82rem' }}>
+                              <div key={m.id} onMouseDown={() => selectCatalogMedicine(idx, m)} style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', fontSize: '0.82rem', background: 'var(--bg-surface-elevated)' }}>
                                 {m.brand_name} {m.strength} <span style={{ color: 'var(--text-muted)' }}>({m.dosage_form || 'Unit'})</span>
                               </div>
                             ))}
@@ -979,7 +979,7 @@ export const PrescriptionsView: React.FC = () => {
                         </select>
                         <div style={{ display: 'flex', gap: '0.2rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                           {QUICK_DURATION_CHIPS.map(chip => (
-                            <button key={chip} type="button" onClick={() => handleItemChange(idx, 'duration', chip)} style={{ border: '1px solid var(--border)', borderRadius: '3px', backgroundColor: it.duration.startsWith(chip.split(' ')[0]) ? 'var(--primary)' : 'var(--bg-card)', color: it.duration.startsWith(chip.split(' ')[0]) ? '#fff' : 'var(--text-muted)', fontSize: '0.65rem', padding: '0.1rem 0.3rem', cursor: 'pointer', fontWeight: 600 }}>
+                            <button key={chip} type="button" onClick={() => handleItemChange(idx, 'duration', chip)} style={{ border: '1px solid var(--border)', borderRadius: '3px', backgroundColor: it.duration.startsWith(chip.split(' ')[0]) ? 'var(--primary)' : 'var(--bg-surface-elevated)', color: it.duration.startsWith(chip.split(' ')[0]) ? '#fff' : 'var(--text-muted)', fontSize: '0.65rem', padding: '0.1rem 0.3rem', cursor: 'pointer', fontWeight: 600 }}>
                               {chip.split(' ')[0]}d
                             </button>
                           ))}
