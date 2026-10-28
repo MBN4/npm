@@ -74,14 +74,11 @@ npm run dev
 
 ---
 
-## 🔐 Default Login Credentials
+## 🔐 Default Accounts
 
-| Role | Username | Password | Access Level |
-| :--- | :--- | :--- | :--- |
-| **Administrator** | `admin` | `admin123` | Full access to all 17 modules & hot backups |
-| **Pharmacist** | `pharmacist` | `pharma123` | POS, Prescriptions, Dictionary, Pharma.AI |
-| **Billing Cashier** | `cashier` | `cash123` | High-speed POS Counter & Customer CRM |
-| **Inventory Store** | `inventory` | `inv123` | Purchases, GRN, Batch adjustments & Expiry |
+Seeding (`npm run seed`) creates four accounts: `admin`, `pharmacist`, `cashier`, and `inventory`.
+Their initial passwords are set in `server/src/db/seed.ts` for local/dev use only — **change every
+one of them immediately on any deployment that is reachable outside your own machine.**
 
 ---
 

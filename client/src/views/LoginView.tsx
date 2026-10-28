@@ -9,8 +9,8 @@ export const LoginView: React.FC = () => {
   const [mode, setMode] = useState<'login' | 'forgot' | 'verify-otp'>('login');
 
   // Login credentials
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
   // Forgot password & OTP state
