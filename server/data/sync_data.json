@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-28T12:36:11.927Z",
+  "exportedAt": "2026-10-28T14:23:44.029Z",
   "counts": {
     "categories": 46,
     "manufacturers": 153,
@@ -8,17 +8,17 @@
     "suppliers": 74,
     "medicines": 1750,
     "drug_clinical_info": 7,
-    "batches": 1485,
+    "batches": 1486,
     "packing_references": 0,
     "customers": 9,
-    "doctors": 3,
+    "doctors": 4,
     "billing_persons": 0,
     "purchases": 3,
     "purchase_items": 3,
-    "sales": 25,
-    "sale_items": 29,
-    "prescriptions": 3,
-    "prescription_items": 6,
+    "sales": 26,
+    "sale_items": 30,
+    "prescriptions": 4,
+    "prescription_items": 8,
     "sales_returns": 0,
     "sale_return_items": 0,
     "replacement_items": 0,
@@ -53890,7 +53890,7 @@
       "created_at": "2026-10-05 13:18:01"
     },
     {
-      "id": 2826,
+      "id": 2844,
       "generic_id": 1,
       "atc_code": "M01AE02",
       "rx_status": "Rx/OTC",
@@ -53939,10 +53939,10 @@
       "clinical_source": "USP-NF / DailyMed / BNF 86 Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 12:36:11"
+      "created_at": "2026-10-28 14:23:43"
     },
     {
-      "id": 2827,
+      "id": 2845,
       "generic_id": 2,
       "atc_code": "M01AE16",
       "rx_status": "Rx",
@@ -53991,10 +53991,10 @@
       "clinical_source": "DRAP / BNF 86 / MHRA Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 12:36:11"
+      "created_at": "2026-10-28 14:23:43"
     },
     {
-      "id": 2828,
+      "id": 2846,
       "generic_id": 3,
       "atc_code": "N02BE01",
       "rx_status": "OTC",
@@ -54043,7 +54043,7 @@
       "clinical_source": "USP-NF / DailyMed / BNF 86 Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 12:36:11"
+      "created_at": "2026-10-28 14:23:43"
     }
   ],
   "batches": [
@@ -54071,13 +54071,13 @@
       "expiry_date": "2026-11-30",
       "purchase_price": 2.5,
       "sale_price": 3.5,
-      "quantity": 300,
+      "quantity": 290,
       "bonus_quantity": 0,
       "supplier_id": 1,
       "rack_location": "Rack D-1",
       "status": "ACTIVE",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-28 12:36:02"
+      "updated_at": "2026-10-28 14:23:44"
     },
     {
       "id": 2,
@@ -77806,6 +77806,22 @@
       "status": "ACTIVE",
       "created_at": "2026-10-28 12:36:09",
       "updated_at": "2026-10-28 12:36:09"
+    },
+    {
+      "id": 1976,
+      "medicine_id": 123,
+      "batch_number": "BN-2026-8323",
+      "mfg_date": null,
+      "expiry_date": "2028-10-27",
+      "purchase_price": 180,
+      "sale_price": 220,
+      "quantity": 10,
+      "bonus_quantity": 0,
+      "supplier_id": null,
+      "rack_location": "Rack A-01",
+      "status": "ACTIVE",
+      "created_at": "2026-10-28 14:23:42",
+      "updated_at": "2026-10-28 14:23:42"
     }
   ],
   "packing_references": [],
@@ -77958,6 +77974,16 @@
       "email": null,
       "is_active": 1,
       "created_at": "2026-10-28 12:35:47"
+    },
+    {
+      "id": 4,
+      "name": "Prof. Dr. Tariq Asim",
+      "specialization": "Consultant Physician & Cardiologist",
+      "clinic_name": "Civil Hospital Complex",
+      "phone": "0300-5556677",
+      "email": null,
+      "is_active": 1,
+      "created_at": "2026-10-28 12:36:11"
     }
   ],
   "billing_persons": [],
@@ -78686,6 +78712,31 @@
       "created_at": "2026-10-28 12:36:03",
       "request_key": "TEST-SBD-SPLIT-1793190963232",
       "offline_id": null
+    },
+    {
+      "id": 26,
+      "invoice_number": "INV-20261028-0026",
+      "customer_id": null,
+      "cashier_id": 3,
+      "billing_person_id": null,
+      "custom_slip_name": null,
+      "subtotal": 35,
+      "discount": 0,
+      "tax": 0,
+      "percentage_charge_label": "",
+      "percentage_charge_rate": 0,
+      "percentage_charge_amount": 0,
+      "fixed_charge_amount": 0,
+      "total_amount": 35,
+      "paid_amount": 50,
+      "remaining_amount": 0,
+      "change_amount": 15,
+      "payment_method": "CASH",
+      "status": "COMPLETED",
+      "notes": null,
+      "created_at": "2026-10-28 14:23:44",
+      "request_key": null,
+      "offline_id": null
     }
   ],
   "sale_items": [
@@ -79181,6 +79232,23 @@
       "units_per_pack_snapshot": null,
       "packs_snapshot": null,
       "loose_units_snapshot": null
+    },
+    {
+      "id": 30,
+      "sale_id": 26,
+      "medicine_id": 1,
+      "batch_id": 1,
+      "quantity": 10,
+      "unit_price": 3.5,
+      "discount": 0,
+      "line_total": 35,
+      "purchase_price_snapshot": 2.5,
+      "description_snapshot": "Panadol 500mg",
+      "category_snapshot": null,
+      "pack_type_snapshot": null,
+      "units_per_pack_snapshot": null,
+      "packs_snapshot": null,
+      "loose_units_snapshot": null
     }
   ],
   "prescriptions": [
@@ -79231,7 +79299,15 @@
       "attachment_path": null,
       "attachment_mime": null,
       "attachment_uploaded_by": null,
-      "attachment_uploaded_at": null
+      "attachment_uploaded_at": null,
+      "presenting_complaint": null,
+      "history_present_illness": null,
+      "relevant_medical_history": null,
+      "examination_findings": null,
+      "allergies_notes": null,
+      "current_medicines_notes": null,
+      "advice_categories": null,
+      "treatment_categories": null
     },
     {
       "id": 4,
@@ -79280,7 +79356,15 @@
       "attachment_path": null,
       "attachment_mime": null,
       "attachment_uploaded_by": null,
-      "attachment_uploaded_at": null
+      "attachment_uploaded_at": null,
+      "presenting_complaint": null,
+      "history_present_illness": null,
+      "relevant_medical_history": null,
+      "examination_findings": null,
+      "allergies_notes": null,
+      "current_medicines_notes": null,
+      "advice_categories": null,
+      "treatment_categories": null
     },
     {
       "id": 6,
@@ -79329,7 +79413,72 @@
       "attachment_path": null,
       "attachment_mime": null,
       "attachment_uploaded_by": null,
-      "attachment_uploaded_at": null
+      "attachment_uploaded_at": null,
+      "presenting_complaint": null,
+      "history_present_illness": null,
+      "relevant_medical_history": null,
+      "examination_findings": null,
+      "allergies_notes": null,
+      "current_medicines_notes": null,
+      "advice_categories": null,
+      "treatment_categories": null
+    },
+    {
+      "id": 8,
+      "patient_id": 1,
+      "doctor_id": 4,
+      "provider_id": null,
+      "visit_date": null,
+      "age_years": null,
+      "age_months": null,
+      "diagnosis": "Essential Hypertension Grade 1",
+      "image_path": null,
+      "notes": "Advised low sodium diet and regular BP monitoring",
+      "clinical_notes": null,
+      "clinical_advice": null,
+      "treatment_plan": null,
+      "follow_up_date": null,
+      "follow_up_instructions": null,
+      "pulse_bpm": null,
+      "bp_systolic": null,
+      "bp_diastolic": null,
+      "spo2_percent": null,
+      "random_sugar_mgdl": null,
+      "fasting_sugar_mgdl": null,
+      "weight_kg": null,
+      "temperature_value": null,
+      "temperature_unit": null,
+      "request_key": null,
+      "created_by": 1,
+      "updated_by": null,
+      "created_at": "2026-10-28 12:36:11",
+      "updated_at": null,
+      "purchaser_name": null,
+      "purchaser_relation": null,
+      "purchaser_cnic": null,
+      "purchaser_mobile": null,
+      "patient_cnic": null,
+      "patient_mobile": null,
+      "patient_address": null,
+      "prescriber_registration_number": null,
+      "prescriber_address": null,
+      "original_document_reference": null,
+      "review_status": "PENDING",
+      "review_comments": null,
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "attachment_path": null,
+      "attachment_mime": null,
+      "attachment_uploaded_by": null,
+      "attachment_uploaded_at": null,
+      "presenting_complaint": null,
+      "history_present_illness": null,
+      "relevant_medical_history": null,
+      "examination_findings": null,
+      "allergies_notes": null,
+      "current_medicines_notes": null,
+      "advice_categories": null,
+      "treatment_categories": null
     }
   ],
   "prescription_items": [
@@ -79421,6 +79570,40 @@
     {
       "id": 9,
       "prescription_id": 6,
+      "medicine_id": 1,
+      "medicine_name": null,
+      "strength": null,
+      "route": null,
+      "dosage": "1-2 Tablets",
+      "frequency": "SOS (As Needed)",
+      "duration": "5 days",
+      "timing": "After food",
+      "instructions": "For occasional headache",
+      "authorized_quantity": null,
+      "dispensed_quantity": 0,
+      "unit": null,
+      "generic_name": null
+    },
+    {
+      "id": 11,
+      "prescription_id": 8,
+      "medicine_id": 4,
+      "medicine_name": null,
+      "strength": null,
+      "route": null,
+      "dosage": "1 Tablet",
+      "frequency": "OD (Once Daily)",
+      "duration": "30 days",
+      "timing": "Morning after breakfast",
+      "instructions": "Do not miss morning dose",
+      "authorized_quantity": null,
+      "dispensed_quantity": 0,
+      "unit": null,
+      "generic_name": null
+    },
+    {
+      "id": 12,
+      "prescription_id": 8,
       "medicine_id": 1,
       "medicine_name": null,
       "strength": null,
