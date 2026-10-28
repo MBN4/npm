@@ -577,6 +577,7 @@ export function initDatabase() {
       ['dispensed_quantity', 'REAL DEFAULT 0'],
       ['unit', 'TEXT'],
       ['medicine_name', 'TEXT'],
+      ['generic_name', 'TEXT'],
       ['strength', 'TEXT'],
       ['route', 'TEXT']
     ];
@@ -599,6 +600,7 @@ export function initDatabase() {
             prescription_id INTEGER NOT NULL,
             medicine_id INTEGER,
             medicine_name TEXT,
+            generic_name TEXT,
             strength TEXT,
             route TEXT,
             dosage TEXT,
@@ -613,10 +615,10 @@ export function initDatabase() {
             FOREIGN KEY (medicine_id) REFERENCES medicines(id)
           );
           INSERT INTO prescription_items_rebuild (
-            id, prescription_id, medicine_id, strength, route, dosage, frequency, duration, timing,
+            id, prescription_id, medicine_id, medicine_name, generic_name, strength, route, dosage, frequency, duration, timing,
             instructions, authorized_quantity, dispensed_quantity, unit
           )
-          SELECT id, prescription_id, medicine_id, strength, route, dosage, frequency, duration, timing,
+          SELECT id, prescription_id, medicine_id, medicine_name, generic_name, strength, route, dosage, frequency, duration, timing,
             instructions, authorized_quantity, dispensed_quantity, unit
           FROM prescription_items;
           DROP TABLE prescription_items;
@@ -665,6 +667,16 @@ export function initDatabase() {
       ('Dr. Abdul Rehman', 'MBBS K.E (RMP)', 'Senior Member YDA, PPWS', 'Ganga Ram Hospital, Lahore', 3),
       ('Chief Abdul Wajid', NULL, 'Chief NMC, NMP', NULL, 4);
   `);
+
+  // Auto-migrate customers.cnic (patient CNIC, used for duplicate-aware patient search)
+  const customersInfo = db.pragma('table_info(customers)') as Array<{ name: string }>;
+  if (customersInfo && customersInfo.length > 0 && !customersInfo.some(c => c.name === 'cnic')) {
+    try {
+      db.exec('ALTER TABLE customers ADD COLUMN cnic TEXT;');
+    } catch (e) {
+      // ignore
+    }
+  }
 
   // Auto-migrate sales.request_key (closes an existing idempotency gap on checkout/offline-sync retries)
   const salesIdemInfo = db.pragma('table_info(sales)') as Array<{ name: string }>;

@@ -23,8 +23,14 @@ patientRouter.get('/', authenticateToken, (req: AuthenticatedRequest, res: Respo
 
   if (search) {
     const s = `%${search}%`;
-    query += ' AND (c.name LIKE ? OR c.mobile LIKE ?)';
-    params.push(s, s);
+    if (/^\d+$/.test(search)) {
+      // A pure number could be a patient ID or part of a mobile/CNIC - match all three
+      query += ' AND (c.id = ? OR c.name LIKE ? OR c.mobile LIKE ? OR c.cnic LIKE ?)';
+      params.push(Number(search), s, s, s);
+    } else {
+      query += ' AND (c.name LIKE ? OR c.mobile LIKE ? OR c.cnic LIKE ?)';
+      params.push(s, s, s);
+    }
   }
 
   query += ' GROUP BY c.id ORDER BY c.name ASC';
@@ -70,7 +76,7 @@ patientRouter.get('/:id', authenticateToken, (req: AuthenticatedRequest, res: Re
 
 // Register patient / customer
 patientRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  const { name, mobile, age, gender, allergyNotes, creditLimit } = req.body;
+  const { name, mobile, cnic, age, gender, allergyNotes, creditLimit } = req.body;
 
   if (!name || !name.trim()) {
     res.status(400).json({ error: 'Patient name is required' });
@@ -88,11 +94,12 @@ patientRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res: Resp
 
   try {
     const result = db.prepare(`
-      INSERT INTO customers (name, mobile, age, gender, allergy_notes, credit_limit, current_balance, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, 0.0, 1)
+      INSERT INTO customers (name, mobile, cnic, age, gender, allergy_notes, credit_limit, current_balance, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0.0, 1)
     `).run(
       name.trim(),
       mobile ? mobile.trim() : null,
+      cnic ? cnic.trim() : null,
       age ? Number(age) : null,
       gender || 'MALE',
       allergyNotes ? allergyNotes.trim() : null,
@@ -118,7 +125,7 @@ patientRouter.post('/', authenticateToken, (req: AuthenticatedRequest, res: Resp
 // Update patient
 patientRouter.put('/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const id = Number(req.params.id);
-  const { name, mobile, age, gender, allergyNotes, creditLimit, isActive } = req.body;
+  const { name, mobile, cnic, age, gender, allergyNotes, creditLimit, isActive } = req.body;
 
   const existing = db.prepare('SELECT * FROM customers WHERE id = ?').get(id) as any;
   if (!existing) {
@@ -128,6 +135,7 @@ patientRouter.put('/:id', authenticateToken, (req: AuthenticatedRequest, res: Re
 
   const nextName = name !== undefined ? String(name ?? '').trim() : existing.name;
   const nextMobile = mobile !== undefined ? String(mobile ?? '').trim() || null : existing.mobile;
+  const nextCnic = cnic !== undefined ? String(cnic ?? '').trim() || null : existing.cnic;
   const nextAge = age !== undefined ? (age === null || age === '' ? null : Number(age)) : existing.age;
   const nextGender = gender !== undefined ? String(gender).toUpperCase() : (existing.gender || 'MALE');
   const nextAllergyNotes = allergyNotes !== undefined ? String(allergyNotes ?? '').trim() || null : existing.allergy_notes;
@@ -144,12 +152,13 @@ patientRouter.put('/:id', authenticateToken, (req: AuthenticatedRequest, res: Re
   try {
     db.prepare(`
       UPDATE customers SET
-        name = ?, mobile = ?, age = ?, gender = ?,
+        name = ?, mobile = ?, cnic = ?, age = ?, gender = ?,
         allergy_notes = ?, credit_limit = ?, is_active = ?
       WHERE id = ?
     `).run(
       nextName,
       nextMobile,
+      nextCnic,
       nextAge,
       nextGender,
       nextAllergyNotes,

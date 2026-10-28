@@ -254,6 +254,7 @@ CREATE TABLE IF NOT EXISTS customers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   mobile TEXT UNIQUE,
+  cnic TEXT,
   age INTEGER,
   gender TEXT,
   allergy_notes TEXT,
@@ -407,6 +408,7 @@ CREATE TABLE IF NOT EXISTS prescription_items (
   prescription_id INTEGER NOT NULL,
   medicine_id INTEGER, -- null when manually typed (no catalogue match)
   medicine_name TEXT, -- free-text name, used when medicine_id is null
+  generic_name TEXT, -- snapshot of the generic ingredient at prescribing time (catalogue lookup or manual entry)
   strength TEXT, -- free-text strength override for manual entries
   route TEXT, -- e.g. Oral, Topical, IV, IM
   dosage TEXT, -- e.g. 1 Tablet, 5ml

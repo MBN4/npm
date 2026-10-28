@@ -135,9 +135,10 @@ prescriptionRouter.get('/:id', authenticateToken, (req: AuthenticatedRequest, re
   }
 
   const items = db.prepare(`
-    SELECT pi.*, m.brand_name, m.strength as catalog_strength, m.dosage_form
+    SELECT pi.*, m.brand_name, m.strength as catalog_strength, m.dosage_form, g.name as catalog_generic_name
     FROM prescription_items pi
     LEFT JOIN medicines m ON pi.medicine_id = m.id
+    LEFT JOIN generics g ON m.generic_id = g.id
     WHERE pi.prescription_id = ?
   `).all(id);
 
@@ -158,9 +159,9 @@ function parseOptionalNumber(value: any, label: string): number | null {
 function insertItems(prescriptionId: number | bigint, items: any[]) {
   const insertItem = db.prepare(`
     INSERT INTO prescription_items (
-      prescription_id, medicine_id, medicine_name, strength, route,
+      prescription_id, medicine_id, medicine_name, generic_name, strength, route,
       dosage, frequency, duration, timing, instructions, authorized_quantity, unit
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   for (const it of items || []) {
@@ -177,6 +178,7 @@ function insertItems(prescriptionId: number | bigint, items: any[]) {
       prescriptionId,
       medicineId,
       medicineName,
+      (it.genericName || '').trim() || null,
       (it.strength || '').trim() || null,
       (it.route || '').trim() || null,
       (it.dosage || '').trim() || null,

@@ -19,6 +19,7 @@ import {
 export interface PrescriptionItem {
   medicineId: string;
   medicineName: string;
+  genericName: string;
   strength: string;
   route: string;
   dosage: string;
@@ -52,7 +53,7 @@ const emptyReferral: ReferralState = {
 };
 
 const emptyItem = (): PrescriptionItem => ({
-  medicineId: '', medicineName: '', strength: '', route: '',
+  medicineId: '', medicineName: '', genericName: '', strength: '', route: '',
   dosage: '1 Tablet', frequency: 'BD (Twice Daily)', duration: '5 days', timing: 'After Food',
   instructions: '', authorizedQuantity: '', unit: ''
 });
@@ -128,7 +129,11 @@ export const PrescriptionsView: React.FC = () => {
   const [editingRxPatientId, setEditingRxPatientId] = useState<string | null>(null);
   const [savingPatient, setSavingPatient] = useState(false);
   const [patientError, setPatientError] = useState('');
-  const [newPatient, setNewPatient] = useState({ name: '', mobile: '', age: '', gender: 'MALE', allergyNotes: '' });
+  const [newPatient, setNewPatient] = useState({ name: '', mobile: '', cnic: '', age: '', gender: 'MALE', allergyNotes: '' });
+  const [possibleMatches, setPossibleMatches] = useState<any[]>([]);
+  const [patientSearchQuery, setPatientSearchQuery] = useState('');
+  const [patientSearchOpen, setPatientSearchOpen] = useState(false);
+  const [selectedPatientLabel, setSelectedPatientLabel] = useState('');
   const [doctorId, setDoctorId] = useState('');
   const [providerId, setProviderId] = useState('');
   const [visitDate, setVisitDate] = useState(todayLocalDate());
@@ -224,10 +229,44 @@ export const PrescriptionsView: React.FC = () => {
     }
   }, [printMode]);
 
+  // Surfaces possible existing patients while registering a new one, so staff can pick an existing
+  // record instead of creating a duplicate - never merges automatically.
+  useEffect(() => {
+    if (!showNewPatient || editingRxPatientId) { setPossibleMatches([]); return; }
+    const term = (newPatient.mobile.trim() || newPatient.cnic.trim() || newPatient.name.trim());
+    if (term.length < 3) { setPossibleMatches([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/patients?search=${encodeURIComponent(term)}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) setPossibleMatches((await res.json()).patients.slice(0, 5));
+      } catch {
+        // non-critical - duplicate hints are a convenience, not a requirement
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [showNewPatient, editingRxPatientId, newPatient.name, newPatient.mobile, newPatient.cnic, token]);
+
+  // Searchable patient picker - queries the server by name/mobile/CNIC/ID instead of relying on a
+  // single client-side list, so staff can find a patient among hundreds without scrolling a dropdown.
+  useEffect(() => {
+    if (!patientSearchOpen) return;
+    const term = patientSearchQuery.trim();
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/patients${term ? `?search=${encodeURIComponent(term)}` : ''}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) setPatients((await res.json()).patients);
+      } catch {
+        // keep showing the last known list on a transient failure
+      }
+    }, term ? 300 : 0);
+    return () => clearTimeout(t);
+  }, [patientSearchQuery, patientSearchOpen, token]);
+
   const resetForm = () => {
     setEditingPrescriptionId(null);
     setRequestKey(newRequestKey());
     setPatientId(''); setDoctorId(''); setProviderId(''); setVisitDate(todayLocalDate());
+    setPatientSearchQuery(''); setPatientSearchOpen(false); setSelectedPatientLabel(''); setPossibleMatches([]);
     setAgeYears(''); setAgeMonths('');
     setPulseBpm(''); setBpSystolic(''); setBpDiastolic(''); setSpo2Percent('');
     setRandomSugar(''); setFastingSugar(''); setWeightKg(''); setTemperatureValue(''); setTemperatureUnit('C');
@@ -262,6 +301,7 @@ export const PrescriptionsView: React.FC = () => {
       ...updated[index],
       medicineId: String(medicine.id),
       medicineName: `${medicine.brand_name}${medicine.strength ? ' ' + medicine.strength : ''}`,
+      genericName: medicine.generic_name || '',
       strength: updated[index].strength || medicine.strength || ''
     };
     setItems(updated);
@@ -271,7 +311,12 @@ export const PrescriptionsView: React.FC = () => {
   const matchingMedicines = (query: string) => {
     const q = query.trim().toLowerCase();
     if (q.length < 1) return [];
-    return medicines.filter(m => (m.brand_name || '').toLowerCase().includes(q)).slice(0, 8);
+    return medicines.filter(m =>
+      (m.brand_name || '').toLowerCase().includes(q) ||
+      (m.generic_name || '').toLowerCase().includes(q) ||
+      (m.strength || '').toLowerCase().includes(q) ||
+      (m.dosage_form || '').toLowerCase().includes(q)
+    ).slice(0, 8);
   };
 
   const handleSavePatient = async () => {
@@ -287,6 +332,7 @@ export const PrescriptionsView: React.FC = () => {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           name: newPatient.name.trim(), mobile: newPatient.mobile.trim() || null,
+          cnic: newPatient.cnic.trim() || null,
           age: newPatient.age === '' ? null : Number(newPatient.age),
           gender: newPatient.gender, allergyNotes: newPatient.allergyNotes.trim() || null
         })
@@ -296,6 +342,7 @@ export const PrescriptionsView: React.FC = () => {
       const id = editingRxPatientId || String(data.patientId);
       const savedPatient = {
         id: Number(id), name: newPatient.name.trim(), mobile: newPatient.mobile.trim(),
+        cnic: newPatient.cnic.trim(),
         age: newPatient.age === '' ? null : Number(newPatient.age), gender: newPatient.gender,
         allergy_notes: newPatient.allergyNotes.trim()
       };
@@ -303,7 +350,9 @@ export const PrescriptionsView: React.FC = () => {
         ? current.map(patient => String(patient.id) === id ? { ...patient, ...savedPatient, id: Number(id) } : patient)
         : [...current, savedPatient]);
       setPatientId(id);
-      setNewPatient({ name: '', mobile: '', age: '', gender: 'MALE', allergyNotes: '' });
+      setSelectedPatientLabel(`${savedPatient.name}${savedPatient.mobile ? ' (' + savedPatient.mobile + ')' : ''}`);
+      setPossibleMatches([]);
+      setNewPatient({ name: '', mobile: '', cnic: '', age: '', gender: 'MALE', allergyNotes: '' });
       setEditingRxPatientId(null);
       setShowNewPatient(false);
     } catch (error: any) {
@@ -361,6 +410,8 @@ export const PrescriptionsView: React.FC = () => {
 
       setEditingPrescriptionId(rxId);
       setPatientId(String(p.patient_id));
+      setSelectedPatientLabel(`${p.patient_name}${p.patient_mobile ? ' (' + p.patient_mobile + ')' : ''} — Patient #${p.patient_id}`);
+      setPatientSearchOpen(false);
       setDoctorId(p.doctor_id ? String(p.doctor_id) : '');
       setProviderId(p.provider_id ? String(p.provider_id) : '');
       setVisitDate(p.visit_date || todayLocalDate());
@@ -385,6 +436,7 @@ export const PrescriptionsView: React.FC = () => {
       setItems(data.items.length > 0 ? data.items.map((it: any) => ({
         medicineId: it.medicine_id ? String(it.medicine_id) : '',
         medicineName: it.medicine_id ? `${it.brand_name}${it.catalog_strength ? ' ' + it.catalog_strength : ''}` : (it.medicine_name || ''),
+        genericName: it.catalog_generic_name || it.generic_name || '',
         strength: it.strength || '',
         route: it.route || '',
         dosage: it.dosage || '',
@@ -467,6 +519,7 @@ export const PrescriptionsView: React.FC = () => {
       items: items.map(it => ({
         medicineId: it.medicineId || null,
         medicineName: it.medicineId ? null : it.medicineName,
+        genericName: it.genericName,
         strength: it.strength,
         route: it.route,
         dosage: it.dosage,
@@ -685,24 +738,60 @@ export const PrescriptionsView: React.FC = () => {
                             const patient = patients.find(item => String(item.id) === patientId);
                             if (!patient) return;
                             setEditingRxPatientId(patientId);
-                            setNewPatient({ name: patient.name || '', mobile: patient.mobile || '', age: patient.age == null ? '' : String(patient.age), gender: patient.gender?.toUpperCase() || 'MALE', allergyNotes: patient.allergy_notes || '' });
+                            setNewPatient({ name: patient.name || '', mobile: patient.mobile || '', cnic: patient.cnic || '', age: patient.age == null ? '' : String(patient.age), gender: patient.gender?.toUpperCase() || 'MALE', allergyNotes: patient.allergy_notes || '' });
                             setPatientError('');
                             setShowNewPatient(true);
+                            setPatientSearchOpen(false);
                           }}><Pencil size={13} /> Edit</button>
                         )}
-                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setShowNewPatient(open => !open); setEditingRxPatientId(null); setNewPatient({ name: '', mobile: '', age: '', gender: 'MALE', allergyNotes: '' }); setPatientError(''); }}>
-                          <Plus size={13} /> {showNewPatient ? 'Cancel' : 'New Patient'}
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setShowNewPatient(open => !open); setEditingRxPatientId(null); setNewPatient({ name: '', mobile: '', cnic: '', age: '', gender: 'MALE', allergyNotes: '' }); setPatientError(''); setPatientSearchOpen(false); }}>
+                          <Plus size={13} /> {showNewPatient ? 'Cancel' : 'Register New Patient'}
                         </button>
                       </div>
                     </div>
-                    <select className="select" value={patientId} onChange={e => { setPatientId(e.target.value); setShowNewPatient(false); setEditingRxPatientId(null); }} required style={{ minHeight: '40px', fontSize: '0.85rem', width: '100%' }}>
-                      <option value="">Select Patient...</option>
-                      {patients.map(pat => (
-                        <option key={pat.id} value={pat.id}>
-                          {pat.name} {pat.mobile ? `(${pat.mobile})` : ''} {pat.allergy_notes ? `[⚠️ Allergy: ${pat.allergy_notes}]` : ''}
-                        </option>
-                      ))}
-                    </select>
+
+                    {patientId && !patientSearchOpen ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '0.5rem 0.75rem', minHeight: '40px' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{selectedPatientLabel || 'Selected patient'}</span>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setPatientSearchOpen(true); setPatientSearchQuery(''); }}>Change</button>
+                      </div>
+                    ) : (
+                      <div style={{ position: 'relative' }}>
+                        <input
+                          className="input"
+                          placeholder="Search by patient name, ID, mobile, or CNIC..."
+                          value={patientSearchQuery}
+                          onFocus={() => setPatientSearchOpen(true)}
+                          onChange={e => { setPatientSearchQuery(e.target.value); setPatientSearchOpen(true); }}
+                          style={{ minHeight: '40px', fontSize: '0.85rem', width: '100%' }}
+                        />
+                        {patientSearchOpen && (
+                          <div style={{ position: 'absolute', zIndex: 50, top: '100%', left: 0, right: 0, background: 'var(--bg-surface-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-md)', maxHeight: '220px', overflowY: 'auto', marginTop: '0.2rem' }}>
+                            {patients.length === 0 ? (
+                              <div style={{ padding: '0.6rem 0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>No matching patients. Use "Register New Patient" above.</div>
+                            ) : patients.map(pat => (
+                              <div
+                                key={pat.id}
+                                onMouseDown={() => {
+                                  setPatientId(String(pat.id));
+                                  setSelectedPatientLabel(`${pat.name}${pat.mobile ? ' (' + pat.mobile + ')' : ''} — Patient #${pat.id}`);
+                                  setShowNewPatient(false);
+                                  setEditingRxPatientId(null);
+                                  setPatientSearchOpen(false);
+                                }}
+                                style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', fontSize: '0.82rem', background: 'var(--bg-surface-elevated)', borderBottom: '1px solid var(--border)' }}
+                              >
+                                <div style={{ fontWeight: 700 }}>{pat.name} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>— Patient #{pat.id}</span></div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                  {[pat.mobile, pat.cnic].filter(Boolean).join(' • ') || 'No mobile/CNIC on file'}
+                                  {pat.allergy_notes ? ` • ⚠️ Allergy: ${pat.allergy_notes}` : ''}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -729,9 +818,9 @@ export const PrescriptionsView: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="form-label">Attending Provider</label>
+                    <label className="form-label">Consulting Doctor / Clinician</label>
                     <select className="select" value={providerId} onChange={e => setProviderId(e.target.value)}>
-                      <option value="">Select Provider...</option>
+                      <option value="">Select Consulting Doctor / Clinician...</option>
                       {providers.map(pr => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
                     </select>
                   </div>
@@ -754,10 +843,32 @@ export const PrescriptionsView: React.FC = () => {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', marginTop: '0.75rem' }}>
                       <div><label className="form-label">Name *</label><input className="input" value={newPatient.name} onChange={e => setNewPatient({ ...newPatient, name: e.target.value })} maxLength={150} /></div>
                       <div><label className="form-label">Mobile</label><input className="input" value={newPatient.mobile} onChange={e => setNewPatient({ ...newPatient, mobile: e.target.value })} inputMode="tel" /></div>
+                      <div><label className="form-label">CNIC</label><input className="input" value={newPatient.cnic} onChange={e => setNewPatient({ ...newPatient, cnic: e.target.value })} placeholder="XXXXX-XXXXXXX-X" /></div>
                       <div><label className="form-label">Age</label><input className="input" type="number" min="0" max="130" value={newPatient.age} onChange={e => setNewPatient({ ...newPatient, age: e.target.value })} /></div>
                       <div><label className="form-label">Gender</label><select className="select" value={newPatient.gender} onChange={e => setNewPatient({ ...newPatient, gender: e.target.value })}><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select></div>
                       <div style={{ gridColumn: '1 / -1' }}><label className="form-label">Allergy Notes</label><input className="input" value={newPatient.allergyNotes} onChange={e => setNewPatient({ ...newPatient, allergyNotes: e.target.value })} placeholder="Optional" /></div>
                     </div>
+
+                    {!editingRxPatientId && possibleMatches.length > 0 && (
+                      <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.75rem', border: '1px solid var(--primary-border)', background: 'var(--primary-light)', borderRadius: 'var(--radius-md)' }}>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '0.4rem' }}>
+                          Possible existing patient{possibleMatches.length > 1 ? 's' : ''} found — select one instead if this is the same person:
+                        </div>
+                        {possibleMatches.map(m => (
+                          <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', fontSize: '0.8rem', borderTop: '1px solid var(--border)' }}>
+                            <span>{m.name} — Patient #{m.id} {m.mobile ? `• ${m.mobile}` : ''} {m.cnic ? `• ${m.cnic}` : ''}</span>
+                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => {
+                              setPatientId(String(m.id));
+                              setSelectedPatientLabel(`${m.name}${m.mobile ? ' (' + m.mobile + ')' : ''} — Patient #${m.id}`);
+                              setShowNewPatient(false);
+                              setPossibleMatches([]);
+                              setNewPatient({ name: '', mobile: '', cnic: '', age: '', gender: 'MALE', allergyNotes: '' });
+                            }}>Use This Patient</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
                     {patientError && <p role="alert" style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '0.5rem' }}>{patientError}</p>}
                     <button type="button" className="btn btn-primary" onClick={handleSavePatient} disabled={savingPatient} style={{ marginTop: '0.75rem' }}>
                       {savingPatient ? 'Saving...' : editingRxPatientId ? 'Save Patient Changes' : 'Save & Select Patient'}
@@ -945,11 +1056,16 @@ export const PrescriptionsView: React.FC = () => {
                           <div style={{ position: 'absolute', zIndex: 50, top: '100%', left: 0, right: 0, background: 'var(--bg-surface-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-md)', maxHeight: '180px', overflowY: 'auto' }}>
                             {matchingMedicines(it.medicineName).map(m => (
                               <div key={m.id} onMouseDown={() => selectCatalogMedicine(idx, m)} style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', fontSize: '0.82rem', background: 'var(--bg-surface-elevated)' }}>
-                                {m.brand_name} {m.strength} <span style={{ color: 'var(--text-muted)' }}>({m.dosage_form || 'Unit'})</span>
+                                <div style={{ fontWeight: 600 }}>{m.brand_name} {m.strength} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>({m.dosage_form || 'Unit'})</span></div>
+                                {m.generic_name && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{m.generic_name}</div>}
                               </div>
                             ))}
                           </div>
                         )}
+                      </div>
+                      <div>
+                        <label className="form-label">Generic (optional)</label>
+                        <input className="input" value={it.genericName} onChange={e => handleItemChange(idx, 'genericName', e.target.value)} placeholder="e.g. Ibuprofen" />
                       </div>
                       <div>
                         <label className="form-label">Strength</label>
@@ -1173,7 +1289,10 @@ const RxDocumentBody: React.FC<{ data: any; rxRegisterEntries: any[] }> = ({ dat
             <tbody>
               {items.map((it: any, i: number) => (
                 <tr key={i} style={{ borderBottom: '1px solid #eee', pageBreakInside: 'avoid' }}>
-                  <td style={{ padding: '0.4rem', fontWeight: 700 }}>{it.brand_name ? `${it.brand_name} ${it.catalog_strength || ''}` : `${it.medicine_name || ''} ${it.strength || ''}`}</td>
+                  <td style={{ padding: '0.4rem' }}>
+                    <div style={{ fontWeight: 700 }}>{it.brand_name ? `${it.brand_name} ${it.catalog_strength || ''}` : `${it.medicine_name || ''} ${it.strength || ''}`}</div>
+                    {(it.catalog_generic_name || it.generic_name) && <div style={{ fontSize: '0.75rem', color: '#555' }}>{it.catalog_generic_name || it.generic_name}</div>}
+                  </td>
                   <td style={{ padding: '0.4rem' }}>{it.dosage}</td>
                   <td style={{ padding: '0.4rem' }}>{it.route || ''}</td>
                   <td style={{ padding: '0.4rem' }}>{it.frequency}</td>
