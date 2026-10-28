@@ -1,12 +1,12 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-28T12:35:59.867Z",
+  "exportedAt": "2026-10-28T12:36:02.860Z",
   "counts": {
     "categories": 46,
     "manufacturers": 153,
-    "generics": 329,
+    "generics": 330,
     "suppliers": 73,
-    "medicines": 1749,
+    "medicines": 1750,
     "drug_clinical_info": 7,
     "batches": 1482,
     "packing_references": 0,
@@ -15,8 +15,8 @@
     "billing_persons": 0,
     "purchases": 2,
     "purchase_items": 2,
-    "sales": 20,
-    "sale_items": 23,
+    "sales": 21,
+    "sale_items": 24,
     "prescriptions": 3,
     "prescription_items": 6,
     "sales_returns": 0,
@@ -3704,6 +3704,12 @@
     {
       "id": 213753,
       "name": "TestOpioidGeneric-1793190939120",
+      "therapeutic_class": "Test",
+      "description": null
+    },
+    {
+      "id": 214060,
+      "name": "TestOpioidGeneric-1793190962844",
       "therapeutic_class": "Test",
       "description": null
     }
@@ -53631,6 +53637,34 @@
       "sync_generic_name": "TestOpioidGeneric-1793190939120",
       "sync_category_name": null,
       "sync_manufacturer_name": null
+    },
+    {
+      "id": 201254,
+      "brand_name": "TestScheduleBMed-1793190962849",
+      "generic_id": 214060,
+      "category_id": null,
+      "manufacturer_id": null,
+      "strength": "10mg",
+      "dosage_form": "Tablet",
+      "therapeutic_class": null,
+      "stock_unit": null,
+      "tablets_per_pack": 10,
+      "packaging_type": "MULTI_TIER",
+      "pack_size": 1,
+      "barcode": null,
+      "custom_barcode": "NMP-758932",
+      "rack_location": null,
+      "min_stock_level": 10,
+      "reorder_level": 20,
+      "is_prescription_required": 1,
+      "is_active": 1,
+      "notes": null,
+      "created_at": "2026-10-28 12:36:02",
+      "updated_at": "2026-10-28 12:36:02",
+      "route": null,
+      "sync_generic_name": "TestOpioidGeneric-1793190962844",
+      "sync_category_name": null,
+      "sync_manufacturer_name": null
     }
   ],
   "drug_clinical_info": [
@@ -53843,7 +53877,7 @@
       "created_at": "2026-10-05 13:18:01"
     },
     {
-      "id": 2793,
+      "id": 2802,
       "generic_id": 1,
       "atc_code": "M01AE02",
       "rx_status": "Rx/OTC",
@@ -53892,10 +53926,10 @@
       "clinical_source": "USP-NF / DailyMed / BNF 86 Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 12:35:59"
+      "created_at": "2026-10-28 12:36:02"
     },
     {
-      "id": 2794,
+      "id": 2803,
       "generic_id": 2,
       "atc_code": "M01AE16",
       "rx_status": "Rx",
@@ -53944,10 +53978,10 @@
       "clinical_source": "DRAP / BNF 86 / MHRA Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 12:35:59"
+      "created_at": "2026-10-28 12:36:02"
     },
     {
-      "id": 2795,
+      "id": 2804,
       "generic_id": 3,
       "atc_code": "N02BE01",
       "rx_status": "OTC",
@@ -53996,7 +54030,7 @@
       "clinical_source": "USP-NF / DailyMed / BNF 86 Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 12:35:59"
+      "created_at": "2026-10-28 12:36:02"
     }
   ],
   "batches": [
@@ -54024,7 +54058,7 @@
       "expiry_date": "2026-11-30",
       "purchase_price": 2.5,
       "sale_price": 3.5,
-      "quantity": 290,
+      "quantity": 300,
       "bonus_quantity": 0,
       "supplier_id": 1,
       "rack_location": "Rack D-1",
@@ -54094,7 +54128,7 @@
       "rack_location": "Rack D-1",
       "status": "EXPIRED",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-28 12:35:42"
+      "updated_at": "2026-10-28 12:36:00"
     },
     {
       "id": 6,
@@ -67992,13 +68026,13 @@
       "expiry_date": "2028-10-02",
       "purchase_price": 3,
       "sale_price": 4.5,
-      "quantity": 485,
+      "quantity": 480,
       "bonus_quantity": 0,
       "supplier_id": null,
       "rack_location": "Rack -OTC",
       "status": "ACTIVE",
       "created_at": "2026-10-02 16:25:09",
-      "updated_at": "2026-10-28 12:35:37"
+      "updated_at": "2026-10-28 12:35:59"
     },
     {
       "id": 1363,
@@ -78421,6 +78455,31 @@
       "created_at": "2026-10-28 12:35:59",
       "request_key": null,
       "offline_id": null
+    },
+    {
+      "id": 21,
+      "invoice_number": "INV-20261028-0021",
+      "customer_id": 1,
+      "cashier_id": 3,
+      "billing_person_id": null,
+      "custom_slip_name": null,
+      "subtotal": 17.5,
+      "discount": 0,
+      "tax": 0,
+      "percentage_charge_label": "",
+      "percentage_charge_rate": 0,
+      "percentage_charge_amount": 0,
+      "fixed_charge_amount": 0,
+      "total_amount": 17.5,
+      "paid_amount": 0,
+      "remaining_amount": 17.5,
+      "change_amount": 0,
+      "payment_method": "CREDIT",
+      "status": "COMPLETED",
+      "notes": null,
+      "created_at": "2026-10-28 12:35:59",
+      "request_key": null,
+      "offline_id": null
     }
   ],
   "sale_items": [
@@ -78809,6 +78868,23 @@
       "line_total": 35,
       "purchase_price_snapshot": 2.5,
       "description_snapshot": "Panadol 500mg",
+      "category_snapshot": null,
+      "pack_type_snapshot": null,
+      "units_per_pack_snapshot": null,
+      "packs_snapshot": null,
+      "loose_units_snapshot": null
+    },
+    {
+      "id": 24,
+      "sale_id": 21,
+      "medicine_id": 200605,
+      "batch_id": 1362,
+      "quantity": 5,
+      "unit_price": 3.5,
+      "discount": 0,
+      "line_total": 17.5,
+      "purchase_price_snapshot": 3,
+      "description_snapshot": "PANADOL 30 mL",
       "category_snapshot": null,
       "pack_type_snapshot": null,
       "units_per_pack_snapshot": null,
