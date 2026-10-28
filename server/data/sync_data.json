@@ -1,24 +1,24 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-28T14:25:33.994Z",
+  "exportedAt": "2026-10-28T14:25:52.738Z",
   "counts": {
     "categories": 46,
     "manufacturers": 153,
-    "generics": 334,
-    "suppliers": 76,
-    "medicines": 1754,
+    "generics": 335,
+    "suppliers": 77,
+    "medicines": 1755,
     "drug_clinical_info": 7,
-    "batches": 1498,
+    "batches": 1499,
     "packing_references": 0,
-    "customers": 11,
-    "doctors": 6,
+    "customers": 12,
+    "doctors": 7,
     "billing_persons": 0,
-    "purchases": 5,
-    "purchase_items": 5,
-    "sales": 34,
-    "sale_items": 39,
-    "prescriptions": 4,
-    "prescription_items": 8,
+    "purchases": 6,
+    "purchase_items": 6,
+    "sales": 35,
+    "sale_items": 40,
+    "prescriptions": 5,
+    "prescription_items": 10,
     "sales_returns": 0,
     "sale_return_items": 0,
     "replacement_items": 0,
@@ -3736,6 +3736,12 @@
       "name": "TestOpioidGeneric-1793197531450",
       "therapeutic_class": "Test",
       "description": null
+    },
+    {
+      "id": 215181,
+      "name": "TestOpioidGeneric-1793197552722",
+      "therapeutic_class": "Test",
+      "description": null
     }
   ],
   "suppliers": [
@@ -3748,7 +3754,7 @@
       "address": "Circular Road, Lahore",
       "tax_number": null,
       "opening_balance": 0,
-      "current_balance": 52900,
+      "current_balance": 53900,
       "is_active": 1,
       "created_at": "2026-09-07 12:00:22"
     },
@@ -4726,6 +4732,19 @@
       "current_balance": 5000,
       "is_active": 1,
       "created_at": "2026-10-28 14:24:14"
+    },
+    {
+      "id": 2320,
+      "name": "Prime Healthcare Distributors 1793197542476",
+      "contact_person": "Khurram Shehzad",
+      "phone": "0300-9876543",
+      "email": null,
+      "address": null,
+      "tax_number": null,
+      "opening_balance": 5000,
+      "current_balance": 5000,
+      "is_active": 1,
+      "created_at": "2026-10-28 14:25:42"
     }
   ],
   "medicines": [
@@ -4863,7 +4882,7 @@
       "is_active": 1,
       "notes": "Pharmacy Medicines List PDF Item",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-28 14:24:11",
+      "updated_at": "2026-10-28 14:25:39",
       "route": null,
       "sync_generic_name": "Metformin HCl ER",
       "sync_category_name": "Tablets",
@@ -53840,6 +53859,34 @@
       "sync_generic_name": "TestOpioidGeneric-1793197531450",
       "sync_category_name": null,
       "sync_manufacturer_name": null
+    },
+    {
+      "id": 201270,
+      "brand_name": "TestScheduleBMed-1793197552727",
+      "generic_id": 215181,
+      "category_id": null,
+      "manufacturer_id": null,
+      "strength": "10mg",
+      "dosage_form": "Tablet",
+      "therapeutic_class": null,
+      "stock_unit": null,
+      "tablets_per_pack": 10,
+      "packaging_type": "MULTI_TIER",
+      "pack_size": 1,
+      "barcode": null,
+      "custom_barcode": "NMP-435519",
+      "rack_location": null,
+      "min_stock_level": 10,
+      "reorder_level": 20,
+      "is_prescription_required": 1,
+      "is_active": 1,
+      "notes": null,
+      "created_at": "2026-10-28 14:25:52",
+      "updated_at": "2026-10-28 14:25:52",
+      "route": null,
+      "sync_generic_name": "TestOpioidGeneric-1793197552722",
+      "sync_category_name": null,
+      "sync_manufacturer_name": null
     }
   ],
   "drug_clinical_info": [
@@ -54052,7 +54099,7 @@
       "created_at": "2026-10-05 13:18:01"
     },
     {
-      "id": 2946,
+      "id": 2988,
       "generic_id": 1,
       "atc_code": "M01AE02",
       "rx_status": "Rx/OTC",
@@ -54101,10 +54148,10 @@
       "clinical_source": "USP-NF / DailyMed / BNF 86 Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 14:25:33"
+      "created_at": "2026-10-28 14:25:52"
     },
     {
-      "id": 2947,
+      "id": 2989,
       "generic_id": 2,
       "atc_code": "M01AE16",
       "rx_status": "Rx",
@@ -54153,10 +54200,10 @@
       "clinical_source": "DRAP / BNF 86 / MHRA Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 14:25:33"
+      "created_at": "2026-10-28 14:25:52"
     },
     {
-      "id": 2948,
+      "id": 2990,
       "generic_id": 3,
       "atc_code": "N02BE01",
       "rx_status": "OTC",
@@ -54205,7 +54252,7 @@
       "clinical_source": "USP-NF / DailyMed / BNF 86 Reference",
       "source_version": "v2026.1",
       "last_reviewed": "2026-09-01",
-      "created_at": "2026-10-28 14:25:33"
+      "created_at": "2026-10-28 14:25:52"
     }
   ],
   "batches": [
@@ -54233,7 +54280,7 @@
       "expiry_date": "2026-11-30",
       "purchase_price": 2.5,
       "sale_price": 3.5,
-      "quantity": 290,
+      "quantity": 300,
       "bonus_quantity": 0,
       "supplier_id": 1,
       "rack_location": "Rack D-1",
@@ -54303,7 +54350,7 @@
       "rack_location": "Rack D-1",
       "status": "EXPIRED",
       "created_at": "2026-09-21 17:02:04",
-      "updated_at": "2026-10-28 14:24:11"
+      "updated_at": "2026-10-28 14:25:39"
     },
     {
       "id": 6,
@@ -68201,13 +68248,13 @@
       "expiry_date": "2028-10-02",
       "purchase_price": 3,
       "sale_price": 4.5,
-      "quantity": 470,
+      "quantity": 465,
       "bonus_quantity": 0,
       "supplier_id": null,
       "rack_location": "Rack -OTC",
       "status": "ACTIVE",
       "created_at": "2026-10-02 16:25:09",
-      "updated_at": "2026-10-28 14:24:03"
+      "updated_at": "2026-10-28 14:25:34"
     },
     {
       "id": 1363,
@@ -78176,6 +78223,22 @@
       "status": "ACTIVE",
       "created_at": "2026-10-28 14:25:32",
       "updated_at": "2026-10-28 14:25:32"
+    },
+    {
+      "id": 1989,
+      "medicine_id": 1,
+      "batch_number": "PAN-PUR-6858",
+      "mfg_date": "2026-01-01",
+      "expiry_date": "2028-06-30",
+      "purchase_price": 2.5,
+      "sale_price": 3.5,
+      "quantity": 550,
+      "bonus_quantity": 50,
+      "supplier_id": 1,
+      "rack_location": null,
+      "status": "ACTIVE",
+      "created_at": "2026-10-28 14:25:42",
+      "updated_at": "2026-10-28 14:25:42"
     }
   ],
   "packing_references": [],
@@ -78322,6 +78385,19 @@
       "is_active": 1,
       "created_at": "2026-10-28 14:24:07",
       "cnic": null
+    },
+    {
+      "id": 20,
+      "name": "Rashid Mahmood",
+      "mobile": "03211990130",
+      "age": 55,
+      "gender": "MALE",
+      "allergy_notes": null,
+      "credit_limit": 15000,
+      "current_balance": 0,
+      "is_active": 1,
+      "created_at": "2026-10-28 14:25:35",
+      "cnic": null
     }
   ],
   "doctors": [
@@ -78384,6 +78460,16 @@
       "email": null,
       "is_active": 1,
       "created_at": "2026-10-28 14:24:07"
+    },
+    {
+      "id": 7,
+      "name": "Prof. Dr. Tariq Asim",
+      "specialization": "Consultant Physician & Cardiologist",
+      "clinic_name": "Civil Hospital Complex",
+      "phone": "0300-5556677",
+      "email": null,
+      "is_active": 1,
+      "created_at": "2026-10-28 14:25:35"
     }
   ],
   "billing_persons": [],
@@ -78472,6 +78558,23 @@
       "created_by": 1,
       "notes": null,
       "created_at": "2026-10-28 14:24:14"
+    },
+    {
+      "id": 6,
+      "invoice_number": "PINV-419058",
+      "supplier_id": 1,
+      "purchase_date": "2026-09-07",
+      "subtotal": 1500,
+      "discount": 0,
+      "tax": 0,
+      "total_amount": 1500,
+      "paid_amount": 500,
+      "remaining_amount": 1000,
+      "payment_status": "PARTIAL",
+      "payment_method": "CASH",
+      "created_by": 1,
+      "notes": null,
+      "created_at": "2026-10-28 14:25:42"
     }
   ],
   "purchase_items": [
@@ -78541,6 +78644,21 @@
       "medicine_id": 1,
       "batch_id": 1983,
       "batch_number": "PAN-PUR-8414",
+      "expiry_date": "2028-06-30",
+      "mfg_date": "2026-01-01",
+      "purchase_price": 2.5,
+      "sale_price": 3.5,
+      "quantity": 500,
+      "bonus_quantity": 50,
+      "line_discount": 0,
+      "line_total": 1250
+    },
+    {
+      "id": 6,
+      "purchase_id": 6,
+      "medicine_id": 1,
+      "batch_id": 1989,
+      "batch_number": "PAN-PUR-6858",
       "expiry_date": "2028-06-30",
       "mfg_date": "2026-01-01",
       "purchase_price": 2.5,
@@ -79401,6 +79519,31 @@
       "created_at": "2026-10-28 14:25:33",
       "request_key": null,
       "offline_id": null
+    },
+    {
+      "id": 35,
+      "invoice_number": "INV-20261028-0035",
+      "customer_id": 1,
+      "cashier_id": 3,
+      "billing_person_id": null,
+      "custom_slip_name": null,
+      "subtotal": 17.5,
+      "discount": 0,
+      "tax": 0,
+      "percentage_charge_label": "",
+      "percentage_charge_rate": 0,
+      "percentage_charge_amount": 0,
+      "fixed_charge_amount": 0,
+      "total_amount": 17.5,
+      "paid_amount": 0,
+      "remaining_amount": 17.5,
+      "change_amount": 0,
+      "payment_method": "CREDIT",
+      "status": "COMPLETED",
+      "notes": null,
+      "created_at": "2026-10-28 14:25:34",
+      "request_key": null,
+      "offline_id": null
     }
   ],
   "sale_items": [
@@ -80066,6 +80209,23 @@
       "units_per_pack_snapshot": null,
       "packs_snapshot": null,
       "loose_units_snapshot": null
+    },
+    {
+      "id": 40,
+      "sale_id": 35,
+      "medicine_id": 200605,
+      "batch_id": 1362,
+      "quantity": 5,
+      "unit_price": 3.5,
+      "discount": 0,
+      "line_total": 17.5,
+      "purchase_price_snapshot": 3,
+      "description_snapshot": "PANADOL 30 mL",
+      "category_snapshot": null,
+      "pack_type_snapshot": null,
+      "units_per_pack_snapshot": null,
+      "packs_snapshot": null,
+      "loose_units_snapshot": null
     }
   ],
   "prescriptions": [
@@ -80296,6 +80456,63 @@
       "current_medicines_notes": null,
       "advice_categories": null,
       "treatment_categories": null
+    },
+    {
+      "id": 10,
+      "patient_id": 1,
+      "doctor_id": 7,
+      "provider_id": null,
+      "visit_date": null,
+      "age_years": null,
+      "age_months": null,
+      "diagnosis": "Essential Hypertension Grade 1",
+      "image_path": null,
+      "notes": "Advised low sodium diet and regular BP monitoring",
+      "clinical_notes": null,
+      "clinical_advice": null,
+      "treatment_plan": null,
+      "follow_up_date": null,
+      "follow_up_instructions": null,
+      "pulse_bpm": null,
+      "bp_systolic": null,
+      "bp_diastolic": null,
+      "spo2_percent": null,
+      "random_sugar_mgdl": null,
+      "fasting_sugar_mgdl": null,
+      "weight_kg": null,
+      "temperature_value": null,
+      "temperature_unit": null,
+      "request_key": null,
+      "created_by": 1,
+      "updated_by": null,
+      "created_at": "2026-10-28 14:25:35",
+      "updated_at": null,
+      "purchaser_name": null,
+      "purchaser_relation": null,
+      "purchaser_cnic": null,
+      "purchaser_mobile": null,
+      "patient_cnic": null,
+      "patient_mobile": null,
+      "patient_address": null,
+      "prescriber_registration_number": null,
+      "prescriber_address": null,
+      "original_document_reference": null,
+      "review_status": "PENDING",
+      "review_comments": null,
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "attachment_path": null,
+      "attachment_mime": null,
+      "attachment_uploaded_by": null,
+      "attachment_uploaded_at": null,
+      "presenting_complaint": null,
+      "history_present_illness": null,
+      "relevant_medical_history": null,
+      "examination_findings": null,
+      "allergies_notes": null,
+      "current_medicines_notes": null,
+      "advice_categories": null,
+      "treatment_categories": null
     }
   ],
   "prescription_items": [
@@ -80421,6 +80638,40 @@
     {
       "id": 12,
       "prescription_id": 8,
+      "medicine_id": 1,
+      "medicine_name": null,
+      "strength": null,
+      "route": null,
+      "dosage": "1-2 Tablets",
+      "frequency": "SOS (As Needed)",
+      "duration": "5 days",
+      "timing": "After food",
+      "instructions": "For occasional headache",
+      "authorized_quantity": null,
+      "dispensed_quantity": 0,
+      "unit": null,
+      "generic_name": null
+    },
+    {
+      "id": 14,
+      "prescription_id": 10,
+      "medicine_id": 4,
+      "medicine_name": null,
+      "strength": null,
+      "route": null,
+      "dosage": "1 Tablet",
+      "frequency": "OD (Once Daily)",
+      "duration": "30 days",
+      "timing": "Morning after breakfast",
+      "instructions": "Do not miss morning dose",
+      "authorized_quantity": null,
+      "dispensed_quantity": 0,
+      "unit": null,
+      "generic_name": null
+    },
+    {
+      "id": 15,
+      "prescription_id": 10,
       "medicine_id": 1,
       "medicine_name": null,
       "strength": null,
