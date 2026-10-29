@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-29T08:01:57.222Z",
+  "exportedAt": "2026-10-29T08:02:00.439Z",
   "counts": {
     "categories": 46,
     "manufacturers": 153,
@@ -15,8 +15,8 @@
     "billing_persons": 0,
     "purchases": 1,
     "purchase_items": 1,
-    "sales": 0,
-    "sale_items": 0,
+    "sales": 1,
+    "sale_items": 1,
     "prescriptions": 0,
     "prescription_items": 0,
     "sales_returns": 0,
@@ -68946,13 +68946,13 @@
       "expiry_date": "2028-10-03",
       "purchase_price": 3,
       "sale_price": 4.5,
-      "quantity": 50,
+      "quantity": 48,
       "bonus_quantity": 0,
       "supplier_id": null,
       "rack_location": "Rack -OTC",
       "status": "ACTIVE",
       "created_at": "2026-10-03 15:27:34",
-      "updated_at": "2026-10-03 15:27:34"
+      "updated_at": "2026-10-29 08:02:00"
     },
     {
       "id": 1381,
@@ -79438,8 +79438,52 @@
       "is_schedule_d": 0
     }
   ],
-  "sales": [],
-  "sale_items": [],
+  "sales": [
+    {
+      "id": 1,
+      "invoice_number": "INV-20261029-0001",
+      "customer_id": null,
+      "cashier_id": 1,
+      "billing_person_id": null,
+      "custom_slip_name": null,
+      "subtotal": 9,
+      "discount": 0,
+      "tax": 0,
+      "percentage_charge_label": "",
+      "percentage_charge_rate": 0,
+      "percentage_charge_amount": 0,
+      "fixed_charge_amount": 0,
+      "total_amount": 9,
+      "paid_amount": 9,
+      "remaining_amount": 0,
+      "change_amount": 0,
+      "payment_method": "CASH",
+      "status": "COMPLETED",
+      "notes": "outage test sale",
+      "created_at": "2026-10-29 08:02:00",
+      "request_key": null,
+      "offline_id": null
+    }
+  ],
+  "sale_items": [
+    {
+      "id": 1,
+      "sale_id": 1,
+      "medicine_id": 200779,
+      "batch_id": 1380,
+      "quantity": 2,
+      "unit_price": 4.5,
+      "discount": 0,
+      "line_total": 9,
+      "purchase_price_snapshot": 3,
+      "description_snapshot": "0MNICAN 1ml",
+      "category_snapshot": null,
+      "pack_type_snapshot": null,
+      "units_per_pack_snapshot": null,
+      "packs_snapshot": null,
+      "loose_units_snapshot": null
+    }
+  ],
   "prescriptions": [],
   "prescription_items": [],
   "sales_returns": [],
