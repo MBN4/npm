@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "exportedAt": "2026-10-29T07:56:02.566Z",
+  "exportedAt": "2026-10-29T07:56:11.422Z",
   "counts": {
     "categories": 46,
     "manufacturers": 153,
@@ -15,8 +15,8 @@
     "billing_persons": 0,
     "purchases": 1,
     "purchase_items": 1,
-    "sales": 0,
-    "sale_items": 0,
+    "sales": 1,
+    "sale_items": 1,
     "prescriptions": 0,
     "prescription_items": 0,
     "sales_returns": 0,
@@ -79139,13 +79139,13 @@
       "expiry_date": "2027-06-01",
       "purchase_price": 6,
       "sale_price": 10,
-      "quantity": 100,
+      "quantity": 95,
       "bonus_quantity": 0,
       "supplier_id": 1,
       "rack_location": null,
       "status": "ACTIVE",
       "created_at": "2026-10-29 07:56:00",
-      "updated_at": "2026-10-29 07:56:00"
+      "updated_at": "2026-10-29 07:56:11"
     }
   ],
   "packing_references": [],
@@ -79247,8 +79247,52 @@
       "is_schedule_d": 0
     }
   ],
-  "sales": [],
-  "sale_items": [],
+  "sales": [
+    {
+      "id": 1,
+      "invoice_number": "INV-20261029-0001",
+      "customer_id": 3,
+      "cashier_id": 1,
+      "billing_person_id": null,
+      "custom_slip_name": null,
+      "subtotal": 50,
+      "discount": 0,
+      "tax": 0,
+      "percentage_charge_label": "",
+      "percentage_charge_rate": 0,
+      "percentage_charge_amount": 0,
+      "fixed_charge_amount": 0,
+      "total_amount": 50,
+      "paid_amount": 50,
+      "remaining_amount": 0,
+      "change_amount": 0,
+      "payment_method": "CASH",
+      "status": "COMPLETED",
+      "notes": null,
+      "created_at": "2026-10-29 07:56:11",
+      "request_key": null,
+      "offline_id": null
+    }
+  ],
+  "sale_items": [
+    {
+      "id": 1,
+      "sale_id": 1,
+      "medicine_id": 62,
+      "batch_id": 2023,
+      "quantity": 5,
+      "unit_price": 10,
+      "discount": 0,
+      "line_total": 50,
+      "purchase_price_snapshot": 6,
+      "description_snapshot": "Brufen 400mg",
+      "category_snapshot": null,
+      "pack_type_snapshot": null,
+      "units_per_pack_snapshot": null,
+      "packs_snapshot": null,
+      "loose_units_snapshot": null
+    }
+  ],
   "prescriptions": [],
   "prescription_items": [],
   "sales_returns": [],
