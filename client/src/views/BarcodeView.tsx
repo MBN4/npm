@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import JsBarcode from 'jsbarcode';
 import { useAuth } from '../context/AuthContext.js';
+import { printLabelElement } from '../utils/thermalPrinter.js';
 import {
   ScanBarcode,
   QrCode,
@@ -24,6 +26,34 @@ import {
 function generateStoreBarcode(): string {
   return `NMP-${Math.floor(100000 + Math.random() * 900000)}`;
 }
+
+/** Renders a real, scannable Code128 barcode via JsBarcode - used for both the on-screen preview
+ * and the printed label, so what you see is exactly what a scanner will read back. */
+const RealBarcodeSvg: React.FC<{ code: string; height?: number }> = ({ code, height = 34 }) => {
+  const svgRef = useRef<SVGSVGElement>(null);
+  useEffect(() => {
+    if (!svgRef.current || !code) return;
+    try {
+      JsBarcode(svgRef.current, code, {
+        format: 'CODE128',
+        width: 1.6,
+        height,
+        displayValue: false,
+        margin: 0
+      });
+    } catch {
+      // An invalid/empty code just leaves the barcode blank rather than crashing the preview
+    }
+  }, [code, height]);
+  return (
+    <>
+      <svg ref={svgRef} />
+      <span style={{ fontSize: '0.65rem', fontFamily: 'monospace', fontWeight: 800, letterSpacing: '1.5px', color: '#000', display: 'block', textAlign: 'center' }}>
+        {code}
+      </span>
+    </>
+  );
+};
 
 /**
  * The Speed-X SP-690UB's calibrated "true center" isn't at raw offset (0,0) — it's at
@@ -118,6 +148,33 @@ export const BarcodeView: React.FC = () => {
   const [isCameraActive, setIsCameraActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const scanInputRef = useRef<HTMLInputElement | null>(null);
+
+  // USB "keyboard wedge" barcode scanners type into whatever element has focus and send an Enter
+  // keystroke at the end. If the user clicks elsewhere on the page, the scan input loses focus and
+  // those keystrokes are silently dropped instead of being read. While the Scanner Hub tab is open,
+  // refocus the scan input whenever focus lands somewhere that isn't itself a text field, so a scan
+  // is captured no matter where the cursor was left.
+  useEffect(() => {
+    if (activeTab !== 'scanner') return;
+    const isTypableElement = (el: Element | null) =>
+      !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || (el as HTMLElement).isContentEditable);
+
+    const refocus = () => {
+      const active = document.activeElement;
+      if (!isTypableElement(active)) {
+        scanInputRef.current?.focus();
+      }
+    };
+
+    refocus();
+    document.addEventListener('focusin', refocus);
+    document.addEventListener('click', refocus);
+    return () => {
+      document.removeEventListener('focusin', refocus);
+      document.removeEventListener('click', refocus);
+    };
+  }, [activeTab]);
 
   // Generator & Thermal Roll State
   const [printMode, setPrintMode] = useState<'thermal' | 'a4'>('thermal');
@@ -518,108 +575,23 @@ export const BarcodeView: React.FC = () => {
     }
   };
 
-  // Direct Hardware Thermal Label Printing Trigger
-  const handlePrintThermalDirect = async () => {
-    if (isSubmittingJob) return;
-    setIsSubmittingJob(true);
-    setStatusNotice(null);
-
-    try {
-      const res = await fetch('/api/integrations/print-label', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          printerName: selectedPrinter,
-          medicineId: selectedMedId ? Number(selectedMedId) : null,
-          batchId: selectedBatchId ? Number(selectedBatchId) : null,
-          barcode: customBarcode,
-          quantity: labelCount,
-          labelData: {
-            pharmacyHeader: 'NAVEED MEDICAL PHARMACY',
-            brandName: customBrand,
-            strength: customStrength,
-            barcode: customBarcode,
-            batchNumber: customBatch,
-            expiryDate: customExpiry,
-            salePrice: customPrice
-          },
-          config: {
-            paperWidthMm: paperPreset === 'Custom' ? customWidthMm : getPresetDimensions(paperPreset).width,
-            paperHeightMm: paperPreset === 'Custom' ? customHeightMm : getPresetDimensions(paperPreset).height,
-            gapHeightMm,
-            horizontalOffsetMm,
-            verticalOffsetMm,
-            printSpeed,
-            density: printDensity,
-            barcodeOffsetXMm: BARCODE_BASE_OFFSET_X_MM + barcodeOffsetXMm,
-            barcodeOffsetYMm: BARCODE_BASE_OFFSET_Y_MM + barcodeOffsetYMm,
-            labelTopMarginMm: labelLayout.labelTopMarginMm,
-            gapHeaderBrandMm: labelLayout.gapHeaderBrandMm,
-            gapBrandStrengthMm: labelLayout.gapBrandStrengthMm,
-            gapStrengthBarcodeMm: labelLayout.gapStrengthBarcodeMm,
-            gapBrandBarcodeMm: labelLayout.gapBrandBarcodeMm,
-            gapBarcodeToTextMm: labelLayout.gapBarcodeToTextMm,
-            gapTextToBottomMm: labelLayout.gapTextToBottomMm,
-            gapBottomToPriceMm: labelLayout.gapBottomToPriceMm
-          }
-        })
-      });
-
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setStatusNotice({
-          text: `⚡ ${data.message || `Successfully sent ${labelCount} label(s) to ${selectedPrinter}!`}`,
-          type: 'success'
-        });
-      } else {
-        setStatusNotice({
-          text: `❌ Print Job Error: ${data.message || data.error || 'Failed to submit job to printer.'}`,
-          type: 'error'
-        });
-      }
-    } catch (err: any) {
-      setStatusNotice({ text: `❌ Network error: ${err.message}`, type: 'error' });
-    } finally {
-      setIsSubmittingJob(false);
-    }
+  // Prints via the browser's own print dialog, sized to the label's exact physical dimensions.
+  // A server-side raw-printer call only works when the backend process runs on the same machine
+  // as the printer; once hosted in the cloud it can never reach a printer on your desk, so this
+  // is the one approach that works regardless of where the app is hosted.
+  const handlePrintThermalDirect = () => {
+    const widthMm = paperPreset === 'Custom' ? customWidthMm : getPresetDimensions(paperPreset).width;
+    const heightMm = paperPreset === 'Custom' ? customHeightMm : getPresetDimensions(paperPreset).height;
+    printLabelElement('nmp-label-print-template', widthMm, heightMm, labelCount);
+    setStatusNotice({ text: `🖨️ Opening print dialog for ${labelCount} label(s) — choose your label printer there.`, type: 'success' });
   };
 
   // Test Print Label Trigger
-  const handleTestPrintLabel = async () => {
-    if (isSubmittingJob) return;
-    setIsSubmittingJob(true);
-    setStatusNotice(null);
-
-    try {
-      const res = await fetch('/api/integrations/print-test-label', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ printerName: selectedPrinter })
-      });
-
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setStatusNotice({
-          text: `✅ Test Label (38x28mm) printed on ${selectedPrinter}!`,
-          type: 'success'
-        });
-      } else {
-        setStatusNotice({
-          text: `❌ Test Print Error: ${data.message || data.error || 'Test label failed.'}`,
-          type: 'error'
-        });
-      }
-    } catch (err: any) {
-      setStatusNotice({ text: `❌ Network error: ${err.message}`, type: 'error' });
-    } finally {
-      setIsSubmittingJob(false);
-    }
+  const handleTestPrintLabel = () => {
+    const widthMm = paperPreset === 'Custom' ? customWidthMm : getPresetDimensions(paperPreset).width;
+    const heightMm = paperPreset === 'Custom' ? customHeightMm : getPresetDimensions(paperPreset).height;
+    printLabelElement('nmp-label-print-template', widthMm, heightMm, 1);
+    setStatusNotice({ text: `🖨️ Opening print dialog for a test label (${widthMm}x${heightMm}mm) — choose your label printer there.`, type: 'success' });
   };
 
   // Persists the current barcode-only offset (and the rest of the label config) so it's
@@ -750,34 +722,14 @@ export const BarcodeView: React.FC = () => {
 
   const activeDimensions = getPresetDimensions(paperPreset);
 
-  // Helper to render Code 128 style SVG bars
-  const renderSvgBarcode = (code: string) => {
-    const hash = code.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const bars: boolean[] = [];
-    for (let i = 0; i < 40; i++) {
-      bars.push((hash * (i + 7) + i * 13) % 3 !== 0);
-    }
-
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <svg width="140" height="38" viewBox="0 0 140 38">
-          {bars.map((isDark, idx) => (
-            <rect
-              key={idx}
-              x={idx * 3.2 + 4}
-              y="2"
-              width={isDark ? 2.4 : 1}
-              height="34"
-              fill="#000000"
-            />
-          ))}
-        </svg>
-        <span style={{ fontSize: '0.65rem', fontFamily: 'monospace', fontWeight: 800, letterSpacing: '1.5px', color: '#000' }}>
-          {code}
-        </span>
-      </div>
-    );
-  };
+  // Renders a real, scannable Code128 barcode (previously this drew pseudo-random decorative
+  // bars that could never actually be scanned back - the on-screen preview now matches what
+  // actually gets printed).
+  const renderSvgBarcode = (code: string) => (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <RealBarcodeSvg code={code} />
+    </div>
+  );
 
   return (
     <div className="view-container">
@@ -789,7 +741,7 @@ export const BarcodeView: React.FC = () => {
             Barcode Center & Speed-X Label Studio
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-            Professional direct thermal sticker printer integration for Naveed Medical Pharmacy (38x28mm presets).
+            Thermal sticker label printing for Naveed Medical Pharmacy (38x28mm presets). "Print Labels" and "Test Print" open your normal print dialog, where you pick your label printer — this works on any PC. Only "Calibrate Gap Sensor" needs the printer dropdown below, and that requires this app's backend to run directly on the printer's own Windows PC.
           </p>
         </div>
 
@@ -1459,29 +1411,17 @@ export const BarcodeView: React.FC = () => {
                   title={!customBarcode.trim() ? 'Generate a barcode first' : undefined}
                 >
                   <Printer size={18} />
-                  <span>{isSubmittingJob ? 'Sending to Speed-X...' : !customBarcode.trim() ? 'Generate a barcode first' : `PRINT LABELS (${labelCount} Copies)`}</span>
+                  <span>{!customBarcode.trim() ? 'Generate a barcode first' : `PRINT LABELS (${labelCount} Copies)`}</span>
                 </button>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                  <button
-                    type="button"
-                    onClick={handleTestPrintLabel}
-                    disabled={isSubmittingJob}
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontWeight: 700, padding: '0.5rem' }}
-                  >
-                    Test Print (38x28)
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontWeight: 700, padding: '0.5rem' }}
-                  >
-                    Browser Print
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={handleTestPrintLabel}
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontWeight: 700, padding: '0.5rem' }}
+                >
+                  Test Print (38x28)
+                </button>
 
                 <button
                   type="button"
@@ -1489,7 +1429,7 @@ export const BarcodeView: React.FC = () => {
                   disabled={isSubmittingJob}
                   className="btn btn-secondary btn-sm"
                   style={{ fontWeight: 700, padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
-                  title="Run this after loading new label stock, or if prints overlap/drift between labels"
+                  title="Direct hardware calibration - only works when this app's backend runs natively on the Windows POS computer itself, not on cloud hosting. Run this after loading new label stock, or if prints overlap/drift between labels."
                 >
                   <Sliders size={14} />
                   <span>Calibrate Gap Sensor</span>
@@ -1598,6 +1538,34 @@ export const BarcodeView: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Hidden print-only template, sized in real mm (not the 8x-zoomed on-screen preview
+                above) so what prints matches the label's actual physical dimensions. */}
+            <div style={{ display: 'none' }}>
+              <div id="nmp-label-print-template">
+                <div style={{
+                  width: `${activeDimensions.width}mm`, height: `${activeDimensions.height}mm`,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between',
+                  boxSizing: 'border-box', padding: '1mm 1.2mm', overflow: 'hidden', fontFamily: 'Arial, sans-serif'
+                }}>
+                  <div style={{ fontSize: '2mm', fontWeight: 800, letterSpacing: '0.1mm', textTransform: 'uppercase', color: '#000', borderBottom: '0.15mm solid #000', width: '100%', textAlign: 'center' }}>
+                    NAVEED MEDICAL PHARMACY
+                  </div>
+                  <div style={{ textAlign: 'center', width: '100%' }}>
+                    <div style={{ fontSize: '2.8mm', fontWeight: 900, color: '#000', lineHeight: 1.1 }}>{customBrand}</div>
+                    {customStrength && <div style={{ fontSize: '2.2mm', color: '#000', fontWeight: 700 }}>{customStrength}</div>}
+                  </div>
+                  <div style={{ margin: '0.3mm 0' }}>
+                    <RealBarcodeSvg code={customBarcode} height={Math.round(activeDimensions.height * 2.2)} />
+                  </div>
+                  <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', fontSize: '1.8mm', color: '#000', borderTop: '0.15mm solid #000', paddingTop: '0.3mm' }}>
+                    <span>Batch:{customBatch}</span>
+                    <span>EXP:{customExpiry}</span>
+                    <span style={{ fontWeight: 900 }}>Rs. {customPrice}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1623,6 +1591,7 @@ export const BarcodeView: React.FC = () => {
                   <div style={{ position: 'relative', flex: 1 }}>
                     <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                     <input
+                      ref={scanInputRef}
                       type="text"
                       className="input"
                       style={{ paddingLeft: '2.25rem' }}

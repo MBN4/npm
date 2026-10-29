@@ -322,38 +322,15 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
   const [scannedNotFoundCode, setScannedNotFoundCode] = useState<string | null>(null);
   const [editingDescriptionIndex, setEditingDescriptionIndex] = useState<number | null>(null);
   const [settings, setSettings] = useState<Record<string, string>>({});
-  const [directPrinting, setDirectPrinting] = useState(false);
   const [autoPrint, setAutoPrint] = useState<boolean>(() => {
     return localStorage.getItem('nmp_autoprint') === 'true';
   });
 
-  const handleDirectHardwarePrint = async (invNum?: string) => {
-    const num = invNum || lastInvoice?.invoiceNumber;
-    if (!num) return;
-    setDirectPrinting(true);
-    try {
-      const res = await fetch('/api/integrations/print-receipt-direct', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          invoiceNumber: num,
-          printerName: 'Speed-X 400UL'
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setInfoMessage(data.message || 'Receipt printed directly on Speed-X hardware.');
-      } else {
-        setErrorMessage(data.message || 'Speed-X printer not detected. You can use the Dialog print option.');
-      }
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Direct print error.');
-    } finally {
-      setDirectPrinting(false);
-    }
+  // Prints via the browser's own print dialog rather than a server-side raw-printer call: the
+  // latter only works when the backend process runs on the same machine as the printer, which
+  // cloud hosting rules out entirely (the printer is on your desk, the server isn't).
+  const handleDirectHardwarePrint = (_invNum?: string) => {
+    printThermalElement('nmp-pos-receipt', (settings['printer_paper_width'] as any) || '80mm');
   };
 
   const autoCompleteQrSale = async (eventData: any, method: any) => {
@@ -2196,24 +2173,13 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
             <div style={{ padding: '1rem', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button
-                  onClick={() => handleDirectHardwarePrint()}
-                  disabled={directPrinting}
+                  onClick={handlePrintReceipt}
                   className="btn btn-primary"
                   style={{ flex: 1.4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontWeight: 700 }}
-                  title="Direct 1-Click Hardware Print to Speed-X"
+                  title="Opens your system print dialog - pick your receipt printer there"
                 >
                   <Printer size={16} />
-                  <span>{directPrinting ? 'Printing...' : '⚡ Print to Speed-X'}</span>
-                </button>
-
-                <button
-                  onClick={handlePrintReceipt}
-                  className="btn btn-secondary"
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', fontSize: '0.78rem' }}
-                  title="Open standard browser print dialog"
-                >
-                  <Printer size={14} />
-                  <span>Dialog</span>
+                  <span>Print Receipt</span>
                 </button>
 
                 <button

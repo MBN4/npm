@@ -87,7 +87,6 @@ export const SettingsView: React.FC = () => {
   // CSV Import state (Phase 11)
   const [csvContent, setCsvContent] = useState<string>('');
   const [importResult, setImportResult] = useState<{ insertedCount?: number; errorCount?: number; message?: string } | null>(null);
-  const [directPrinting, setDirectPrinting] = useState(false);
 
   // Speed-X Thermal Label Printer state
   const [installedPrinters, setInstalledPrinters] = useState<Array<{ name: string; driver: string; port: string; isDefault: boolean; status: string }>>([]);
@@ -209,31 +208,6 @@ export const SettingsView: React.FC = () => {
       setStatusMessage({ text: err.message || 'Network error on test print label', type: 'error' });
     } finally {
       setLabelTesting(false);
-    }
-  };
-
-  const handleDirectTestPrint = async () => {
-    setDirectPrinting(true);
-    setStatusMessage(null);
-    try {
-      const res = await fetch('/api/integrations/print-test-direct', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ printerName: 'Speed-X 400UL' })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setStatusMessage({ text: data.message || 'Direct hardware test print sent to Speed-X 400UL!', type: 'success' });
-      } else {
-        setStatusMessage({ text: data.error || 'Direct print failed', type: 'error' });
-      }
-    } catch (err: any) {
-      setStatusMessage({ text: err.message || 'Network error on direct print', type: 'error' });
-    } finally {
-      setDirectPrinting(false);
     }
   };
 
@@ -1076,25 +1050,13 @@ export const SettingsView: React.FC = () => {
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <button
                   type="button"
-                  onClick={handleDirectTestPrint}
-                  disabled={directPrinting}
+                  onClick={() => printThermalElement('nmp-settings-receipt-preview', (settings['printer_paper_width'] as any) || '80mm')}
                   className="btn btn-primary btn-sm"
                   style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700 }}
-                  title="Direct 1-Click Hardware Print to Speed-X 400UL (No Dialog)"
-                >
-                  <Printer size={14} />
-                  <span>{directPrinting ? 'Sending to Speed-X...' : '⚡ Direct Print to Speed-X (No Dialog)'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => printThermalElement('nmp-settings-receipt-preview', (settings['printer_paper_width'] as any) || '80mm')}
-                  className="btn btn-secondary btn-sm"
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700, backgroundColor: 'var(--bg-app)', border: '1px solid var(--border)' }}
                   title="Open standard browser print dialogue"
                 >
                   <Printer size={14} />
-                  <span>Browser Print Dialog</span>
+                  <span>Test Print</span>
                 </button>
               </div>
             </div>

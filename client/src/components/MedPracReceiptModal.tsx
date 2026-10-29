@@ -1,7 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { X, Printer } from 'lucide-react';
 import { MedPracVisit } from '../types/medprac.js';
-import { useAuth } from '../context/AuthContext.js';
 import { printThermalElement } from '../utils/thermalPrinter.js';
 
 interface MedPracReceiptModalProps {
@@ -11,32 +10,17 @@ interface MedPracReceiptModalProps {
 
 export const MedPracReceiptModal: React.FC<MedPracReceiptModalProps> = ({ visit, onClose }) => {
   const thermalRef = useRef<HTMLDivElement>(null);
-  const { token } = useAuth();
   const [printing, setPrinting] = useState(false);
   const [printMessage, setPrintMessage] = useState('');
 
-  const handlePrint = async () => {
+  // Prints via the browser's own print dialog, since a server-side raw-printer call can only
+  // reach a printer physically attached to the same machine the backend process runs on - which
+  // cloud hosting makes impossible (the printer is on your desk, the server isn't).
+  const handlePrint = () => {
     setPrinting(true);
-    setPrintMessage('');
-    try {
-      const response = await fetch('/api/integrations/print-medprac-direct', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ visitId: visit.visit_id })
-      });
-      const result = await response.json();
-      if (response.ok && result.success) {
-        setPrintMessage(result.message || 'MedPrac slip sent to the POS printer.');
-      } else {
-        setPrintMessage(result.message || 'Choose the POS printer in the print dialog.');
-        if (thermalRef.current) printThermalElement(thermalRef.current);
-      }
-    } catch {
-      setPrintMessage('Choose the POS printer in the print dialog.');
-      if (thermalRef.current) printThermalElement(thermalRef.current);
-    } finally {
-      setPrinting(false);
-    }
+    setPrintMessage('Choose the POS printer in the print dialog.');
+    if (thermalRef.current) printThermalElement(thermalRef.current);
+    setPrinting(false);
   };
 
   const formattedDate = new Date(visit.visit_date).toLocaleString('en-US', {

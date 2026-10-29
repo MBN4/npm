@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.js';
+import { printThermalElement } from '../utils/thermalPrinter.js';
 import {
   Search,
   ShoppingCart,
@@ -389,30 +390,13 @@ export const CashMemoView: React.FC = () => {
     };
   };
 
-  const handleDirectHardwarePrint = async (invNum?: string) => {
-    const num = invNum || lastInvoice?.invoiceNumber || 'NMP-2025-000123';
+  // Prints via the browser's own print dialog, since a server-side raw-printer call can only
+  // reach a printer physically attached to the same machine the backend process runs on - which
+  // cloud hosting makes impossible (the printer is on your desk, the server isn't).
+  const handleDirectHardwarePrint = (_invNum?: string) => {
     setDirectPrinting(true);
     try {
-      const res = await fetch('/api/integrations/print-receipt-direct', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          invoiceNumber: num,
-          printerName: 'Speed-X 400UL',
-          invoiceData: getCashMemoInvoiceData()
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setInfoMessage(data.message || 'Receipt printed directly on Speed-X 400UL hardware.');
-      } else {
-        setInfoMessage(data.message || 'Speed-X printer command sent.');
-      }
-    } catch (err: any) {
-      setInfoMessage(err.message || 'Direct print error.');
+      printThermalElement('speedx-400ul-slip-printable', '80mm');
     } finally {
       setDirectPrinting(false);
     }

@@ -12,7 +12,6 @@ import {
   RefreshCw,
   Copy,
   Check,
-  Receipt,
   Calendar,
   Layers,
   ChevronRight,
@@ -221,42 +220,15 @@ export const BillHistoryView: React.FC = () => {
     }
   };
 
-  // Direct Hardware Print to Speed-X 400UL
-  const handleDirectHardwarePrint = async () => {
+  // Prints via the browser's own print dialog, since a server-side raw-printer call can only
+  // reach a printer physically attached to the same machine the backend process runs on - which
+  // cloud hosting makes impossible (the printer is on your desk, the server isn't).
+  const handleDirectHardwarePrint = () => {
     if (!saleData) return;
     setDirectPrinting(true);
     setErrorMessage(null);
-    try {
-      const res = await fetch('/api/integrations/print-receipt-direct', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          invoiceNumber: saleData.invoice_number,
-          printerName: 'Speed-X 400UL'
-        })
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        setInfoMessage(data.message || 'Bill slip reprinted directly on Speed-X 400UL.');
-      } else {
-        setErrorMessage(data.message || 'Speed-X printer offline. You can use standard Print Dialog.');
-        printThermalElement('bill-history-thermal-slip', (settings['printer_paper_width'] as any) || '80mm');
-      }
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Direct print failed.');
-      printThermalElement('bill-history-thermal-slip', (settings['printer_paper_width'] as any) || '80mm');
-    } finally {
-      setDirectPrinting(false);
-    }
-  };
-
-  // Browser Thermal Print
-  const handleThermalDialogPrint = () => {
     printThermalElement('bill-history-thermal-slip', (settings['printer_paper_width'] as any) || '80mm');
+    setDirectPrinting(false);
   };
 
   // Copy invoice number
@@ -617,20 +589,10 @@ export const BillHistoryView: React.FC = () => {
                   disabled={directPrinting}
                   className="btn btn-primary"
                   style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 800 }}
-                  title="Direct 1-Click Hardware Thermal Print to Speed-X 400UL"
+                  title="Print Thermal Slip"
                 >
                   <Printer size={16} />
-                  <span>{directPrinting ? 'Printing...' : '⚡ Print to Speed-X 400UL'}</span>
-                </button>
-
-                <button
-                  onClick={handleThermalDialogPrint}
-                  className="btn btn-secondary"
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                  title="Print Thermal 80mm slip via browser dialog"
-                >
-                  <Receipt size={16} />
-                  <span>80mm Slip Dialog</span>
+                  <span>{directPrinting ? 'Printing...' : 'Print Receipt'}</span>
                 </button>
 
                 <button

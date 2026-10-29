@@ -47,8 +47,7 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
   isOpen,
   onClose,
   invoiceData,
-  settings = {},
-  token = null
+  settings = {}
 }) => {
   const [printFormat, setPrintFormat] = useState<'SPEED_X_80MM' | 'A4_FULL'>('A4_FULL');
   const [printingStatus, setPrintingStatus] = useState<string | null>(null);
@@ -85,43 +84,13 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
   const paymentMethod = invoiceData.paymentMethod || 'Cash';
   const notes = invoiceData.notes || 'Thank you for your purchase.';
 
-  // DIRECT HARDWARE THERMAL PRINT (NO BROWSER DIALOG)
-  const handleDirectSpeedXPrint = async () => {
-    setPrintingStatus('Printing directly to Speed-X 400UL...');
-    try {
-      const response = await fetch('/api/integrations/print-receipt-direct', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          invoiceNumber: invNo,
-          printerName: 'Speed-X 400UL',
-          invoiceData: {
-            ...invoiceData,
-            date: displayDate,
-            time: displayTime,
-            cashierName: cashier,
-            customerName: custName
-          }
-        })
-      });
-
-      const result = await response.json();
-      if (response.ok && result.success) {
-        setPrintingStatus('✓ Bill slip sent directly to Speed-X 400UL printer!');
-        setTimeout(() => setPrintingStatus(null), 4000);
-      } else {
-        setPrintingStatus('Printing via browser dialog fallback...');
-        printThermalElement('speedx-400ul-slip-printable', '80mm');
-        setTimeout(() => setPrintingStatus(null), 4000);
-      }
-    } catch {
-      setPrintingStatus('Printing via browser dialog...');
-      printThermalElement('speedx-400ul-slip-printable', '80mm');
-      setTimeout(() => setPrintingStatus(null), 4000);
-    }
+  // Prints via the browser's own print dialog, since a server-side raw-printer call can only
+  // reach a printer physically attached to the same machine the backend process runs on - which
+  // cloud hosting makes impossible (the printer is on your desk, the server isn't).
+  const handleDirectSpeedXPrint = () => {
+    setPrintingStatus('Printing...');
+    printThermalElement('speedx-400ul-slip-printable', '80mm');
+    setTimeout(() => setPrintingStatus(null), 4000);
   };
 
   const handleA4Print = () => {
