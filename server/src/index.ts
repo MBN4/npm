@@ -2,6 +2,9 @@ import express, { Request, Response, NextFunction } from 'express';
 // NMP Server Entry Point - Precision TSPL Engine Loaded
 import cors from 'cors';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { initDatabase } from './db/index.js';
 import { authRouter } from './routes/authRoutes.js';
 import { userRouter } from './routes/userRoutes.js';
@@ -34,6 +37,9 @@ import { activityRouter } from './routes/activityRoutes.js';
 import { classificationRouter } from './routes/classificationRoutes.js';
 import { scheduleBDRouter } from './routes/scheduleBDRoutes.js';
 import { securityHeaders } from './middleware/security.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -108,6 +114,24 @@ app.use('/api/billing-persons', billingPersonRouter);
 app.use('/api/activity', activityRouter);
 app.use('/api/classifications', classificationRouter);
 app.use('/api/schedule-bd', scheduleBDRouter);
+
+// Local-fallback mode only: on the cloud deployment, Vercel serves the client and proxies /api/*
+// to this server (see client/vercel.json), so this server never serves HTML there. On the
+// pharmacy PC's offline-backup instance there's no Vercel, so this same server serves the built
+// client directly - the client already calls relative '/api/...' paths, so no client code or
+// build needs to differ between the two deployments, only this flag.
+if (process.env.SERVE_LOCAL_CLIENT === 'true') {
+  const clientDistPath = path.resolve(__dirname, '../../client/dist');
+  if (fs.existsSync(path.join(clientDistPath, 'index.html'))) {
+    app.use(express.static(clientDistPath));
+    app.get(/^\/(?!api\/).*/, (_req: Request, res: Response) => {
+      res.sendFile(path.join(clientDistPath, 'index.html'));
+    });
+    console.log(`[local-fallback] Serving client build from ${clientDistPath}`);
+  } else {
+    console.warn(`[local-fallback] SERVE_LOCAL_CLIENT=true but no build found at ${clientDistPath} - run "npm run build" in client/ first`);
+  }
+}
 
 // Global 404 Handler
 app.use((req: Request, res: Response) => {
