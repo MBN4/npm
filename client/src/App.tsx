@@ -29,6 +29,7 @@ import { MedPracView } from './views/MedPracView.js';
 import { UdhaarView } from './views/UdhaarView.js';
 import { ActivityLogView } from './views/ActivityLogView.js';
 import { UpcomingPhaseView } from './views/UpcomingPhaseView.js';
+import { LocalFallbackReconcileView } from './views/LocalFallbackReconcileView.js';
 
 export const AppContent: React.FC = () => {
   const { user, isLoading } = useAuth();
@@ -98,6 +99,8 @@ export const AppContent: React.FC = () => {
         return <ReportsView />;
       case 'staff':
         return <StaffView />;
+      case 'local-fallback-reconcile':
+        return <LocalFallbackReconcileView />;
       case 'settings':
         return <SettingsView />;
       default:

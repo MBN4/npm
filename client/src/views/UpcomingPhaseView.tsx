@@ -27,6 +27,7 @@ const phaseDetails: Record<NavView, { phase: string; title: string; desc: string
   activity: { phase: 'Live', title: 'Activity Log', desc: 'Unified chronological feed of every bill, Udhaar entry, cash-out, and stock movement.' },
   reports: { phase: 'Live', title: 'Business Reports', desc: 'Sales velocity, fast/slow movers, cashier audit, profit margins, and export to CSV.' },
   staff: { phase: 'Live', title: 'Staff & Audit', desc: 'User management, roles, and immutable audit logs.' },
+  'local-fallback-reconcile': { phase: 'Live', title: 'Outage Reconciliation', desc: 'Review outage-time records from the offline-backup instance and send approved ones to the cloud.' },
   settings: { phase: 'Live', title: 'System Settings', desc: 'Pharmacy info, tax rates, receipt formatting, and backup configurations.' }
 };
 

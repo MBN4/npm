@@ -7,6 +7,21 @@ import { logAudit } from './auditService.js';
 const REPO_ROOT = path.resolve(process.cwd(), '..');
 const SYNC_DATA_RELATIVE_PATH = path.posix.join('server', 'data', 'sync_data.json');
 
+// exportSyncData() always writes to this one fixed, repo-relative path regardless of which
+// database connection actually produced the export - it has no notion of DB_PATH. That's fine
+// for the one real instance this app is meant to run as, but it means ANY second server process
+// started with a different DB_PATH (a scratch/test DB, a second local instance for verification,
+// the local-fallback instance on the pharmacy PC) would silently overwrite this real repo's
+// sync_data.json with its own unrelated database's content and push that straight to GitHub.
+// Guard against that: only ever auto-sync when this process is actually using the one canonical
+// database path the rest of the app treats as "the real one".
+const CANONICAL_DB_PATH = path.resolve(REPO_ROOT, 'server', 'data', 'nmp.sqlite');
+function isCanonicalDatabase(): boolean {
+  if (process.env.NODE_ENV === 'test') return false;
+  const configuredPath = process.env.DB_PATH ? path.resolve(process.env.DB_PATH) : CANONICAL_DB_PATH;
+  return configuredPath === CANONICAL_DB_PATH;
+}
+
 function runGit(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('git', args, { cwd: REPO_ROOT, windowsHide: true }, (err, stdout, stderr) => {
@@ -39,6 +54,9 @@ let queue: Promise<void> = Promise.resolve();
  * local commit (if it succeeded) still protects the data until the next successful push.
  */
 export function triggerAutoSync(reason: string): Promise<void> {
+  if (!isCanonicalDatabase()) {
+    return Promise.resolve();
+  }
   queue = queue.then(() => doAutoSync(reason)).catch((err) => {
     console.error(`[auto-sync] failed (${reason}):`, err.message || err);
     logAudit({ action: 'AUTO_SYNC_FAILED', entity: 'sync_data', details: { reason, error: err.message || String(err) } });

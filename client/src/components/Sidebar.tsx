@@ -22,7 +22,8 @@ import {
   Settings,
   History,
   RotateCcw,
-  ClipboardList
+  ClipboardList,
+  CloudUpload
 } from 'lucide-react';
 
 export type NavView =
@@ -50,6 +51,7 @@ export type NavView =
   | 'activity'
   | 'reports'
   | 'staff'
+  | 'local-fallback-reconcile'
   | 'settings';
 
 interface SidebarProps {
@@ -85,6 +87,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => 
     { id: 'activity', label: 'Activity Log', icon: <History size={18} />, permission: 'view_accounts' },
     { id: 'reports', label: 'Reports', icon: <BarChart3 size={18} />, permission: 'export_data' },
     { id: 'staff', label: 'Staff & Audit', icon: <ShieldCheck size={18} />, adminOnly: true },
+    { id: 'local-fallback-reconcile', label: 'Outage Reconciliation', icon: <CloudUpload size={18} />, permission: 'create_purchases' },
     { id: 'settings', label: 'Settings', icon: <Settings size={18} />, adminOnly: true }
   ];
 
