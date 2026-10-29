@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { initDatabase } from './db/index.js';
+import { authenticateToken, AuthenticatedRequest } from './middleware/auth.js';
 import { authRouter } from './routes/authRoutes.js';
 import { userRouter } from './routes/userRoutes.js';
 import { auditRouter } from './routes/auditRoutes.js';
@@ -82,6 +83,23 @@ app.get('/api/health', (req: Request, res: Response) => {
   });
 });
 
+// Local-fallback mode only: lets staff (and the client's status indicator) see whether this
+// offline-backup instance is currently paused from auto-syncing because it has outage-time
+// activity waiting on reconciliation.
+if (process.env.ENABLE_LOCAL_FALLBACK_SYNC === 'true') {
+  app.get('/api/local-fallback/sync-status', authenticateToken, async (_req: AuthenticatedRequest, res: Response) => {
+    const { getLocalFallbackSyncStatus } = await import('./services/localFallbackSyncService.js');
+    res.json(getLocalFallbackSyncStatus());
+  });
+
+  app.post('/api/local-fallback/sync-now', authenticateToken, async (_req: AuthenticatedRequest, res: Response) => {
+    const { pullAndImportCatalogIfClean } = await import('./services/localFallbackSyncService.js');
+    const repoRoot = path.resolve(__dirname, '../..');
+    const result = await pullAndImportCatalogIfClean(repoRoot);
+    res.json(result);
+  });
+}
+
 // API Routes
 app.use('/api/auth', authRouter);
 app.use('/api/users', userRouter);
@@ -155,4 +173,12 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`  Database: SQLite WAL Mode with Foreign Keys       `);
     console.log(`====================================================`);
   });
+
+  if (process.env.ENABLE_LOCAL_FALLBACK_SYNC === 'true') {
+    import('./services/localFallbackSyncService.js').then(({ startLocalFallbackSync }) => {
+      const repoRoot = path.resolve(__dirname, '../..');
+      startLocalFallbackSync(repoRoot, 15);
+      console.log(`[local-fallback-sync] Background catalog sync enabled (repo root: ${repoRoot})`);
+    });
+  }
 }

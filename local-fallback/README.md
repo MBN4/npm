@@ -19,8 +19,11 @@ time** - that's how duplicate invoices or wrong stock counts happen.
    Command Prompt and type `node --version` - if you see a version number, skip this
    step.)
 
-2. **Get the app onto this PC.** Copy the whole project folder here (the same one
-   that's deployed to Vercel/Fly.io), or `git clone` it if Git is set up on this PC.
+2. **Get the app onto this PC via Git, not a plain copy.** Install Git
+   (https://git-scm.com) if it isn't already, then `git clone` the project's
+   repository into a folder on this PC. A plain copy would also run, but it
+   can't auto-refresh itself from the cloud (see "Keeping it up to date" below) -
+   that part relies on this being a real Git checkout so it can `git pull`.
 
 3. **Install dependencies and build**, open Command Prompt in the project folder and run:
    ```
@@ -44,9 +47,10 @@ time** - that's how duplicate invoices or wrong stock counts happen.
    database. Change this password the first time you log into the backup instance.
 
    This default login is separate from your real staff logins on the cloud system.
-   Stage 2 (catalog sync, not built yet) will bring your real patient/medicine data
-   and eventually real staff accounts into this local copy automatically - until
-   then, this backup instance only has whatever you manually add to it.
+   Catalog sync (medicines, prices, suppliers, classifications) now happens
+   automatically - see "Keeping it up to date" below - but staff accounts
+   themselves are not synced yet, so logins on this backup instance stay
+   separate from the cloud system for now.
 
 5. **Change the local secret.** Open `local-fallback\start-local-fallback.bat` in
    Notepad and replace `change_this_to_a_random_local_secret` with any random string
@@ -90,10 +94,28 @@ Until Stage 3 exists: keep a simple paper note of what was sold/dispensed locall
 during the outage, and re-enter it into the cloud system by hand once it's back,
 the same way you would with any manual fallback.
 
+## Keeping it up to date (automatic)
+
+While this instance is running with internet available and hasn't been used for
+any outage-time activity yet, it quietly pulls the latest medicines, prices,
+suppliers, and drug classifications from the cloud every 15 minutes on its own -
+no action needed. You can also trigger it immediately (useful right after setup,
+or to confirm it's working) by sending a request to
+`POST http://127.0.0.1:5050/api/local-fallback/sync-now` while logged in, or
+check its current state at `GET http://127.0.0.1:5050/api/local-fallback/sync-status`.
+
+**The moment this instance is used during a real outage** (any new patient, sale,
+purchase, or medicine added locally), this automatic sync pauses itself
+completely - on purpose. It will not resume until Stage 3's reconciliation screen
+(see "After the outage ends" above) is built and run, because pulling fresh cloud
+data into an instance that now has its own unreconciled local changes risks
+silently overwriting or duplicating real records. The sync-status endpoint will
+show `isDirty: true` with a `dirtyReason` explaining what it found.
+
 ## Current limitations (being worked on)
 
-- No automatic data sync yet (Stage 2) - this local copy won't have today's new
-  patients/medicines/prices unless manually kept up to date.
 - No reconciliation screen yet (Stage 3) - outage-time sales/patients must be
-  re-entered into the cloud system by hand afterward.
-- Separate login from the cloud system until Stage 2 lands.
+  re-entered into the cloud system by hand afterward, and automatic catalog sync
+  stays paused until that's done (see above).
+- Separate login from the cloud system - Stage 2 only syncs catalog/reference
+  data, not staff accounts.

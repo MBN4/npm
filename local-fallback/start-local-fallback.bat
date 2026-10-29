@@ -12,6 +12,7 @@ set NODE_ENV=production
 set JWT_SECRET=change_this_to_a_random_local_secret
 set DB_PATH=./data/nmp-local-fallback.sqlite
 set SERVE_LOCAL_CLIENT=true
+set ENABLE_LOCAL_FALLBACK_SYNC=true
 
 echo Starting NMP offline-backup instance...
 echo Once it says "Running on: http://127.0.0.1:5050", open that address in your browser.
