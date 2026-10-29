@@ -8,6 +8,7 @@ import {
   Truck,
   Building2,
   ScanBarcode,
+  ScanLine,
   BookOpen,
   Bot,
   FlaskConical,
@@ -32,6 +33,7 @@ export type NavView =
   | 'medicines'
   | 'inventory'
   | 'purchases'
+  | 'invoice-scans'
   | 'suppliers'
   | 'barcode'
   | 'dictionary'
@@ -66,6 +68,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => 
     { id: 'medicines', label: 'Medicines Master', icon: <Pill size={18} /> , permission: 'manage_medicines' },
     { id: 'inventory', label: 'Inventory & Stock', icon: <Boxes size={18} />, permission: 'manage_inventory' },
     { id: 'purchases', label: 'Purchases', icon: <Truck size={18} />, permission: 'view_purchases' },
+    { id: 'invoice-scans', label: 'Scanned Invoices', icon: <ScanLine size={18} />, permission: 'view_purchases', badge: 'SCAN' },
     { id: 'suppliers', label: 'Suppliers', icon: <Building2 size={18} />, permission: 'manage_suppliers' },
     { id: 'barcode', label: 'Barcode Center', icon: <ScanBarcode size={18} /> },
     { id: 'dictionary', label: 'Pharma Dictionary 📚', icon: <BookOpen size={18} /> },

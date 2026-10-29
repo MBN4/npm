@@ -5,8 +5,11 @@ import {
   Plus,
   RefreshCw,
   X,
-  Trash2
+  Trash2,
+  Camera
 } from 'lucide-react';
+import { ScanUploadModal } from '../components/ScanUploadModal.js';
+import { InvoiceScanReviewView } from './InvoiceScanReviewView.js';
 
 export interface PurchaseInvoice {
   id: number;
@@ -46,6 +49,10 @@ export const PurchasesView: React.FC = () => {
   const [medicines, setMedicines] = useState<{ id: number; brand_name: string; strength?: string }[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // Scan Invoice flow
+  const [showScanUpload, setShowScanUpload] = useState(false);
+  const [reviewScanId, setReviewScanId] = useState<number | null>(null);
 
   // New Invoice Modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -230,10 +237,23 @@ export const PurchasesView: React.FC = () => {
     }
   };
 
+  if (reviewScanId !== null) {
+    return (
+      <div className="page-container">
+        <InvoiceScanReviewView
+          scanId={reviewScanId}
+          onClose={() => { setReviewScanId(null); fetchPurchases(); }}
+          onOpenScan={id => setReviewScanId(id)}
+          onCommitted={() => fetchPurchases()}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="page-container">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 style={{ fontSize: '1.4rem', fontWeight: 800 }}>Purchases & Inward Orders</h1>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
@@ -254,6 +274,19 @@ export const PurchasesView: React.FC = () => {
           )}
         </div>
       </div>
+
+      {hasPermission('create_purchases') && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1.5rem' }}>
+          <button
+            onClick={() => setShowScanUpload(true)}
+            className="btn btn-primary"
+            style={{ padding: '0.85rem 2rem', fontSize: '0.95rem', boxShadow: 'var(--shadow-md)' }}
+          >
+            <Camera size={20} />
+            <span>Scan Invoice (Camera / Upload)</span>
+          </button>
+        </div>
+      )}
 
       {statusMessage && (
         <div
@@ -566,6 +599,13 @@ export const PurchasesView: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {showScanUpload && (
+        <ScanUploadModal
+          onClose={() => setShowScanUpload(false)}
+          onCreated={id => { setShowScanUpload(false); setReviewScanId(id); }}
+        />
       )}
     </div>
   );

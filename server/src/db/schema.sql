@@ -197,9 +197,19 @@ CREATE TABLE IF NOT EXISTS purchases (
   payment_method TEXT DEFAULT 'CASH',
   created_by INTEGER,
   notes TEXT,
+  scan_id INTEGER, -- set when this purchase was created by committing a scanned-invoice draft
+  is_schedule_b INTEGER DEFAULT 0,
+  is_schedule_d INTEGER DEFAULT 0,
+  reviewed_by INTEGER,
+  reviewed_at DATETIME,
+  committed_by INTEGER,
+  committed_at DATETIME,
+  request_key TEXT UNIQUE, -- idempotency key: prevents duplicate posting from repeated commit clicks/retries
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id),
-  FOREIGN KEY (created_by) REFERENCES users(id)
+  FOREIGN KEY (created_by) REFERENCES users(id),
+  FOREIGN KEY (reviewed_by) REFERENCES users(id),
+  FOREIGN KEY (committed_by) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS purchase_items (
@@ -216,9 +226,129 @@ CREATE TABLE IF NOT EXISTS purchase_items (
   bonus_quantity INTEGER DEFAULT 0,
   line_discount REAL DEFAULT 0.0,
   line_total REAL NOT NULL,
+  scan_item_id INTEGER, -- traceability back to the scanned invoice line this was confirmed from
+  packaging_type TEXT, -- STRIP_BOX, BOTTLE, TUBE, SACHET, LOOSE, OTHER
+  boxes_received REAL, -- or bottles/tubes/sachets received, per packaging_type
+  printed_mrp_per_box REAL, -- manually entered from the physical box - never copied from purchase cost
+  strips_per_box INTEGER,
+  units_per_strip INTEGER,
+  confirmed_purchase_cost_per_box REAL, -- NULL means "Not available" - never defaulted to 0 or MRP
+  rate_basis TEXT, -- PER_BOX, PER_STRIP, PER_UNIT, PER_BOTTLE, PER_TUBE, UNKNOWN
+  bonus_quantity_basis TEXT, -- BOXES, STRIPS, UNITS - what bonus_quantity is denominated in before stock conversion
+  is_schedule_b INTEGER DEFAULT 0,
+  is_schedule_d INTEGER DEFAULT 0,
   FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE CASCADE,
   FOREIGN KEY (medicine_id) REFERENCES medicines(id),
-  FOREIGN KEY (batch_id) REFERENCES batches(id)
+  FOREIGN KEY (batch_id) REFERENCES batches(id),
+  FOREIGN KEY (scan_item_id) REFERENCES purchase_invoice_scan_items(id)
+);
+
+-- Scanned/uploaded invoice drafts (camera capture, image upload, or PDF - possibly multiple pages).
+-- A scan is a pure draft: it never touches stock. Only committing it (creating the linked `purchases`
+-- row via the existing atomic purchase transaction) updates stock, batches, and the supplier ledger.
+CREATE TABLE IF NOT EXISTS purchase_invoice_scans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  status TEXT NOT NULL DEFAULT 'DRAFT', -- DRAFT, REVIEWED, COMMITTED, VOID
+  supplier_id INTEGER, -- set once matched/confirmed against the supplier catalog
+  supplier_name_raw TEXT, -- as read from the invoice, before matching
+  invoice_number_raw TEXT,
+  invoice_date_raw TEXT,
+  document_type TEXT, -- INVOICE, QUOTATION, ESTIMATE, UNKNOWN - detected from wording, user-confirmable
+  goods_received_confirmed INTEGER DEFAULT 0, -- must be explicitly confirmed before commit when not a plain INVOICE
+  calculated_total REAL, -- sum of extracted/edited line totals
+  printed_total_raw REAL, -- total as printed on the invoice, if read
+  total_mismatch_flag INTEGER DEFAULT 0,
+  is_schedule_b INTEGER DEFAULT 0,
+  is_schedule_d INTEGER DEFAULT 0,
+  duplicate_of_scan_id INTEGER, -- set when invoice_number+supplier matches an existing scan/purchase
+  raw_ocr_text TEXT,
+  notes TEXT,
+  purchase_id INTEGER, -- set once committed
+  request_key TEXT UNIQUE, -- idempotency key for the commit action
+  created_by INTEGER,
+  reviewed_by INTEGER,
+  reviewed_at DATETIME,
+  committed_by INTEGER,
+  committed_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (supplier_id) REFERENCES suppliers(id),
+  FOREIGN KEY (duplicate_of_scan_id) REFERENCES purchase_invoice_scans(id),
+  FOREIGN KEY (purchase_id) REFERENCES purchases(id),
+  FOREIGN KEY (created_by) REFERENCES users(id),
+  FOREIGN KEY (reviewed_by) REFERENCES users(id),
+  FOREIGN KEY (committed_by) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS purchase_invoice_scan_pages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scan_id INTEGER NOT NULL,
+  page_number INTEGER NOT NULL,
+  file_path TEXT NOT NULL,
+  mime_type TEXT,
+  ocr_text TEXT,
+  is_warranty_page INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (scan_id) REFERENCES purchase_invoice_scans(id) ON DELETE CASCADE,
+  UNIQUE(scan_id, page_number)
+);
+
+CREATE TABLE IF NOT EXISTS purchase_invoice_scan_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scan_id INTEGER NOT NULL,
+  line_number INTEGER NOT NULL,
+  medicine_id INTEGER, -- set once matched/confirmed to the catalog
+  match_confidence REAL,
+  match_status TEXT NOT NULL DEFAULT 'UNMATCHED', -- UNMATCHED, SUGGESTED, CONFIRMED, NEW_PRODUCT
+  product_name_raw TEXT,
+  strength_raw TEXT,
+  dosage_form_raw TEXT,
+  packaging_type TEXT, -- STRIP_BOX, BOTTLE, TUBE, SACHET, LOOSE, OTHER - detected, user-confirmable
+  batch_number TEXT,
+  expiry_date TEXT,
+  mfg_date TEXT,
+  boxes_received REAL, -- or bottles/tubes/sachets received, per packaging_type
+  supplier_purchase_rate REAL, -- as read from the invoice, before its basis is confirmed
+  rate_basis TEXT, -- PER_BOX, PER_STRIP, PER_UNIT, PER_BOTTLE, PER_TUBE, UNKNOWN
+  rate_basis_confirmed INTEGER DEFAULT 0,
+  printed_mrp_per_box REAL, -- MANUAL ONLY - must start blank, never defaulted or auto-filled
+  strips_per_box INTEGER, -- MANUAL ONLY - must start blank
+  units_per_strip INTEGER, -- MANUAL ONLY - must start blank
+  confirmed_purchase_cost_per_box REAL, -- NULL = "Not available"; never substituted with 0 or MRP
+  confirmed_sale_price_per_unit REAL, -- the pharmacy's own selling price per sale unit, set/confirmed separately - never derived from printed_mrp_per_box
+  line_discount_raw REAL,
+  line_tax_raw REAL,
+  line_total_raw REAL,
+  bonus_quantity_raw REAL,
+  bonus_quantity_basis TEXT, -- BOXES, STRIPS, UNITS
+  bonus_confirmed INTEGER DEFAULT 0,
+  is_schedule_b INTEGER DEFAULT 0,
+  is_schedule_d INTEGER DEFAULT 0,
+  classification_confirmed INTEGER DEFAULT 0,
+  flagged_unclear INTEGER DEFAULT 0,
+  flag_reason TEXT,
+  handwritten_flag INTEGER DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'PENDING', -- PENDING, CONFIRMED
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (scan_id) REFERENCES purchase_invoice_scans(id) ON DELETE CASCADE,
+  FOREIGN KEY (medicine_id) REFERENCES medicines(id)
+);
+
+CREATE TABLE IF NOT EXISTS purchase_invoice_warranty_attachments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scan_id INTEGER NOT NULL,
+  purchase_id INTEGER, -- set once the scan is committed
+  scan_item_id INTEGER, -- optional link to a specific product line
+  file_path TEXT, -- cropped warranty image, if produced
+  page_id INTEGER, -- links to purchase_invoice_scan_pages when the whole page is the warranty region
+  extracted_text TEXT, -- preserved original wording; never generated or paraphrased
+  is_unreadable INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (scan_id) REFERENCES purchase_invoice_scans(id) ON DELETE CASCADE,
+  FOREIGN KEY (purchase_id) REFERENCES purchases(id),
+  FOREIGN KEY (scan_item_id) REFERENCES purchase_invoice_scan_items(id),
+  FOREIGN KEY (page_id) REFERENCES purchase_invoice_scan_pages(id)
 );
 
 CREATE TABLE IF NOT EXISTS purchase_returns (

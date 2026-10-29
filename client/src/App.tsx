@@ -10,6 +10,7 @@ import { MedicinesView } from './views/MedicinesView.js';
 import { InventoryView } from './views/InventoryView.js';
 import { SuppliersView } from './views/SuppliersView.js';
 import { PurchasesView } from './views/PurchasesView.js';
+import { InvoiceScanArchiveView } from './views/InvoiceScanArchiveView.js';
 import { PosView } from './views/PosView.js';
 import { CashMemoView } from './views/CashMemoView.js';
 import { BillHistoryView } from './views/BillHistoryView.js';
@@ -63,6 +64,8 @@ export const AppContent: React.FC = () => {
         return <InventoryView />;
       case 'purchases':
         return <PurchasesView />;
+      case 'invoice-scans':
+        return <InvoiceScanArchiveView />;
       case 'suppliers':
         return <SuppliersView />;
       case 'barcode':

@@ -761,6 +761,174 @@ export function initDatabase() {
     }
   }
 
+  // Auto-migrate purchases for invoice-scan traceability, Schedule B/D tagging, review/commit
+  // attribution, and commit idempotency (the scan-to-stock workflow commits through this table).
+  const purchasesInfo = db.pragma('table_info(purchases)') as Array<{ name: string }>;
+  if (purchasesInfo && purchasesInfo.length > 0) {
+    const existingCols = new Set(purchasesInfo.map(c => c.name));
+    const requiredCols: Array<[string, string]> = [
+      ['scan_id', 'INTEGER'],
+      ['is_schedule_b', 'INTEGER DEFAULT 0'],
+      ['is_schedule_d', 'INTEGER DEFAULT 0'],
+      ['reviewed_by', 'INTEGER'],
+      ['reviewed_at', 'DATETIME'],
+      ['committed_by', 'INTEGER'],
+      ['committed_at', 'DATETIME']
+    ];
+    for (const [colName, colType] of requiredCols) {
+      if (!existingCols.has(colName)) {
+        try {
+          db.exec(`ALTER TABLE purchases ADD COLUMN ${colName} ${colType};`);
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+    if (!existingCols.has('request_key')) {
+      try {
+        db.exec('ALTER TABLE purchases ADD COLUMN request_key TEXT;');
+        db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_purchases_request_key ON purchases(request_key) WHERE request_key IS NOT NULL;');
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+
+  // Auto-migrate purchase_items for manual packaging fields (printed MRP/strips/units-per-strip
+  // must start blank - never defaulted), confirmed purchase cost basis, and Schedule B/D tagging.
+  const purchaseItemsInfo = db.pragma('table_info(purchase_items)') as Array<{ name: string }>;
+  if (purchaseItemsInfo && purchaseItemsInfo.length > 0) {
+    const existingCols = new Set(purchaseItemsInfo.map(c => c.name));
+    const requiredCols: Array<[string, string]> = [
+      ['scan_item_id', 'INTEGER'],
+      ['packaging_type', 'TEXT'],
+      ['boxes_received', 'REAL'],
+      ['printed_mrp_per_box', 'REAL'],
+      ['strips_per_box', 'INTEGER'],
+      ['units_per_strip', 'INTEGER'],
+      ['confirmed_purchase_cost_per_box', 'REAL'],
+      ['rate_basis', 'TEXT'],
+      ['bonus_quantity_basis', 'TEXT'],
+      ['is_schedule_b', 'INTEGER DEFAULT 0'],
+      ['is_schedule_d', 'INTEGER DEFAULT 0']
+    ];
+    for (const [colName, colType] of requiredCols) {
+      if (!existingCols.has(colName)) {
+        try {
+          db.exec(`ALTER TABLE purchase_items ADD COLUMN ${colName} ${colType};`);
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+  }
+
+  // Auto-migrate the invoice-scan tables themselves: CREATE TABLE IF NOT EXISTS only creates a
+  // table the first time it's missing, so any environment that already booted once against an
+  // earlier version of this feature (e.g. this repo's own dev DB, mid-development) is left stuck
+  // without later columns forever unless they're explicitly added here too.
+  const scanColumnMigrations: Array<[string, Array<[string, string]>]> = [
+    ['purchase_invoice_scans', [
+      ['status', "TEXT NOT NULL DEFAULT 'DRAFT'"],
+      ['supplier_id', 'INTEGER'],
+      ['supplier_name_raw', 'TEXT'],
+      ['invoice_number_raw', 'TEXT'],
+      ['invoice_date_raw', 'TEXT'],
+      ['document_type', 'TEXT'],
+      ['goods_received_confirmed', 'INTEGER DEFAULT 0'],
+      ['calculated_total', 'REAL'],
+      ['printed_total_raw', 'REAL'],
+      ['total_mismatch_flag', 'INTEGER DEFAULT 0'],
+      ['is_schedule_b', 'INTEGER DEFAULT 0'],
+      ['is_schedule_d', 'INTEGER DEFAULT 0'],
+      ['duplicate_of_scan_id', 'INTEGER'],
+      ['raw_ocr_text', 'TEXT'],
+      ['notes', 'TEXT'],
+      ['purchase_id', 'INTEGER'],
+      ['created_by', 'INTEGER'],
+      ['reviewed_by', 'INTEGER'],
+      ['reviewed_at', 'DATETIME'],
+      ['committed_by', 'INTEGER'],
+      ['committed_at', 'DATETIME'],
+      ['updated_at', 'DATETIME']
+    ]],
+    ['purchase_invoice_scan_pages', [
+      ['page_number', 'INTEGER'],
+      ['file_path', 'TEXT'],
+      ['mime_type', 'TEXT'],
+      ['ocr_text', 'TEXT'],
+      ['is_warranty_page', 'INTEGER DEFAULT 0']
+    ]],
+    ['purchase_invoice_scan_items', [
+      ['line_number', 'INTEGER'],
+      ['medicine_id', 'INTEGER'],
+      ['match_confidence', 'REAL'],
+      ['match_status', "TEXT NOT NULL DEFAULT 'UNMATCHED'"],
+      ['product_name_raw', 'TEXT'],
+      ['strength_raw', 'TEXT'],
+      ['dosage_form_raw', 'TEXT'],
+      ['packaging_type', 'TEXT'],
+      ['batch_number', 'TEXT'],
+      ['expiry_date', 'TEXT'],
+      ['mfg_date', 'TEXT'],
+      ['boxes_received', 'REAL'],
+      ['supplier_purchase_rate', 'REAL'],
+      ['rate_basis', 'TEXT'],
+      ['rate_basis_confirmed', 'INTEGER DEFAULT 0'],
+      ['printed_mrp_per_box', 'REAL'],
+      ['strips_per_box', 'INTEGER'],
+      ['units_per_strip', 'INTEGER'],
+      ['confirmed_purchase_cost_per_box', 'REAL'],
+      ['confirmed_sale_price_per_unit', 'REAL'],
+      ['line_discount_raw', 'REAL'],
+      ['line_tax_raw', 'REAL'],
+      ['line_total_raw', 'REAL'],
+      ['bonus_quantity_raw', 'REAL'],
+      ['bonus_quantity_basis', 'TEXT'],
+      ['bonus_confirmed', 'INTEGER DEFAULT 0'],
+      ['is_schedule_b', 'INTEGER DEFAULT 0'],
+      ['is_schedule_d', 'INTEGER DEFAULT 0'],
+      ['classification_confirmed', 'INTEGER DEFAULT 0'],
+      ['flagged_unclear', 'INTEGER DEFAULT 0'],
+      ['flag_reason', 'TEXT'],
+      ['handwritten_flag', 'INTEGER DEFAULT 0'],
+      ['status', "TEXT NOT NULL DEFAULT 'PENDING'"],
+      ['updated_at', 'DATETIME']
+    ]],
+    ['purchase_invoice_warranty_attachments', [
+      ['purchase_id', 'INTEGER'],
+      ['scan_item_id', 'INTEGER'],
+      ['file_path', 'TEXT'],
+      ['page_id', 'INTEGER'],
+      ['extracted_text', 'TEXT'],
+      ['is_unreadable', 'INTEGER DEFAULT 0']
+    ]]
+  ];
+  for (const [table, cols] of scanColumnMigrations) {
+    const info = db.pragma(`table_info(${table})`) as Array<{ name: string }>;
+    if (!info || info.length === 0) continue;
+    const existingCols = new Set(info.map(c => c.name));
+    for (const [colName, colType] of cols) {
+      if (!existingCols.has(colName)) {
+        try {
+          db.exec(`ALTER TABLE ${table} ADD COLUMN ${colName} ${colType};`);
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+  }
+  // request_key needs a separate UNIQUE index (SQLite can't ADD COLUMN ... UNIQUE directly)
+  const scanInfo = db.pragma('table_info(purchase_invoice_scans)') as Array<{ name: string }>;
+  if (scanInfo && scanInfo.length > 0 && !scanInfo.some(c => c.name === 'request_key')) {
+    try {
+      db.exec('ALTER TABLE purchase_invoice_scans ADD COLUMN request_key TEXT;');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_purchase_invoice_scans_request_key ON purchase_invoice_scans(request_key) WHERE request_key IS NOT NULL;');
+    } catch (e) {
+      // ignore
+    }
+  }
+
   // Seed Schedule B/D classification drafts (unverified) if none exist yet
   try {
     seedScheduleBDClassifications(db);

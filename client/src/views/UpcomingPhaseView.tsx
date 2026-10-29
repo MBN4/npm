@@ -10,6 +10,7 @@ const phaseDetails: Record<NavView, { phase: string; title: string; desc: string
   medicines: { phase: 'Live', title: 'Medicine Master', desc: 'Brand names, generics, manufacturers, dosages, strengths, custom barcodes, and rack locations.' },
   inventory: { phase: 'Live', title: 'Batch Inventory & Stock', desc: 'Batch tracking, physical count adjustments, stock valuation, and movement traceability.' },
   purchases: { phase: 'Live', title: 'Purchases & Inward Goods', desc: 'Supplier purchase invoices, batch creation, bonus quantities, and purchase returns.' },
+  'invoice-scans': { phase: 'Live', title: 'Scanned Invoice Archive', desc: 'Camera/upload invoice scanning, OCR-assisted review, and commit-to-stock workflow.' },
   suppliers: { phase: 'Live', title: 'Suppliers & Ledgers', desc: 'Distributor profiles, payment recording, and balance payables.' },
   barcode: { phase: 'Live', title: 'Barcode Center', desc: 'Camera & USB barcode scanner hub, batch QR/Code-128 label generator with multi-column sticker print.' },
   dictionary: { phase: 'Live', title: 'Pharma Dictionary 📚', desc: 'Drug monographs, brand lookups, adult/pediatric dose guidelines, pregnancy risk categories, and food timings.' },

@@ -21,6 +21,7 @@ client/.env
 server/data/*.sqlite
 server/data/*.sqlite-wal
 server/data/*.sqlite-shm
+server/data/attachments/
 server/backups/*.sqlite
 *.sqlite
 *.sqlite-wal
@@ -50,6 +51,9 @@ pnpm-debug.log*
 *.njsproj
 *.sublime-workspace
 *.sublime-project
+
+# tesseract.js runtime cache (written to cwd when it caches the fetched language file)
+server/eng.traineddata
 
 # OS Metadata Files
 .DS_Store
