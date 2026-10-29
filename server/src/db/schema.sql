@@ -753,6 +753,22 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Local-fallback instance only: bookkeeping for sending outage-time records (new patients,
+-- purchases, sales) to the cloud afterward via its real API, one at a time, with staff review.
+-- Never synced to the cloud itself - purely local tracking so a record is never sent twice and
+-- staff can see exactly what succeeded/failed/was skipped.
+CREATE TABLE IF NOT EXISTS local_fallback_reconciliation (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  table_name TEXT NOT NULL, -- customers, purchases, sales
+  local_id INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING', -- PENDING, SENT, SKIPPED, FAILED
+  cloud_id INTEGER,
+  error_message TEXT,
+  attempted_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(table_name, local_id)
+);
+
 CREATE TABLE IF NOT EXISTS notifications (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,

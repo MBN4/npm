@@ -98,6 +98,9 @@ if (process.env.ENABLE_LOCAL_FALLBACK_SYNC === 'true') {
     const result = await pullAndImportCatalogIfClean(repoRoot);
     res.json(result);
   });
+
+  const { localFallbackReconcileRouter } = await import('./routes/localFallbackReconcileRoutes.js');
+  app.use('/api/local-fallback', localFallbackReconcileRouter);
 }
 
 // API Routes
