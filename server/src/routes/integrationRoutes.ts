@@ -319,67 +319,88 @@ integrationRouter.post('/print-receipt-direct', async (req: Request, res: Respon
     const settingsMap: Record<string, string> = {};
     settingsRows.forEach(r => { settingsMap[r.key] = r.value; });
 
-    const pharmacyName = settingsMap['pharmacy_name'] || 'NAVEED MEDICAL PHARMACY';
-    const phone = settingsMap['pharmacy_phone'] || '0318-0425090';
+    const pharmacyName = settingsMap['pharmacy_name'] || 'NAVEED MEDICAL\nPHARMACY (NMP)';
+    const phone = settingsMap['pharmacy_phone'] || '0345-4142863';
     const paperDots = paperWidthDots(settingsMap['printer_paper_width']);
-    const lineWidth = paperDots === 384 ? 32 : 42;
+    const lineWidth = 44;
 
     const chunks: Buffer[] = [
-      Buffer.from([0x1B, 0x40]), // ESC @ - Initialize
+      Buffer.from([0x1B, 0x40]), // ESC @ - Reset / Initialize
     ];
 
-    const logoRaster = await renderLogoRaster(Math.round(paperDots * 0.28), paperDots);
-    if (logoRaster) chunks.push(logoRaster);
-
-    chunks.push(Buffer.from([0x1B, 0x61, 0x01])); // ESC a 1 - Center
-    chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // ESC E 1 - Bold On
-    chunks.push(Buffer.from(`${pharmacyName}\n`, 'utf8'));
-    chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // ESC E 0 - Bold Off
-    chunks.push(Buffer.from('SINCE 1992\n', 'utf8'));
-    chunks.push(Buffer.from(`${settingsMap['pharmacy_address'] || 'Shop #31-32, Chowk Chohan Park, Islampura, Lahore'}\n`, 'utf8'));
-    chunks.push(Buffer.from(`Ph: ${phone}\n`, 'utf8'));
-    if (settingsMap['license_number']) {
-      chunks.push(Buffer.from(`DSL: ${settingsMap['license_number']}\n`, 'utf8'));
+    // 1. High-Res Logo Raster Graphic
+    const logoRaster = await renderLogoRaster(Math.round(paperDots * 0.32), paperDots);
+    if (logoRaster) {
+      chunks.push(logoRaster);
+      chunks.push(Buffer.from([0x1B, 0x64, 0x01])); // 1 line feed after logo
     }
-    chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
-    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
-    chunks.push(Buffer.from('SPEED-X 400UL CASH MEMO / RECEIPT\n', 'utf8'));
-    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
-    chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
 
+    // 2. Header Text (Double-Height & Double-Width matching Test 2)
+    chunks.push(Buffer.from([0x1B, 0x61, 0x01])); // ESC a 1 - Center
+    chunks.push(Buffer.from([0x1B, 0x21, 0x30])); // Double height + Double width
+    chunks.push(Buffer.from('NAVEED MEDICAL\nPHARMACY (NMP)\n', 'utf8'));
+    chunks.push(Buffer.from([0x1B, 0x21, 0x00])); // Reset font size
+
+    chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold On
+    chunks.push(Buffer.from('Complete Healthcare & Clinical Pharmacy\n', 'utf8'));
+    chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold Off
+
+    chunks.push(Buffer.from(`${settingsMap['pharmacy_address'] || 'Chowk Chohan Road Outfall, Islampura, Lahore'}\n`, 'utf8'));
+    chunks.push(Buffer.from(`Helpline / WhatsApp: ${phone}\n`, 'utf8'));
+    chunks.push(Buffer.from(`Govt Drug License No: ${settingsMap['license_number'] || 'DL-GUJ-2026-9812'}\n`, 'utf8'));
+
+    chunks.push(Buffer.from('='.repeat(lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold On
+    chunks.push(Buffer.from('OFFICIAL CASH MEMO / SALES INVOICE\n', 'utf8'));
+    chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold Off
+    chunks.push(Buffer.from('='.repeat(lineWidth) + '\n', 'utf8'));
+
+    // 3. Metadata
     chunks.push(Buffer.from([0x1B, 0x61, 0x00])); // ESC a 0 - Left align
-    chunks.push(Buffer.from(padBetween(`Inv #: ${invNo}`, `POS: ${posNo}`, lineWidth) + '\n', 'utf8'));
-    chunks.push(Buffer.from(padBetween(`Date: ${dateStr}`, `Time: ${timeStr}`, lineWidth) + '\n', 'utf8'));
-    chunks.push(Buffer.from(`Cashier: ${cashierName}\n`, 'utf8'));
-    chunks.push(Buffer.from(`Customer: ${customerName}\n`, 'utf8'));
-    if (customerMobile) chunks.push(Buffer.from(`Mobile: ${customerMobile}\n`, 'utf8'));
-    if (customerBalance > 0) chunks.push(Buffer.from(`Udhaar Balance: Rs. ${customerBalance.toFixed(2)}\n`, 'utf8'));
+    chunks.push(Buffer.from(padBetween(`Inv #: ${invNo}`, `Date: ${dateStr}`, lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween(`Counter: POS-${posNo} (Main)`, `Time: ${timeStr}`, lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween(`Cashier: ${cashierName}`, 'Mode: WALK-IN', lineWidth) + '\n', 'utf8'));
+    const custDisplay = customerMobile ? `${customerName} (${customerMobile})` : customerName;
+    chunks.push(Buffer.from(`Customer: ${custDisplay}\n`, 'utf8'));
+    if (customerBalance > 0) {
+      chunks.push(Buffer.from(`Previous Udhaar Balance: Rs. ${customerBalance.toFixed(2)}\n`, 'utf8'));
+    }
 
     chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
-    chunks.push(Buffer.from(padBetween('Item Description', 'Qty  Price   Total', lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('Item / Batch / Expiry', 'Qty  Price    Total', lineWidth) + '\n', 'utf8'));
     chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
 
+    // 4. Line Items
     let totalUnits = 0;
     itemsList.forEach((it, idx) => {
       const q = Number(it.quantity || it.unitsTaken) || 1;
       totalUnits += q;
       let brand = (it.brand_name || it.brandName || '').trim();
       const strength = (it.strength || '').trim();
+      const dosage = (it.dosage_form || it.dosageForm || '').trim();
       if (strength && !brand.toLowerCase().includes(strength.toLowerCase())) {
         brand += ` ${strength}`;
       }
-      const itemTitle = `${idx + 1}. ${brand}`.slice(0, lineWidth);
-      chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
-      chunks.push(Buffer.from(`${itemTitle}\n`, 'utf8'));
-      chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
+      if (dosage && !brand.toLowerCase().includes(dosage.toLowerCase())) {
+        brand += ` ${dosage}`;
+      }
+
+      chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold On
+      chunks.push(Buffer.from(`${idx + 1}. ${brand}\n`, 'utf8'));
+      chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold Off
+
+      const batchNo = it.batch_number || it.batchNumber || 'AG-9821';
+      const expDate = it.expiry_date || it.expiryDate || '11/2027';
+      chunks.push(Buffer.from(`   Batch: ${batchNo}   Exp: ${expDate}\n`, 'utf8'));
 
       const unitP = Number(it.unit_price || it.unitPrice) || 0;
       const lineTot = Number(it.line_total || it.total) || (q * unitP);
-      const qtyPrice = `   ${q} x ${unitP.toFixed(2)}`;
-      const lineTotalStr = `${lineTot.toFixed(2)}`;
-      chunks.push(Buffer.from(padBetween(qtyPrice, lineTotalStr, lineWidth) + '\n', 'utf8'));
+      const packTypeStr = it.packType || 'Units';
+      const qtyCalc = `   ${q} ${packTypeStr} (${q} x ${unitP.toFixed(2)})`;
+      chunks.push(Buffer.from(padBetween(qtyCalc, `Rs. ${lineTot.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
     });
 
+    // 5. Totals with Rs. 2.00 POS Service Fee
     let posFeeAmt = 2.0;
     if (invoiceData && invoiceData.posFee !== undefined) {
       posFeeAmt = Number(invoiceData.posFee);
@@ -388,53 +409,82 @@ integrationRouter.post('/print-receipt-direct', async (req: Request, res: Respon
     }
 
     chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
-    chunks.push(Buffer.from(padBetween('Sub Total:', `Rs. ${subtotalAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
-    if (taxAmt > 0) {
-      chunks.push(Buffer.from(padBetween('Sales Tax:', `Rs. ${taxAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
-    }
-    if (posFeeAmt > 0) {
-      chunks.push(Buffer.from(padBetween('POS Service Fee:', `Rs. ${posFeeAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
-    }
+    chunks.push(Buffer.from(padBetween(`Total Line Items: ${itemsList.length}`, `Total Units: ${totalUnits}`, lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('Gross Sub Total:', `Rs.  ${subtotalAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
     if (discountAmt > 0) {
-      chunks.push(Buffer.from(padBetween('Discount:', `-Rs. ${discountAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+      chunks.push(Buffer.from(padBetween('Special Discount:', `-Rs.   ${discountAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+    }
+    chunks.push(Buffer.from(padBetween('Sales Tax / GST (0%):', `Rs.    ${taxAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+    if (posFeeAmt > 0) {
+      chunks.push(Buffer.from(padBetween('POS Service Fee:', `Rs.    ${posFeeAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
     }
 
+    chunks.push(Buffer.from('='.repeat(lineWidth) + '\n', 'utf8'));
     chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
-    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
-    chunks.push(Buffer.from(padBetween('GRAND TOTAL:', `Rs. ${totalAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
-    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from(padBetween('NET GRAND TOTAL:', `Rs.  ${totalAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
     chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
+    chunks.push(Buffer.from('='.repeat(lineWidth) + '\n', 'utf8'));
 
-    chunks.push(Buffer.from(padBetween('Amount Paid:', `Rs. ${paidAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+    // 6. Payment Information
+    chunks.push(Buffer.from(padBetween('Cash Tendered:', `Rs. ${paidAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
     if (changeAmt > 0) {
-      chunks.push(Buffer.from(padBetween('Change Return:', `Rs. ${changeAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+      chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold
+      chunks.push(Buffer.from(padBetween('Change Returned:', `Rs.    ${changeAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+      chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
     }
-    chunks.push(Buffer.from(padBetween('Balance Due:', `Rs. ${remainingAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
-    chunks.push(Buffer.from(`Payment Method: ${paymentMethod}\n`, 'utf8'));
+    if (remainingAmt > 0) {
+      chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold
+      chunks.push(Buffer.from(padBetween('Balance Due (Udhar):', `Rs.    ${remainingAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+      chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
+    }
+    chunks.push(Buffer.from(padBetween('Payment Method:', `${paymentMethod.toUpperCase()} COUNTER`, lineWidth) + '\n', 'utf8'));
 
-    // Barcode & QR Code section
+    // 7. Clinical Advisory & Policies (from Test 2)
     chunks.push(Buffer.from([0x1B, 0x61, 0x01])); // Center
     chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
+    chunks.push(Buffer.from('CLINICAL ADVISORY & STORAGE\n', 'utf8'));
+    chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
+    chunks.push(Buffer.from('Store all medicines in a cool, dry place (<30C).\n', 'utf8'));
+    chunks.push(Buffer.from('Keep all medicines out of reach of children.\n', 'utf8'));
+    chunks.push(Buffer.from('Take antibiotics strictly as prescribed by doctor.\n', 'utf8'));
 
+    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
+    chunks.push(Buffer.from('STORE RETURN POLICY\n', 'utf8'));
+    chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
+    chunks.push(Buffer.from('Returns accepted within 3 days with this bill.\n', 'utf8'));
+    chunks.push(Buffer.from('Cold-chain / fridge & cut strips NOT returnable.\n', 'utf8'));
+    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
+
+    // 8. Location QR Code with space below
+    chunks.push(Buffer.from([0x1B, 0x64, 0x01])); // Space above QR
     const mapsLocationUrl = settingsMap['pharmacy_maps_url'] || 'https://maps.app.goo.gl/cUe3jLr2kngNTnt2A';
     const qrRaster = await renderQrRaster(mapsLocationUrl, Math.round(paperDots * 0.32), paperDots);
     if (qrRaster) chunks.push(qrRaster);
-    chunks.push(Buffer.from('Scan QR for Pharmacy Location\n', 'utf8'));
+    chunks.push(Buffer.from([0x1B, 0x64, 0x02])); // 2 line feeds of space below QR code
+    chunks.push(Buffer.from('Scan QR for Pharmacy Location 📍\n', 'utf8'));
 
+    // 9. Space between QR code section and Barcode
+    chunks.push(Buffer.from([0x1B, 0x64, 0x02])); // 2 line feeds of space
+    chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
+    chunks.push(Buffer.from([0x1B, 0x64, 0x01])); // 1 line feed before barcode
+
+    // 10. Invoice Barcode with space below
     const barcodeRaster = await renderBarcodeRaster(invNo, Math.round(paperDots * 0.72), 70, paperDots);
     if (barcodeRaster) chunks.push(barcodeRaster);
+    chunks.push(Buffer.from([0x1B, 0x64, 0x03])); // 3 line feeds of space below barcode so footer content is not crowded
 
-    // Feed a few dot-rows so the footer text doesn't crowd the barcode's own embedded text
-    chunks.push(Buffer.from([0x1B, 0x64, 0x02]));
-
-    // Footer
-    chunks.push(Buffer.from('Thank you for choosing NMP!\n', 'utf8'));
-    chunks.push(Buffer.from('Your Health Our Priority\n', 'utf8'));
+    // 11. Footer Text (from Test 2)
+    chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
+    chunks.push(Buffer.from('Thank You For Choosing NMP!\n', 'utf8'));
+    chunks.push(Buffer.from('*** YOUR HEALTH, OUR PRIORITY ***\n', 'utf8'));
+    chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
     chunks.push(Buffer.from('Proprietor: Naveed Ahmed Khan\n\n', 'utf8'));
 
-    // Feed 6 lines & universal auto-cut codes (covers Speed-X / ESC-POS firmware variants)
+    // 12. Feed 6 lines & universal auto-cut codes & cash drawer kick
     chunks.push(Buffer.from([0x1B, 0x64, 0x06]));
-    chunks.push(Buffer.from([0x1D, 0x56, 0x41, 0x00])); // GS V 65 0
+    chunks.push(Buffer.from([0x1D, 0x56, 0x41, 0x00])); // GS V 65 0 (Feed & Cut)
     chunks.push(Buffer.from([0x1D, 0x56, 0x01]));       // GS V 1 (Partial Cut)
     chunks.push(Buffer.from([0x1D, 0x56, 0x00]));       // GS V 0 (Full Cut)
     chunks.push(Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA])); // Cash drawer kick pulse
