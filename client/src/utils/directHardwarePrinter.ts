@@ -140,46 +140,43 @@ function printViaWebSocket(payload: any, timeoutMs = 7000): Promise<DirectHardwa
 }
 
 /**
- * Checks if the Speed-X 400UL hardware printer daemon is reachable on this machine.
+ * Checks if the Speed-X 400UL hardware printer daemon is reachable on this machine
+ * (either directly on localhost or via live cloud relay from HTTPS web app).
  */
 export async function detectSpeedXPrinter(): Promise<HardwarePrinterStatus> {
-  // 1. Try WebSocket bridge first (supported by Chrome on HTTPS live sites)
-  const wsStatus = await checkStatusViaWebSocket();
+  // 1. Try WebSocket bridge first (if on localhost or non-secure context)
+  const wsStatus = await checkStatusViaWebSocket(800);
   if (wsStatus && wsStatus.available) {
     return wsStatus;
   }
 
-  // 2. If running locally (not on cloud HTTPS), try HTTP bridge
-  const isLocalHost = typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-  if (isLocalHost) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 1500);
-      const res = await fetch('/api/integrations/speedx-status', { signal: controller.signal });
-      clearTimeout(timer);
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          available: !!data.available,
-          printerName: data.printerName || 'Speed-X 400UL',
-          port: data.port || 'USB001',
-          isDefault: data.isDefault || false
-        };
-      }
-    } catch {}
-  }
+  // 2. Query backend printer status (works on localhost:5000 as well as live cloud relay)
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch('/api/integrations/speedx-status', { signal: controller.signal });
+    clearTimeout(timer);
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        available: !!data.available,
+        printerName: data.printerName || 'Speed-X 400UL',
+        port: data.port || 'USB001',
+        isDefault: data.isDefault || false
+      };
+    }
+  } catch {}
 
   return {
     available: false,
     printerName: 'Speed-X 400UL',
-    error: 'Speed-X 400UL bridge is not responding.'
+    error: 'Speed-X 400UL printer daemon is offline.'
   };
 }
 
 /**
- * Sends receipt data directly to the local Windows spooler for Speed-X 400UL.
+ * Sends receipt data directly to the Windows spooler for Speed-X 400UL.
+ * Works on localhost:5000 (direct spooler) and live HTTPS site (cloud relay to pharmacy laptop).
  * Bypasses Chrome print dialogue completely.
  */
 export async function printReceiptDirectHardware(
@@ -189,47 +186,48 @@ export async function printReceiptDirectHardware(
     ? { invoiceNumber: invoiceDataOrNumber, printerName: 'Speed-X 400UL' }
     : { invoiceData: invoiceDataOrNumber, printerName: 'Speed-X 400UL' };
 
-  // 1. Always attempt WebSocket bridge first (works from HTTPS live site without mixed-content blocks)
+  // 1. Attempt WebSocket bridge first if available (fastest on local network)
   try {
-    const wsRes = await printViaWebSocket(payload);
-    if (wsRes) {
+    const wsRes = await printViaWebSocket(payload, 2500);
+    if (wsRes && wsRes.success) {
       return wsRes;
     }
-  } catch (err) {
-    console.warn('[directHardwarePrinter] WebSocket print failed, trying HTTP fallback:', err);
-  }
+  } catch {}
 
-  // 2. If on localhost or HTTP, try HTTP bridge
-  const isLocalHost = typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-  if (isLocalHost) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 6000);
-      const res = await fetch('/api/integrations/print-receipt-direct', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      });
-      clearTimeout(timer);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          return {
-            success: true,
-            message: data.message || 'Receipt printed & cut automatically on Speed-X 400UL!',
-            printerName: data.printerName || 'Speed-X 400UL'
-          };
-        }
+  // 2. Execute via HTTP API (Direct spooler on localhost, or Cloud Relay on live website)
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7000);
+    const res = await fetch('/api/integrations/print-receipt-direct', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success) {
+        return {
+          success: true,
+          message: data.message || 'Receipt printed & cut automatically on Speed-X 400UL!',
+          printerName: data.printerName || 'Speed-X 400UL'
+        };
+      } else {
+        return {
+          success: false,
+          fallbackToDialog: !!data.fallbackToDialog,
+          message: data.message || 'Printer offline'
+        };
       }
-    } catch {}
+    }
+  } catch (err: any) {
+    console.warn('[directHardwarePrinter] Print request error:', err);
   }
 
   return {
     success: false,
     fallbackToDialog: true,
-    message: 'Local Speed-X 400UL bridge (ws://127.0.0.1:5001) is offline.'
+    message: 'Speed-X 400UL printer is offline or unreachable.'
   };
 }

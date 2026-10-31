@@ -39,6 +39,7 @@ import { classificationRouter } from './routes/classificationRoutes.js';
 import { scheduleBDRouter } from './routes/scheduleBDRoutes.js';
 import { securityHeaders } from './middleware/security.js';
 import { initLocalPrinterWs } from './services/localPrinterWs.js';
+import { startLocalLaptopRelayAgent } from './services/cloudPrinterRelay.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -153,16 +154,16 @@ app.use('/api/schedule-bd', scheduleBDRouter);
 // pharmacy PC's offline-backup instance there's no Vercel, so this same server serves the built
 // client directly - the client already calls relative '/api/...' paths, so no client code or
 // build needs to differ between the two deployments, only this flag.
-if (process.env.SERVE_LOCAL_CLIENT === 'true') {
+if (process.env.SERVE_LOCAL_CLIENT === 'true' || (!process.env.FLY_APP_NAME && process.platform === 'win32')) {
   const clientDistPath = path.resolve(__dirname, '../../client/dist');
   if (fs.existsSync(path.join(clientDistPath, 'index.html'))) {
     app.use(express.static(clientDistPath));
     app.get(/^\/(?!api\/).*/, (_req: Request, res: Response) => {
       res.sendFile(path.join(clientDistPath, 'index.html'));
     });
-    console.log(`[local-fallback] Serving client build from ${clientDistPath}`);
+    console.log(`[local-pos] Serving client build from ${clientDistPath} at http://localhost:5000`);
   } else {
-    console.warn(`[local-fallback] SERVE_LOCAL_CLIENT=true but no build found at ${clientDistPath} - run "npm run build" in client/ first`);
+    console.warn(`[local-pos] Client build not found at ${clientDistPath} - run "npm run build" in client/ first`);
   }
 }
 
@@ -188,6 +189,7 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`  Database: SQLite WAL Mode with Foreign Keys       `);
     console.log(`====================================================`);
     initLocalPrinterWs(5001);
+    startLocalLaptopRelayAgent();
   });
 
   if (process.env.ENABLE_LOCAL_FALLBACK_SYNC === 'true') {

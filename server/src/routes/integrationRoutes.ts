@@ -202,22 +202,45 @@ integrationRouter.post('/print-medprac-direct', authenticateToken, async (req: R
   }
 });
 
+import { handleRelayPoll, handleRelayAck, isRelayAgentOnline, dispatchPrintJobViaRelay } from '../services/cloudPrinterRelay.js';
+
+// Printer Relay Endpoints (Bridges cloud deployment to local pharmacy USB printer)
+integrationRouter.get('/printer-relay/poll', handleRelayPoll);
+integrationRouter.post('/printer-relay/ack', handleRelayAck);
+integrationRouter.get('/printer-relay/status', (req: Request, res: Response) => {
+  res.json({ online: isRelayAgentOnline() });
+});
+
 // Fast Hardware Status Endpoint (for auto-detecting Speed-X 400UL printer)
 integrationRouter.get('/speedx-status', async (_req: Request, res: Response) => {
   try {
-    const printers = await getWindowsPrinters();
-    const speedx = printers.find(p =>
-      p.name.toLowerCase().includes('speed-x') ||
-      p.name.toLowerCase().includes('400ul') ||
-      p.name.toLowerCase().includes('thermal') ||
-      p.name.toLowerCase().includes('pos')
-    );
-    res.json({
-      available: !!speedx,
-      printerName: speedx ? speedx.name : 'Speed-X 400UL',
-      port: speedx?.port || 'USB001',
-      isDefault: speedx?.isDefault || false,
-      allPrinters: printers.map(p => p.name)
+    if (process.platform === 'win32') {
+      const printers = await getWindowsPrinters();
+      const speedx = printers.find(p =>
+        p.name.toLowerCase().includes('speed-x') ||
+        p.name.toLowerCase().includes('400ul') ||
+        p.name.toLowerCase().includes('thermal') ||
+        p.name.toLowerCase().includes('pos')
+      );
+      return res.json({
+        available: !!speedx,
+        printerName: speedx ? speedx.name : 'Speed-X 400UL',
+        port: speedx?.port || 'USB001',
+        isDefault: speedx?.isDefault || false,
+        relayMode: false,
+        allPrinters: printers.map(p => p.name)
+      });
+    }
+
+    // On Linux / Cloud (Fly.io), check if local laptop agent is connected via relay
+    const relayOnline = isRelayAgentOnline();
+    return res.json({
+      available: relayOnline,
+      printerName: 'Speed-X 400UL (Live Cloud Relay)',
+      port: 'USB001',
+      isDefault: true,
+      relayMode: true,
+      allPrinters: relayOnline ? ['Speed-X 400UL (Live Cloud Relay)'] : []
     });
   } catch (err: any) {
     res.json({ available: false, error: err.message, printerName: 'Speed-X 400UL' });
@@ -229,11 +252,23 @@ integrationRouter.get('/speedx-status', async (_req: Request, res: Response) => 
 integrationRouter.post('/print-receipt-direct', async (req: Request, res: Response) => {
   try {
     const { invoiceNumber, printerName, invoiceData } = req.body;
-    const printRes = await printReceiptESC_POS({ invoiceNumber, printerName, invoiceData });
-    if (printRes.success) {
-      res.json({ success: true, message: `Receipt printed directly to ${printRes.printerName || 'Speed-X 400UL'}` });
+
+    if (process.platform === 'win32') {
+      // Local execution directly on Windows
+      const printRes = await printReceiptESC_POS({ invoiceNumber, printerName, invoiceData });
+      if (printRes.success) {
+        return res.json({ success: true, message: `Receipt printed directly to ${printRes.printerName || 'Speed-X 400UL'}` });
+      } else {
+        return res.json({ success: false, fallbackToDialog: true, message: printRes.reason || 'Hardware printer offline' });
+      }
+    }
+
+    // Cloud execution (Fly.io): Forward print payload to connected local pharmacy laptop agent
+    const relayRes = await dispatchPrintJobViaRelay({ invoiceNumber, printerName, invoiceData });
+    if (relayRes.success) {
+      return res.json({ success: true, message: relayRes.message });
     } else {
-      res.json({ success: false, fallbackToDialog: true, message: printRes.reason || 'Hardware printer offline' });
+      return res.json({ success: false, fallbackToDialog: true, message: relayRes.message });
     }
   } catch (err: any) {
     console.error('Direct print receipt error:', err);

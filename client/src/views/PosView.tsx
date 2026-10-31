@@ -339,14 +339,15 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
   }, []);
 
   // Direct Zero-Click Hardware Printing to Speed-X 400UL
-  const handleDirectHardwarePrint = async (invNum?: string) => {
+  const handleDirectHardwarePrint = async (invDataOrNum?: any) => {
     setIsDirectPrinting(true);
     try {
-      const invToPrint = lastInvoice || invNum;
+      const invToPrint = invDataOrNum || lastInvoice;
       if (invToPrint) {
         const res = await printReceiptDirectHardware(invToPrint);
         if (res.success) {
-          setInfoMessage(`✅ Printed directly to ${detectedPrinterName}!`);
+          setInfoMessage(`✅ ${res.message || 'Printed directly to ' + detectedPrinterName}!`);
+          setHardwarePrinterOnline(true);
           setTimeout(() => setInfoMessage(null), 4000);
           return;
         }
@@ -436,7 +437,7 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
   };
 
   const handlePrintReceipt = () => {
-    handleDirectHardwarePrint();
+    handleDirectHardwarePrint(lastInvoice);
   };
 
   useEffect(() => {
@@ -946,7 +947,7 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
 
       if (autoPrint) {
         setTimeout(() => {
-          handleDirectHardwarePrint();
+          handleDirectHardwarePrint(invoiceData);
         }, 350);
       }
     } catch (err: any) {
@@ -2081,10 +2082,12 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                   <span>Inv #: <strong>{lastInvoice.invoiceNumber}</strong></span>
+                  {"   "}
                   <span>POS: <strong>01</strong></span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                   <span>Date: {new Date(lastInvoice.createdAt).toLocaleDateString()}</span>
+                  {"   "}
                   <span>Time: {new Date(lastInvoice.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
                 <div>Cashier: <strong>{lastInvoice.cashierName}</strong></div>
@@ -2101,10 +2104,10 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
               <table style={{ width: '100%', fontSize: '10px', borderCollapse: 'collapse', marginBottom: '6px' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px dashed #000', textAlign: 'left' }}>
-                    <th style={{ paddingBottom: '4px', textAlign: 'left', width: '46%' }}>Item Description</th>
-                    <th style={{ paddingBottom: '4px', textAlign: 'center', width: '16%' }}>Qty</th>
-                    <th style={{ paddingBottom: '4px', textAlign: 'right', width: '18%' }}>Price</th>
-                    <th style={{ paddingBottom: '4px', textAlign: 'right', width: '20%' }}>Total</th>
+                    <th style={{ paddingBottom: '4px', textAlign: 'left', width: '46%' }}>Item Description{" "}</th>
+                    <th style={{ paddingBottom: '4px', textAlign: 'center', width: '16%' }}>{" "}Qty{" "}</th>
+                    <th style={{ paddingBottom: '4px', textAlign: 'right', width: '18%' }}>{" "}Price{" "}</th>
+                    <th style={{ paddingBottom: '4px', textAlign: 'right', width: '20%' }}>{" "}Total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2120,13 +2123,13 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
                           <span style={{ fontSize: '8.5px', color: '#444' }}>{breakdown}</span>
                         </td>
                         <td style={{ textAlign: 'center', verticalAlign: 'top', padding: '3px 0', fontWeight: 700 }}>
-                          {it.quantity}
+                          {"   "}{it.quantity}{"   "}
                         </td>
                         <td style={{ textAlign: 'right', verticalAlign: 'top', padding: '3px 0' }}>
-                          {(it.unitPrice || (it.lineTotal / (it.quantity || 1)))?.toFixed(2)}
+                          {"   "}{(it.unitPrice || (it.lineTotal / (it.quantity || 1)))?.toFixed(2)}{"   "}
                         </td>
                         <td style={{ textAlign: 'right', verticalAlign: 'top', padding: '3px 0', fontWeight: 800 }}>
-                          {it.lineTotal.toFixed(2)}
+                          {"   "}{it.lineTotal.toFixed(2)}
                         </td>
                       </tr>
                     );
@@ -2138,28 +2141,34 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
               <div style={{ borderTop: '1px dashed #000', paddingTop: '6px', fontSize: '10.5px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                   <span>Total Units: {lastInvoice.items.reduce((sum: number, it: any) => sum + (it.quantity || 0), 0)}</span>
+                  {"   "}
                   <span>Items: {lastInvoice.items.length}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                   <span>Sub Total:</span>
+                  {"   "}
                   <span>Rs. {lastInvoice.subtotal.toFixed(2)}</span>
                 </div>
                 {lastInvoice.discount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                     <span>Special Discount:</span>
+                    {"   "}
                     <span>-Rs. {lastInvoice.discount.toFixed(2)}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                   <span>POS Receipt Fee:</span>
+                  {"   "}
                   <span>Rs. {(lastInvoice.tax || 2.00).toFixed(2)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: '12px', borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '4px 0', margin: '4px 0' }}>
                   <span>GRAND TOTAL:</span>
+                  {"   "}
                   <span>Rs. {lastInvoice.totalAmount.toFixed(2)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                   <span>Amount Paid:</span>
+                  {"   "}
                   <span>Rs. {lastInvoice.paidAmount.toFixed(2)}</span>
                 </div>
                 {(lastInvoice.changeAmount || 0) > 0 && (
