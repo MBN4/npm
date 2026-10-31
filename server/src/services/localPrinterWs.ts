@@ -25,7 +25,7 @@ export function initLocalPrinterWs(port = 5001) {
             const printers = await getWindowsPrinters();
             const speedx = printers.find(p => p.name.includes('Speed-X 400UL')) ||
                            printers.find(p => p.name.toLowerCase().includes('400ul')) ||
-                           printers.find(p => p.name.toLowerCase().includes('speed-x')) ||
+                           printers.find(p => p.name.toLowerCase().includes('speed-x') && !p.name.includes('690')) ||
                            printers.find(p => p.name.toLowerCase().includes('thermal'));
 
             ws.send(JSON.stringify({

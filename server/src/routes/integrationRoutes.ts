@@ -216,12 +216,11 @@ integrationRouter.get('/speedx-status', async (_req: Request, res: Response) => 
   try {
     if (process.platform === 'win32') {
       const printers = await getWindowsPrinters();
-      const speedx = printers.find(p =>
-        p.name.toLowerCase().includes('speed-x') ||
-        p.name.toLowerCase().includes('400ul') ||
-        p.name.toLowerCase().includes('thermal') ||
-        p.name.toLowerCase().includes('pos')
-      );
+      const speedx = printers.find(p => p.name.includes('400UL') || p.name.toLowerCase().includes('400ul')) ||
+                     printers.find(p => p.name.includes('Speed-X 400UL')) ||
+                     printers.find(p => p.name.toLowerCase().includes('speed-x') && !p.name.includes('690')) ||
+                     printers.find(p => p.name.toLowerCase().includes('receipt')) ||
+                     printers.find(p => p.name.toLowerCase().includes('thermal'));
       return res.json({
         available: !!speedx,
         printerName: speedx ? speedx.name : 'Speed-X 400UL',
