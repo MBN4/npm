@@ -38,6 +38,7 @@ import { activityRouter } from './routes/activityRoutes.js';
 import { classificationRouter } from './routes/classificationRoutes.js';
 import { scheduleBDRouter } from './routes/scheduleBDRoutes.js';
 import { securityHeaders } from './middleware/security.js';
+import { initLocalPrinterWs } from './services/localPrinterWs.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -186,6 +187,7 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`  Running on: http://${HOST}:${PORT}               `);
     console.log(`  Database: SQLite WAL Mode with Foreign Keys       `);
     console.log(`====================================================`);
+    initLocalPrinterWs(5001);
   });
 
   if (process.env.ENABLE_LOCAL_FALLBACK_SYNC === 'true') {
