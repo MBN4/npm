@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.js';
 import { printThermalElement } from '../utils/thermalPrinter.js';
+import { printReceiptDirectHardware } from '../utils/directHardwarePrinter.js';
 import {
   Search,
   ShoppingCart,
@@ -390,12 +391,19 @@ export const CashMemoView: React.FC = () => {
     };
   };
 
-  // Prints via the browser's own print dialog, since a server-side raw-printer call can only
-  // reach a printer physically attached to the same machine the backend process runs on - which
-  // cloud hosting makes impossible (the printer is on your desk, the server isn't).
-  const handleDirectHardwarePrint = (_invNum?: string) => {
+  // Direct Zero-Click Hardware Printing to Speed-X 400UL
+  const handleDirectHardwarePrint = async (_invNum?: string) => {
     setDirectPrinting(true);
     try {
+      const invData = getCashMemoInvoiceData();
+      if (invData) {
+        const res = await printReceiptDirectHardware(invData);
+        if (res.success) {
+          return;
+        }
+      }
+      printThermalElement('speedx-400ul-slip-printable', '80mm');
+    } catch {
       printThermalElement('speedx-400ul-slip-printable', '80mm');
     } finally {
       setDirectPrinting(false);

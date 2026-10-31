@@ -16,7 +16,6 @@ import { createRequire } from 'module';
 import path from 'path';
 import fs from 'fs';
 import Tesseract from 'tesseract.js';
-import { PDFParse } from 'pdf-parse';
 
 const require = createRequire(import.meta.url);
 
@@ -93,6 +92,10 @@ async function runOcr(buffer: Buffer): Promise<Tesseract.Page> {
 }
 
 export async function extractPdfPages(buffer: Buffer): Promise<Array<{ pageNumber: number; embeddedText: string | null; renderedImage: Buffer | null }>> {
+  if (typeof (globalThis as any).DOMMatrix === 'undefined') {
+    (globalThis as any).DOMMatrix = class DOMMatrix {};
+  }
+  const { PDFParse } = await import('pdf-parse');
   const parser = new PDFParse({ data: buffer });
   try {
     const textResult = await parser.getText();

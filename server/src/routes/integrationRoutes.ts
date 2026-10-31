@@ -201,7 +201,31 @@ integrationRouter.post('/print-medprac-direct', authenticateToken, async (req: R
   }
 });
 
-integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: Request, res: Response) => {
+// Fast Hardware Status Endpoint (for auto-detecting Speed-X 400UL printer)
+integrationRouter.get('/speedx-status', async (_req: Request, res: Response) => {
+  try {
+    const printers = await getWindowsPrinters();
+    const speedx = printers.find(p =>
+      p.name.toLowerCase().includes('speed-x') ||
+      p.name.toLowerCase().includes('400ul') ||
+      p.name.toLowerCase().includes('thermal') ||
+      p.name.toLowerCase().includes('pos')
+    );
+    res.json({
+      available: !!speedx,
+      printerName: speedx ? speedx.name : 'Speed-X 400UL',
+      port: speedx?.port || 'USB001',
+      isDefault: speedx?.isDefault || false,
+      allPrinters: printers.map(p => p.name)
+    });
+  } catch (err: any) {
+    res.json({ available: false, error: err.message, printerName: 'Speed-X 400UL' });
+  }
+});
+
+// Direct Hardware Thermal Printing (Windows WinSpool RAW / ESC/POS)
+// Unauthenticated so local loopback daemon can be invoked from cloud HTTPS frontend
+integrationRouter.post('/print-receipt-direct', async (req: Request, res: Response) => {
   try {
     const { invoiceNumber, printerName, invoiceData } = req.body;
     const targetPrinter = printerName || 'Speed-X 400UL';
@@ -356,9 +380,21 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
       chunks.push(Buffer.from(padBetween(qtyPrice, lineTotalStr, lineWidth) + '\n', 'utf8'));
     });
 
+    let posFeeAmt = 2.0;
+    if (invoiceData && invoiceData.posFee !== undefined) {
+      posFeeAmt = Number(invoiceData.posFee);
+    } else if (invoiceData && (invoiceData as any).fixedChargeAmount !== undefined) {
+      posFeeAmt = Number((invoiceData as any).fixedChargeAmount);
+    }
+
     chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
     chunks.push(Buffer.from(padBetween('Sub Total:', `Rs. ${subtotalAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
-    chunks.push(Buffer.from(padBetween('Sales Tax:', `Rs. ${taxAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+    if (taxAmt > 0) {
+      chunks.push(Buffer.from(padBetween('Sales Tax:', `Rs. ${taxAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+    }
+    if (posFeeAmt > 0) {
+      chunks.push(Buffer.from(padBetween('POS Service Fee:', `Rs. ${posFeeAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+    }
     if (discountAmt > 0) {
       chunks.push(Buffer.from(padBetween('Discount:', `-Rs. ${discountAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
     }
@@ -396,10 +432,12 @@ integrationRouter.post('/print-receipt-direct', authenticateToken, async (req: R
     chunks.push(Buffer.from('Your Health Our Priority\n', 'utf8'));
     chunks.push(Buffer.from('Proprietor: Naveed Ahmed Khan\n\n', 'utf8'));
 
-    // Feed 6 lines & partial cut & drawer kick pulse
+    // Feed 6 lines & universal auto-cut codes (covers Speed-X / ESC-POS firmware variants)
     chunks.push(Buffer.from([0x1B, 0x64, 0x06]));
-    chunks.push(Buffer.from([0x1D, 0x56, 0x41, 0x00]));
-    chunks.push(Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]));
+    chunks.push(Buffer.from([0x1D, 0x56, 0x41, 0x00])); // GS V 65 0
+    chunks.push(Buffer.from([0x1D, 0x56, 0x01]));       // GS V 1 (Partial Cut)
+    chunks.push(Buffer.from([0x1D, 0x56, 0x00]));       // GS V 0 (Full Cut)
+    chunks.push(Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA])); // Cash drawer kick pulse
 
     const finalBuffer = Buffer.concat(chunks);
     const printRes = await printRawToPrinter(finalBuffer, targetPrinter);

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Barcode128, SimpleQRCodeSVG } from '../utils/barcodeGenerator.js';
 import { printThermalElement } from '../utils/thermalPrinter.js';
+import { printReceiptDirectHardware } from '../utils/directHardwarePrinter.js';
 import { CashMemoModal, CashMemoInvoiceData } from '../components/CashMemoModal.js';
 
 const GOOGLE_MAPS_URL = 'https://maps.app.goo.gl/cUe3jLr2kngNTnt2A';
@@ -220,15 +221,23 @@ export const BillHistoryView: React.FC = () => {
     }
   };
 
-  // Prints via the browser's own print dialog, since a server-side raw-printer call can only
-  // reach a printer physically attached to the same machine the backend process runs on - which
-  // cloud hosting makes impossible (the printer is on your desk, the server isn't).
-  const handleDirectHardwarePrint = () => {
+  // Direct Zero-Click Hardware Printing to Speed-X 400UL
+  const handleDirectHardwarePrint = async () => {
     if (!saleData) return;
     setDirectPrinting(true);
     setErrorMessage(null);
-    printThermalElement('bill-history-thermal-slip', (settings['printer_paper_width'] as any) || '80mm');
-    setDirectPrinting(false);
+    try {
+      const res = await printReceiptDirectHardware(saleData.invoice_number);
+      if (res.success) {
+        setDirectPrinting(false);
+        return;
+      }
+      printThermalElement('bill-history-thermal-slip', (settings['printer_paper_width'] as any) || '80mm');
+    } catch {
+      printThermalElement('bill-history-thermal-slip', (settings['printer_paper_width'] as any) || '80mm');
+    } finally {
+      setDirectPrinting(false);
+    }
   };
 
   // Copy invoice number

@@ -52,10 +52,21 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 5000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 app.use(securityHeaders);
+app.use((req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-requested-with');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with']
 }));
 
 app.use(express.json());

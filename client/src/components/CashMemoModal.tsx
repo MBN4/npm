@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Printer, Download, MessageCircle, FileText, CheckCircle2, AlertTriangle, HelpCircle } from 'lucide-react';
 import { Barcode128, SimpleQRCodeSVG } from '../utils/barcodeGenerator';
 import { printThermalElement, diagnosePrinterEnvironment, PrintDiagnosticResult } from '../utils/thermalPrinter';
+import { printReceiptDirectHardware, detectSpeedXPrinter } from '../utils/directHardwarePrinter';
 
 export interface CashMemoInvoiceData {
   invoiceNumber: string;
@@ -90,6 +91,21 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [diagnosticResult, setDiagnosticResult] = useState<PrintDiagnosticResult | null>(null);
   const [printErrorAdvice, setPrintErrorAdvice] = useState<string[] | null>(null);
+  const [hardwarePrinterOnline, setHardwarePrinterOnline] = useState<boolean | null>(null);
+  const [detectedPrinterName, setDetectedPrinterName] = useState<string>('Speed-X 400UL');
+  const [isDirectPrinting, setIsDirectPrinting] = useState<boolean>(false);
+
+  // Auto-detect Speed-X 400UL hardware printer on modal open
+  React.useEffect(() => {
+    let active = true;
+    detectSpeedXPrinter().then(status => {
+      if (active) {
+        setHardwarePrinterOnline(status.available);
+        if (status.printerName) setDetectedPrinterName(status.printerName);
+      }
+    });
+    return () => { active = false; };
+  }, []);
 
   const runDiagnostics = () => {
     const res = diagnosePrinterEnvironment('speedx-400ul-slip-printable', '80mm');
@@ -97,15 +113,33 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
     setDiagnosticsOpen(true);
   };
 
-  const handleDirectSpeedXPrint = () => {
-    setPrintingStatus('Opening print dialogue for Speed-X 400UL...');
+  const handleDirectSpeedXPrint = async () => {
+    setIsDirectPrinting(true);
+    setPrintingStatus(`🖨️ Auto-detected ${detectedPrinterName} - Sending RAW ESC/POS directly...`);
     setPrintErrorAdvice(null);
-    const success = printThermalElement('speedx-400ul-slip-printable', '80mm', (_err, advice) => {
-      setPrintErrorAdvice(advice);
-      setPrintingStatus('Print Dialog Error: See Diagnostics');
-    });
-    if (success) {
-      setTimeout(() => setPrintingStatus(null), 4000);
+
+    try {
+      const res = await printReceiptDirectHardware(invoiceData);
+      if (res.success) {
+        setPrintingStatus(`✅ ${res.message || 'Receipt printed & cut automatically on ' + detectedPrinterName}`);
+        setHardwarePrinterOnline(true);
+        setTimeout(() => setPrintingStatus(null), 5000);
+        return;
+      }
+
+      // If local USB spooler daemon is offline, fallback to browser print dialog
+      setPrintingStatus('Direct USB spooler offline. Opening browser dialog...');
+      const success = printThermalElement('speedx-400ul-slip-printable', '80mm', (_err, advice) => {
+        setPrintErrorAdvice(advice);
+        setPrintingStatus('Print Dialog Error: See Diagnostics');
+      });
+      if (success) {
+        setTimeout(() => setPrintingStatus(null), 4000);
+      }
+    } catch {
+      printThermalElement('speedx-400ul-slip-printable', '80mm');
+    } finally {
+      setIsDirectPrinting(false);
     }
   };
 
@@ -163,15 +197,36 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
           </div>
 
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            {/* Speed-X 400UL Direct Print Button */}
+            {/* Speed-X 400UL Direct Zero-Click Print Button */}
             <button
               onClick={handleDirectSpeedXPrint}
+              disabled={isDirectPrinting}
               className="btn btn-sm"
-              style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: '0.35rem', fontWeight: 800, padding: '0.4rem 0.85rem' }}
-              title="Print directly to Speed-X 400UL Hardware Thermal Printer attached to laptop"
+              style={{
+                backgroundColor: hardwarePrinterOnline ? '#059669' : '#0284c7',
+                color: '#fff',
+                border: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                fontWeight: 800,
+                padding: '0.45rem 1rem',
+                boxShadow: hardwarePrinterOnline ? '0 0 12px rgba(16, 185, 129, 0.4)' : undefined,
+                cursor: isDirectPrinting ? 'wait' : 'pointer'
+              }}
+              title={hardwarePrinterOnline ? `Direct 1-Click Print to ${detectedPrinterName} (Zero Dialogs)` : 'Print receipt (Auto-detects Speed-X 400UL)'}
             >
               <Printer size={16} />
-              <span>🖨️ Direct Speed-X 400UL Print</span>
+              <span>
+                {isDirectPrinting
+                  ? 'Printing...'
+                  : (hardwarePrinterOnline ? `⚡ Auto-Print (${detectedPrinterName})` : '🖨️ Auto-Print Receipt')}
+              </span>
+              {hardwarePrinterOnline && (
+                <span style={{ backgroundColor: '#10b981', color: '#fff', fontSize: '0.65rem', padding: '1px 5px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Ready
+                </span>
+              )}
             </button>
 
             {/* Printer Diagnostics & Error Finder Button */}

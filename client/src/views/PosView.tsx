@@ -22,6 +22,7 @@ import {
 import type { NavView } from '../components/Sidebar.js';
 import { saveOfflineSale } from '../services/offlineSync.js';
 import { printThermalElement } from '../utils/thermalPrinter.js';
+import { printReceiptDirectHardware, detectSpeedXPrinter } from '../utils/directHardwarePrinter.js';
 import { CustomerSelect } from '../components/CustomerSelect.js';
 import { getProductPackaging } from '../utils/productPackaging.js';
 import { CashOutModal } from '../components/CashOutModal.js';
@@ -326,11 +327,36 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
     return localStorage.getItem('nmp_autoprint') === 'true';
   });
 
-  // Prints via the browser's own print dialog rather than a server-side raw-printer call: the
-  // latter only works when the backend process runs on the same machine as the printer, which
-  // cloud hosting rules out entirely (the printer is on your desk, the server isn't).
-  const handleDirectHardwarePrint = (_invNum?: string) => {
-    printThermalElement('nmp-pos-receipt', (settings['printer_paper_width'] as any) || '80mm');
+  const [hardwarePrinterOnline, setHardwarePrinterOnline] = useState<boolean | null>(null);
+  const [detectedPrinterName, setDetectedPrinterName] = useState<string>('Speed-X 400UL');
+  const [isDirectPrinting, setIsDirectPrinting] = useState<boolean>(false);
+
+  useEffect(() => {
+    detectSpeedXPrinter().then(status => {
+      setHardwarePrinterOnline(status.available);
+      if (status.printerName) setDetectedPrinterName(status.printerName);
+    });
+  }, []);
+
+  // Direct Zero-Click Hardware Printing to Speed-X 400UL
+  const handleDirectHardwarePrint = async (invNum?: string) => {
+    setIsDirectPrinting(true);
+    try {
+      const invToPrint = lastInvoice || invNum;
+      if (invToPrint) {
+        const res = await printReceiptDirectHardware(invToPrint);
+        if (res.success) {
+          setInfoMessage(`✅ Printed directly to ${detectedPrinterName}!`);
+          setTimeout(() => setInfoMessage(null), 4000);
+          return;
+        }
+      }
+      printThermalElement('nmp-pos-receipt', (settings['printer_paper_width'] as any) || '80mm');
+    } catch {
+      printThermalElement('nmp-pos-receipt', (settings['printer_paper_width'] as any) || '80mm');
+    } finally {
+      setIsDirectPrinting(false);
+    }
   };
 
   const autoCompleteQrSale = async (eventData: any, method: any) => {
@@ -410,7 +436,7 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
   };
 
   const handlePrintReceipt = () => {
-    printThermalElement('nmp-pos-receipt', (settings['printer_paper_width'] as any) || '80mm');
+    handleDirectHardwarePrint();
   };
 
   useEffect(() => {
@@ -2174,12 +2200,25 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button
                   onClick={handlePrintReceipt}
+                  disabled={isDirectPrinting}
                   className="btn btn-primary"
-                  style={{ flex: 1.4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontWeight: 700 }}
-                  title="Opens your system print dialog - pick your receipt printer there"
+                  style={{
+                    flex: 1.4,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.4rem',
+                    fontWeight: 700,
+                    backgroundColor: hardwarePrinterOnline ? '#059669' : undefined
+                  }}
+                  title={hardwarePrinterOnline ? `Direct Zero-Click Print to ${detectedPrinterName}` : 'Print receipt'}
                 >
                   <Printer size={16} />
-                  <span>Print Receipt</span>
+                  <span>
+                    {isDirectPrinting
+                      ? 'Printing...'
+                      : (hardwarePrinterOnline ? `⚡ Auto-Print (${detectedPrinterName})` : 'Print Receipt')}
+                  </span>
                 </button>
 
                 <button
