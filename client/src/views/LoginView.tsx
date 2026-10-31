@@ -46,11 +46,12 @@ export const LoginView: React.FC = () => {
     setSuccessMessage(null);
     setIsLoading(true);
 
-    const result = await login(username, password);
+    const cleanUsername = username.trim();
+    const result = await login(cleanUsername, password);
     setIsLoading(false);
 
     if (!result.success) {
-      setErrorMessage(result.error || 'Authentication failed. Please verify credentials.');
+      setErrorMessage(result.error || 'Invalid credentials. Please verify username and password.');
     }
   };
 
