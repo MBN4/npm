@@ -21,10 +21,12 @@ export function printLabelElement(elementOrId: HTMLElement | string, widthMm: nu
   iframe.style.position = 'fixed';
   iframe.style.right = '0';
   iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
+  iframe.style.width = '200px';
+  iframe.style.height = '200px';
   iframe.style.border = '0';
-  iframe.style.visibility = 'hidden';
+  iframe.style.opacity = '0.01';
+  iframe.style.pointerEvents = 'none';
+  iframe.style.zIndex = '-9999';
   document.body.appendChild(iframe);
 
   const doc = iframe.contentWindow?.document;
@@ -94,95 +96,158 @@ export function printLabelElement(elementOrId: HTMLElement | string, widthMm: nu
   }, 250);
 }
 
-export function printThermalElement(elementOrId: HTMLElement | string, paperWidth: '80mm' | '58mm' = '80mm') {
+export interface PrintDiagnosticResult {
+  success: boolean;
+  elementFound: boolean;
+  paperWidth: '80mm' | '58mm';
+  error?: string;
+  advice: string[];
+}
+
+/**
+ * Diagnostic helper that inspects the browser print readiness, element integrity,
+ * and advises how to resolve physical printer issues on live/cloud sites.
+ */
+export function diagnosePrinterEnvironment(elementOrId: HTMLElement | string, paperWidth: '80mm' | '58mm' = '80mm'): PrintDiagnosticResult {
   const elem = typeof elementOrId === 'string' ? document.getElementById(elementOrId) : elementOrId;
-  if (!elem) {
-    window.print();
-    return;
+  const advice: string[] = [];
+  const elementFound = Boolean(elem && elem.innerHTML.trim().length > 0);
+
+  if (!elementFound) {
+    advice.push('Target receipt element not found in DOM or is completely empty.');
   }
 
-  // Create an isolated hidden iframe to isolate the receipt document
-  const iframe = document.createElement('iframe');
-  iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
-  iframe.style.border = '0';
-  iframe.style.visibility = 'hidden';
-  document.body.appendChild(iframe);
+  advice.push('When the Chrome/Edge print dialog opens, set Destination to: "Speed-X 400UL".');
+  advice.push('Under More Settings, select Paper Size: "80mm / Receipt" (or 80 x 297mm).');
+  advice.push('Set Margins to: "None" so text aligns precisely with thermal paper boundaries.');
+  advice.push('Ensure the physical USB cable is plugged into your PC/laptop (USB001) and blue light is on.');
 
-  const doc = iframe.contentWindow?.document;
-  if (!doc) {
-    window.print();
-    return;
-  }
+  return {
+    success: elementFound,
+    elementFound,
+    paperWidth,
+    advice
+  };
+}
 
-  const widthCss = paperWidth === '58mm' ? '54mm' : '76mm';
-  const maxWidthCss = paperWidth === '58mm' ? '58mm' : '80mm';
-
-  doc.open();
-  doc.write(`
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <title>NMP Receipt</title>
-        <meta charset="utf-8" />
-        <style>
-          @page {
-            size: auto;
-            margin: 0mm !important;
-          }
-          * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-          }
-          body {
-            margin: 0 !important;
-            padding: 2mm 3mm 14mm 3mm !important;
-            width: ${widthCss} !important;
-            max-width: ${maxWidthCss} !important;
-            background: #ffffff !important;
-            color: #000000 !important;
-            font-family: 'JetBrains Mono', 'Courier New', Courier, monospace !important;
-            font-size: 11px !important;
-            line-height: 1.35 !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-          }
-          th, td {
-            color: #000000 !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-        </style>
-      </head>
-      <body>
-        ${elem.innerHTML}
-      </body>
-    </html>
-  `);
-  doc.close();
-
-  iframe.contentWindow?.focus();
-  setTimeout(() => {
-    try {
-      iframe.contentWindow?.print();
-    } catch (e) {
-      console.error('Error invoking iframe print:', e);
+export function printThermalElement(
+  elementOrId: HTMLElement | string,
+  paperWidth: '80mm' | '58mm' = '80mm',
+  onError?: (err: Error, advice: string[]) => void
+): boolean {
+  try {
+    const elem = typeof elementOrId === 'string' ? document.getElementById(elementOrId) : elementOrId;
+    if (!elem) {
+      console.warn('[thermalPrinter] Target element not found, falling back to window.print()');
       window.print();
-    } finally {
-      setTimeout(() => {
-        if (document.body.contains(iframe)) {
-          document.body.removeChild(iframe);
-        }
-      }, 1500);
+      return false;
     }
-  }, 250);
+
+    // Create an isolated iframe to format the thermal receipt document
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '200px';
+    iframe.style.height = '200px';
+    iframe.style.border = '0';
+    iframe.style.opacity = '0.01';
+    iframe.style.pointerEvents = 'none';
+    iframe.style.zIndex = '-9999';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (!doc) {
+      console.warn('[thermalPrinter] Could not acquire iframe document context, falling back to window.print()');
+      window.print();
+      return false;
+    }
+
+    const widthCss = paperWidth === '58mm' ? '54mm' : '76mm';
+    const maxWidthCss = paperWidth === '58mm' ? '58mm' : '80mm';
+
+    doc.open();
+    doc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>NMP Receipt</title>
+          <meta charset="utf-8" />
+          <style>
+            @page {
+              size: auto;
+              margin: 0mm !important;
+            }
+            * {
+              box-sizing: border-box;
+              margin: 0;
+              padding: 0;
+            }
+            body {
+              margin: 0 !important;
+              padding: 2mm 3mm 14mm 3mm !important;
+              width: ${widthCss} !important;
+              max-width: ${maxWidthCss} !important;
+              background: #ffffff !important;
+              color: #000000 !important;
+              font-family: 'JetBrains Mono', 'Courier New', Courier, monospace !important;
+              font-size: 11px !important;
+              line-height: 1.35 !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+            }
+            th, td {
+              color: #000000 !important;
+            }
+            .no-print {
+              display: none !important;
+            }
+          </style>
+        </head>
+        <body>
+          ${elem.innerHTML}
+        </body>
+      </html>
+    `);
+    doc.close();
+
+    iframe.contentWindow?.focus();
+    setTimeout(() => {
+      try {
+        iframe.contentWindow?.print();
+      } catch (e: any) {
+        console.error('[thermalPrinter] Error invoking iframe print:', e);
+        if (onError) {
+          onError(e, [
+            'Direct iframe print encountered a browser security restriction.',
+            'Triggering standard print fallback...',
+            'Check that popups/print permissions are allowed in your browser address bar.'
+          ]);
+        }
+        window.print();
+      } finally {
+        setTimeout(() => {
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        }, 1500);
+      }
+    }, 250);
+
+    return true;
+  } catch (err: any) {
+    console.error('[thermalPrinter] Critical error in printThermalElement:', err);
+    if (onError) {
+      onError(err, [
+        'Browser printing engine failed to initialize.',
+        'Ensure the page is not in reading mode or blocking print dialogs.'
+      ]);
+    }
+    window.print();
+    return false;
+  }
 }

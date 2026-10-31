@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { X, Printer, Download, MessageCircle, FileText, CheckCircle2 } from 'lucide-react';
+import { X, Printer, Download, MessageCircle, FileText, CheckCircle2, AlertTriangle, HelpCircle } from 'lucide-react';
 import { Barcode128, SimpleQRCodeSVG } from '../utils/barcodeGenerator';
-import { printThermalElement } from '../utils/thermalPrinter';
+import { printThermalElement, diagnosePrinterEnvironment, PrintDiagnosticResult } from '../utils/thermalPrinter';
 
 export interface CashMemoInvoiceData {
   invoiceNumber: string;
@@ -76,21 +76,37 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
   const custAddress = invoiceData.customerAddress || '-';
 
   const items = invoiceData.items || [];
-  const subtotal = invoiceData.subtotal || 0;
-  const salesTax = invoiceData.salesTax || 0;
-  const grandTotal = invoiceData.grandTotal || 0;
-  const paidAmount = invoiceData.paidAmount !== undefined ? invoiceData.paidAmount : grandTotal;
-  const balance = invoiceData.balance !== undefined ? invoiceData.balance : Math.max(0, grandTotal - paidAmount);
+  const subtotal = Number(invoiceData.subtotal) || 0;
+  const salesTax = Number(invoiceData.salesTax) || 0;
+  const posFee = (invoiceData as any).posFee !== undefined ? Number((invoiceData as any).posFee) : 2.0;
+  const grandTotal = (invoiceData as any).grandTotal !== undefined && (invoiceData as any).grandTotal !== null
+    ? Number((invoiceData as any).grandTotal)
+    : (subtotal + salesTax + posFee);
+  const paidAmount = invoiceData.paidAmount !== undefined ? Number(invoiceData.paidAmount) : grandTotal;
+  const balance = invoiceData.balance !== undefined ? Number(invoiceData.balance) : Math.max(0, grandTotal - paidAmount);
   const paymentMethod = invoiceData.paymentMethod || 'Cash';
   const notes = invoiceData.notes || 'Thank you for your purchase.';
 
-  // Prints via the browser's own print dialog, since a server-side raw-printer call can only
-  // reach a printer physically attached to the same machine the backend process runs on - which
-  // cloud hosting makes impossible (the printer is on your desk, the server isn't).
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [diagnosticResult, setDiagnosticResult] = useState<PrintDiagnosticResult | null>(null);
+  const [printErrorAdvice, setPrintErrorAdvice] = useState<string[] | null>(null);
+
+  const runDiagnostics = () => {
+    const res = diagnosePrinterEnvironment('speedx-400ul-slip-printable', '80mm');
+    setDiagnosticResult(res);
+    setDiagnosticsOpen(true);
+  };
+
   const handleDirectSpeedXPrint = () => {
-    setPrintingStatus('Printing...');
-    printThermalElement('speedx-400ul-slip-printable', '80mm');
-    setTimeout(() => setPrintingStatus(null), 4000);
+    setPrintingStatus('Opening print dialogue for Speed-X 400UL...');
+    setPrintErrorAdvice(null);
+    const success = printThermalElement('speedx-400ul-slip-printable', '80mm', (_err, advice) => {
+      setPrintErrorAdvice(advice);
+      setPrintingStatus('Print Dialog Error: See Diagnostics');
+    });
+    if (success) {
+      setTimeout(() => setPrintingStatus(null), 4000);
+    }
   };
 
   const handleA4Print = () => {
@@ -158,6 +174,17 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
               <span>🖨️ Direct Speed-X 400UL Print</span>
             </button>
 
+            {/* Printer Diagnostics & Error Finder Button */}
+            <button
+              onClick={runDiagnostics}
+              className="btn btn-sm"
+              style={{ backgroundColor: '#0f766e', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: '0.35rem', fontWeight: 700 }}
+              title="Run Printer Error Finder & Settings Diagnostics"
+            >
+              <HelpCircle size={15} />
+              <span>🔍 Printer Diagnostics</span>
+            </button>
+
             {/* A4 Sheet Print Button */}
             <button
               onClick={handleA4Print}
@@ -203,6 +230,51 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
           <div style={{ backgroundColor: '#dcfce7', color: '#15803d', padding: '6px 16px', fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', borderBottom: '1px solid #86efac' }}>
             <CheckCircle2 size={16} />
             <span>{printingStatus}</span>
+          </div>
+        )}
+
+        {/* Diagnostics & Error Advice Banner */}
+        {printErrorAdvice && (
+          <div style={{ backgroundColor: '#fef2f2', color: '#991b1b', padding: '10px 16px', fontSize: '0.8rem', borderBottom: '1px solid #fecaca' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800, marginBottom: '4px' }}>
+              <AlertTriangle size={16} />
+              <span>Printer Error Finder & Advice:</span>
+            </div>
+            <ul style={{ margin: '4px 0 0 1.25rem', padding: 0 }}>
+              {printErrorAdvice.map((item, idx) => (
+                <li key={idx} style={{ marginBottom: '2px' }}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Interactive Diagnostics Modal Overlay */}
+        {diagnosticsOpen && diagnosticResult && (
+          <div style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #0284c7', padding: '12px 18px', fontSize: '0.85rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <strong style={{ fontSize: '0.95rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <CheckCircle2 size={18} color="#16a34a" /> Speed-X 400UL Diagnostics & Live Setup Guide
+              </strong>
+              <button onClick={() => setDiagnosticsOpen(false)} className="btn btn-xs btn-secondary" style={{ padding: '2px 8px' }}>Close Help</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', marginBottom: '8px' }}>
+              <div style={{ background: '#fff', padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>1. Print Destination:</div>
+                <div style={{ fontWeight: 800, color: '#0284c7' }}>Select "Speed-X 400UL"</div>
+              </div>
+              <div style={{ background: '#fff', padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>2. Paper Size:</div>
+                <div style={{ fontWeight: 800, color: '#0284c7' }}>80mm / Receipt</div>
+              </div>
+              <div style={{ background: '#fff', padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>3. Margins:</div>
+                <div style={{ fontWeight: 800, color: '#0284c7' }}>Set to "None"</div>
+              </div>
+              <div style={{ background: '#fff', padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>4. Physical Port:</div>
+                <div style={{ fontWeight: 800, color: '#16a34a' }}>USB001 (Online)</div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -358,6 +430,10 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                   <span>Sales Tax:</span>
                   <span>Rs. {salesTax.toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                  <span>POS Service Fee:</span>
+                  <span>Rs. {posFee.toFixed(2)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: '12px', borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '4px 0', margin: '4px 0' }}>
                   <span>GRAND TOTAL:</span>
