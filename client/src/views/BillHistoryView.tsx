@@ -825,6 +825,11 @@ export const BillHistoryView: React.FC = () => {
                       <tr key={i} style={{ borderBottom: '1px dotted #bbb' }}>
                         <td style={{ padding: '3px 0', verticalAlign: 'top' }}>
                           <strong style={{ display: 'block' }}>{i + 1}. {it.brand_name} {it.strength || ''}</strong>
+                          {(it.batch_number || it.expiry_date) && (
+                            <div style={{ fontSize: '8px', color: '#555' }}>
+                              Batch: {it.batch_number || '-'}   Exp: {it.expiry_date || '-'}
+                            </div>
+                          )}
                         </td>
                         <td style={{ textAlign: 'center', verticalAlign: 'top', padding: '3px 0' }}>{it.quantity}</td>
                         <td style={{ textAlign: 'right', verticalAlign: 'top', padding: '3px 0' }}>{Number(it.unit_price).toFixed(2)}</td>
@@ -835,6 +840,10 @@ export const BillHistoryView: React.FC = () => {
                 </table>
 
                 <div style={{ borderTop: '1px dashed #000', paddingTop: '6px', fontSize: '10.5px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#444' }}>
+                    <span>Total Line Items: {itemsData.length}</span>
+                    <span>Total Units: {itemsData.reduce((sum, it) => sum + (it.quantity || 0), 0)}</span>
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span>Sub Total:</span>
                     <span>Rs. {Number(saleData.subtotal).toFixed(2)}</span>
@@ -861,6 +870,19 @@ export const BillHistoryView: React.FC = () => {
                   )}
                 </div>
 
+                {/* Clinical Advisory & Store Policy (matches the direct-hardware ESC/POS receipt) */}
+                <div style={{ textAlign: 'center', marginTop: '8px', paddingTop: '6px', borderTop: '1px dashed #000', fontSize: '9px' }}>
+                  <div style={{ fontWeight: 800, fontSize: '9.5px', marginBottom: '2px' }}>CLINICAL ADVISORY &amp; STORAGE</div>
+                  <div>Store all medicines in a cool, dry place (&lt;30C).</div>
+                  <div>Keep all medicines out of reach of children.</div>
+                  <div>Take antibiotics strictly as prescribed by doctor.</div>
+                </div>
+                <div style={{ textAlign: 'center', marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed #000', fontSize: '9px' }}>
+                  <div style={{ fontWeight: 800, fontSize: '9.5px', marginBottom: '2px' }}>STORE RETURN POLICY</div>
+                  <div>Returns accepted within 3 days with this bill.</div>
+                  <div>Cold-chain / fridge &amp; cut strips NOT returnable.</div>
+                </div>
+
                 {/* Google Maps Location QR Code & Barcode */}
                 <div style={{ textAlign: 'center', marginTop: '10px', paddingTop: '6px', borderTop: '1px dashed #000' }}>
                   <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4px' }}>
@@ -873,8 +895,8 @@ export const BillHistoryView: React.FC = () => {
                 </div>
 
                 <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '9px', fontWeight: 700 }}>
-                  <div>{settings['receipt_footer'] || 'Thank you for choosing NMP!'}</div>
-                  <div style={{ fontStyle: 'italic', marginTop: '2px', color: '#15803d' }}>Your Health Our Priority 🍃</div>
+                  <div>{settings['receipt_footer'] || 'Thank You For Choosing NMP!'}</div>
+                  <div style={{ marginTop: '2px' }}>*** YOUR HEALTH, OUR PRIORITY ***</div>
                   <div style={{ fontSize: '8px', marginTop: '4px', fontWeight: 400 }}>Proprietor: Naveed Ahmed Khan</div>
                 </div>
               </div>
