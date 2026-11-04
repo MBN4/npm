@@ -2,11 +2,71 @@ import { db } from '../db/index.js';
 import { printRawToPrinter, getWindowsPrinters, PrintResult } from './printerService.js';
 import { renderLogoRaster, renderQrRaster, renderBarcodeRaster, paperWidthDots } from './receiptGraphics.js';
 
-function padBetween(left: string, right: string, width: number = 44): string {
+function padBetween(left: string, right: string, width: number): string {
   const l = left.trim();
   const r = right.trim();
   const spaces = Math.max(1, width - l.length - r.length);
   return l + ' '.repeat(spaces) + r;
+}
+
+// Matches the character counts documented in Settings (80mm = 48 chars/line, 58mm = 32
+// chars/line) for the printer's default Font A at 203dpi. The previous hardcoded 44-char
+// width didn't match either paper size, so every line built against it wrapped mid-word or
+// mid-number on the printer's actual narrower line - that mismatch, not a printer fault, is
+// what produced the garbled, misaligned receipts seen in the field.
+function charsPerLine(paperWidthSetting?: string): number {
+  return paperWidthSetting === '58mm' ? 32 : 48;
+}
+
+// Word-wraps text to the printer's real line width so overflow breaks between words instead
+// of the printer's firmware hard-cutting it mid-word/mid-number.
+function wrapText(text: string, width: number): string[] {
+  if (width <= 0 || text.length <= width) return [text];
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    if (word.length > width) {
+      if (current) { lines.push(current); current = ''; }
+      let remaining = word;
+      while (remaining.length > width) {
+        lines.push(remaining.slice(0, width));
+        remaining = remaining.slice(width);
+      }
+      current = remaining;
+      continue;
+    }
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length > width) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length > 0 ? lines : [''];
+}
+
+function pushLines(chunks: Buffer[], text: string, width: number): void {
+  for (const line of wrapText(text, width)) {
+    chunks.push(Buffer.from(line + '\n', 'utf8'));
+  }
+}
+
+// Renders a left/right label-value pair on one line when it fits the printer's physical line
+// width; otherwise falls back to the label on its own (wrapped) line(s) with the value
+// right-aligned on the line below, instead of silently overflowing and letting the printer
+// wrap it mid-number.
+function pushTwoColumn(chunks: Buffer[], left: string, right: string, width: number): void {
+  const l = left.trim();
+  const r = right.trim();
+  if (l.length + 1 + r.length <= width) {
+    chunks.push(Buffer.from(padBetween(l, r, width) + '\n', 'utf8'));
+    return;
+  }
+  pushLines(chunks, l, width);
+  chunks.push(Buffer.from(r.slice(0, width).padStart(width) + '\n', 'utf8'));
 }
 
 export interface PrintReceiptParams {
@@ -113,13 +173,13 @@ export async function printReceiptESC_POS(params: PrintReceiptParams): Promise<P
   }
 
   // Fetch store settings
-  const settingsRows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'pharmacy_%' OR key LIKE 'receipt_%' OR key LIKE 'license_%' OR key LIKE 'tax_%'").all() as any[];
+  const settingsRows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'pharmacy_%' OR key LIKE 'receipt_%' OR key LIKE 'license_%' OR key LIKE 'tax_%' OR key LIKE 'printer_%'").all() as any[];
   const settingsMap: Record<string, string> = {};
   settingsRows.forEach(r => { settingsMap[r.key] = r.value; });
 
   const phone = settingsMap['pharmacy_phone'] || '0345-4142863';
   const paperDots = paperWidthDots(settingsMap['printer_paper_width']);
-  const lineWidth = 44;
+  const lineWidth = charsPerLine(settingsMap['printer_paper_width']);
 
   const chunks: Buffer[] = [
     Buffer.from([0x1B, 0x40]), // ESC @ - Reset / Initialize
@@ -143,32 +203,32 @@ export async function printReceiptESC_POS(params: PrintReceiptParams): Promise<P
   chunks.push(Buffer.from([0x1B, 0x21, 0x00])); // Reset font size
 
   chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold On
-  chunks.push(Buffer.from('Complete Healthcare & Clinical Pharmacy\n', 'utf8'));
+  pushLines(chunks, 'Complete Healthcare & Clinical Pharmacy', lineWidth);
   chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold Off
 
-  chunks.push(Buffer.from(`${settingsMap['pharmacy_address'] || 'Chowk Chohan Road Outfall, Islampura, Lahore'}\n`, 'utf8'));
-  chunks.push(Buffer.from(`Helpline / WhatsApp: ${phone}\n`, 'utf8'));
-  chunks.push(Buffer.from(`Govt Drug License No: ${settingsMap['license_number'] || 'DL-GUJ-2026-9812'}\n`, 'utf8'));
+  pushLines(chunks, settingsMap['pharmacy_address'] || 'Chowk Chohan Road Outfall, Islampura, Lahore', lineWidth);
+  pushLines(chunks, `Helpline / WhatsApp: ${phone}`, lineWidth);
+  pushLines(chunks, `Govt Drug License No: ${settingsMap['license_number'] || 'DL-GUJ-2026-9812'}`, lineWidth);
 
   chunks.push(Buffer.from('='.repeat(lineWidth) + '\n', 'utf8'));
   chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold On
-  chunks.push(Buffer.from('OFFICIAL CASH MEMO / SALES INVOICE\n', 'utf8'));
+  pushLines(chunks, 'OFFICIAL CASH MEMO / SALES INVOICE', lineWidth);
   chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold Off
   chunks.push(Buffer.from('='.repeat(lineWidth) + '\n', 'utf8'));
 
   // 3. Metadata
   chunks.push(Buffer.from([0x1B, 0x61, 0x00])); // ESC a 0 - Left align
-  chunks.push(Buffer.from(padBetween(`Inv #: ${invNo}`, `Date: ${dateStr}`, lineWidth) + '\n', 'utf8'));
-  chunks.push(Buffer.from(padBetween(`Counter: POS-${posNo} (Main)`, `Time: ${timeStr}`, lineWidth) + '\n', 'utf8'));
-  chunks.push(Buffer.from(padBetween(`Cashier: ${cashierName}`, 'Mode: WALK-IN', lineWidth) + '\n', 'utf8'));
+  pushTwoColumn(chunks, `Inv #: ${invNo}`, `Date: ${dateStr}`, lineWidth);
+  pushTwoColumn(chunks, `Counter: POS-${posNo} (Main)`, `Time: ${timeStr}`, lineWidth);
+  pushTwoColumn(chunks, `Cashier: ${cashierName}`, 'Mode: WALK-IN', lineWidth);
   const custDisplay = customerMobile ? `${customerName} (${customerMobile})` : customerName;
-  chunks.push(Buffer.from(`Customer: ${custDisplay}\n`, 'utf8'));
+  pushLines(chunks, `Customer: ${custDisplay}`, lineWidth);
   if (customerBalance > 0) {
-    chunks.push(Buffer.from(`Previous Udhaar Balance: Rs. ${customerBalance.toFixed(2)}\n`, 'utf8'));
+    pushLines(chunks, `Previous Udhaar Balance: Rs. ${customerBalance.toFixed(2)}`, lineWidth);
   }
 
   chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
-  chunks.push(Buffer.from(padBetween('Item / Batch / Expiry', 'Qty  Price    Total', lineWidth) + '\n', 'utf8'));
+  pushTwoColumn(chunks, 'Item / Batch / Expiry', 'Qty  Price    Total', lineWidth);
   chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
 
   // 4. Line Items
@@ -187,18 +247,18 @@ export async function printReceiptESC_POS(params: PrintReceiptParams): Promise<P
     }
 
     chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold On
-    chunks.push(Buffer.from(`${idx + 1}. ${brand}\n`, 'utf8'));
+    pushLines(chunks, `${idx + 1}. ${brand}`, lineWidth);
     chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold Off
 
     const batchNo = it.batch_number || it.batchNumber || 'AG-9821';
     const expDate = it.expiry_date || it.expiryDate || '11/2027';
-    chunks.push(Buffer.from(`   Batch: ${batchNo}   Exp: ${expDate}\n`, 'utf8'));
+    pushLines(chunks, `   Batch: ${batchNo}   Exp: ${expDate}`, lineWidth);
 
     const unitP = Number(it.unit_price || it.unitPrice) || 0;
     const lineTot = Number(it.line_total || it.total) || (q * unitP);
     const packTypeStr = it.packType || 'Units';
     const qtyCalc = `   ${q} ${packTypeStr} (${q} x ${unitP.toFixed(2)})`;
-    chunks.push(Buffer.from(padBetween(qtyCalc, `Rs. ${lineTot.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+    pushTwoColumn(chunks, qtyCalc, `Rs. ${lineTot.toFixed(2)}`, lineWidth);
   });
 
   // 5. Totals with Rs. 2.00 POS Service Fee
@@ -210,52 +270,52 @@ export async function printReceiptESC_POS(params: PrintReceiptParams): Promise<P
   }
 
   chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
-  chunks.push(Buffer.from(padBetween(`Total Line Items: ${itemsList.length}`, `Total Units: ${totalUnits}`, lineWidth) + '\n', 'utf8'));
-  chunks.push(Buffer.from(padBetween('Gross Sub Total:', `Rs.  ${subtotalAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+  pushTwoColumn(chunks, `Total Line Items: ${itemsList.length}`, `Total Units: ${totalUnits}`, lineWidth);
+  pushTwoColumn(chunks, 'Gross Sub Total:', `Rs. ${subtotalAmt.toFixed(2)}`, lineWidth);
   if (discountAmt > 0) {
-    chunks.push(Buffer.from(padBetween('Special Discount:', `-Rs.   ${discountAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+    pushTwoColumn(chunks, 'Special Discount:', `-Rs. ${discountAmt.toFixed(2)}`, lineWidth);
   }
-  chunks.push(Buffer.from(padBetween('Sales Tax / GST (0%):', `Rs.    ${taxAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+  pushTwoColumn(chunks, 'Sales Tax / GST (0%):', `Rs. ${taxAmt.toFixed(2)}`, lineWidth);
   if (posFeeAmt > 0) {
-    chunks.push(Buffer.from(padBetween('POS Service Fee:', `Rs.    ${posFeeAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+    pushTwoColumn(chunks, 'POS Service Fee:', `Rs. ${posFeeAmt.toFixed(2)}`, lineWidth);
   }
 
   chunks.push(Buffer.from('='.repeat(lineWidth) + '\n', 'utf8'));
   chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
-  chunks.push(Buffer.from(padBetween('NET GRAND TOTAL:', `Rs.  ${totalAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+  pushTwoColumn(chunks, 'NET GRAND TOTAL:', `Rs. ${totalAmt.toFixed(2)}`, lineWidth);
   chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
   chunks.push(Buffer.from('='.repeat(lineWidth) + '\n', 'utf8'));
 
   // 6. Payment Information
-  chunks.push(Buffer.from(padBetween('Cash Tendered:', `Rs. ${paidAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+  pushTwoColumn(chunks, 'Cash Tendered:', `Rs. ${paidAmt.toFixed(2)}`, lineWidth);
   if (changeAmt > 0) {
     chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold
-    chunks.push(Buffer.from(padBetween('Change Returned:', `Rs.    ${changeAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+    pushTwoColumn(chunks, 'Change Returned:', `Rs. ${changeAmt.toFixed(2)}`, lineWidth);
     chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
   }
   if (remainingAmt > 0) {
     chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold
-    chunks.push(Buffer.from(padBetween('Balance Due (Udhar):', `Rs.    ${remainingAmt.toFixed(2)}`, lineWidth) + '\n', 'utf8'));
+    pushTwoColumn(chunks, 'Balance Due (Udhar):', `Rs. ${remainingAmt.toFixed(2)}`, lineWidth);
     chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
   }
-  chunks.push(Buffer.from(padBetween('Payment Method:', `${paymentMethod.toUpperCase()} COUNTER`, lineWidth) + '\n', 'utf8'));
+  pushTwoColumn(chunks, 'Payment Method:', `${paymentMethod.toUpperCase()} COUNTER`, lineWidth);
 
   // 7. Clinical Advisory & Policies (from Test 2)
   chunks.push(Buffer.from([0x1B, 0x61, 0x01])); // Center
   chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
   chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
-  chunks.push(Buffer.from('CLINICAL ADVISORY & STORAGE\n', 'utf8'));
+  pushLines(chunks, 'CLINICAL ADVISORY & STORAGE', lineWidth);
   chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
-  chunks.push(Buffer.from('Store all medicines in a cool, dry place (<30C).\n', 'utf8'));
-  chunks.push(Buffer.from('Keep all medicines out of reach of children.\n', 'utf8'));
-  chunks.push(Buffer.from('Take antibiotics strictly as prescribed by doctor.\n', 'utf8'));
+  pushLines(chunks, 'Store all medicines in a cool, dry place (<30C).', lineWidth);
+  pushLines(chunks, 'Keep all medicines out of reach of children.', lineWidth);
+  pushLines(chunks, 'Take antibiotics strictly as prescribed by doctor.', lineWidth);
 
   chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
   chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
-  chunks.push(Buffer.from('STORE RETURN POLICY\n', 'utf8'));
+  pushLines(chunks, 'STORE RETURN POLICY', lineWidth);
   chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
-  chunks.push(Buffer.from('Returns accepted within 3 days with this bill.\n', 'utf8'));
-  chunks.push(Buffer.from('Cold-chain / fridge & cut strips NOT returnable.\n', 'utf8'));
+  pushLines(chunks, 'Returns accepted within 3 days with this bill.', lineWidth);
+  pushLines(chunks, 'Cold-chain / fridge & cut strips NOT returnable.', lineWidth);
   chunks.push(Buffer.from('-'.repeat(lineWidth) + '\n', 'utf8'));
 
   // 8. Location QR Code with space below
@@ -268,7 +328,9 @@ export async function printReceiptESC_POS(params: PrintReceiptParams): Promise<P
     console.warn('QR raster error:', err);
   }
   chunks.push(Buffer.from([0x1B, 0x64, 0x02])); // 2 line feeds of space below QR code
-  chunks.push(Buffer.from('Scan QR for Pharmacy Location 📍\n', 'utf8'));
+  // Plain ASCII only below - the printer's codepage can't render multi-byte UTF-8 emoji, so a
+  // glyph like the pin emoji would print as garbage bytes rather than a space/location mark.
+  pushLines(chunks, 'Scan QR for Pharmacy Location', lineWidth);
 
   // 9. Space between QR code section and Barcode
   chunks.push(Buffer.from([0x1B, 0x64, 0x02])); // 2 line feeds of space
@@ -286,10 +348,11 @@ export async function printReceiptESC_POS(params: PrintReceiptParams): Promise<P
 
   // 11. Footer Text (from Test 2)
   chunks.push(Buffer.from([0x1B, 0x45, 0x01])); // Bold on
-  chunks.push(Buffer.from('Thank You For Choosing NMP!\n', 'utf8'));
-  chunks.push(Buffer.from('*** YOUR HEALTH, OUR PRIORITY ***\n', 'utf8'));
+  pushLines(chunks, 'Thank You For Choosing NMP!', lineWidth);
+  pushLines(chunks, '*** YOUR HEALTH, OUR PRIORITY ***', lineWidth);
   chunks.push(Buffer.from([0x1B, 0x45, 0x00])); // Bold off
-  chunks.push(Buffer.from('Proprietor: Naveed Ahmed Khan\n\n', 'utf8'));
+  pushLines(chunks, 'Proprietor: Naveed Ahmed Khan', lineWidth);
+  chunks.push(Buffer.from('\n', 'utf8'));
 
   // 12. Feed 6 lines & universal auto-cut codes & cash drawer kick
   chunks.push(Buffer.from([0x1B, 0x64, 0x06]));

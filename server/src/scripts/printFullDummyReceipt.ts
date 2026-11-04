@@ -7,7 +7,7 @@ function padBetween(left: string, right: string, totalWidth: number): string {
 }
 
 export async function printFullDummyReceipt() {
-  const lineWidth = 44; // Standard 80mm ESC/POS line width
+  const lineWidth = 48; // 80mm ESC/POS Font A line width (matches Settings: "80mm = 48 chars/line")
   const paperDots = paperWidthDots('80mm'); // 576 dots
   const chunks: Buffer[] = [];
 
