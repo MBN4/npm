@@ -141,10 +141,13 @@ export async function dispatchPrintJobViaRelay(payload: {
     await new Promise(r => setTimeout(r, 200));
   }
 
-  // If no explicit ack yet but job was dispatched, assume queued
+  // No explicit ack within the wait window - report failure (not success) so the caller falls
+  // back to the browser print dialog. Silently assuming success here used to mask real failures
+  // (e.g. the agent running on a machine with no matching printer attached): the UI would say
+  // "printed" while nothing ever came out, and no fallback would fire.
   return {
-    success: true,
-    message: 'Receipt sent to Speed-X 400UL hardware printer!'
+    success: false,
+    message: 'No confirmation received from the local print agent in time - it may be offline, or printing to the wrong machine.'
   };
 }
 
