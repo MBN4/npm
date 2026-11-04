@@ -97,8 +97,11 @@ if (-not $printer -and $target) {
     $printer = $allPrinters | Where-Object { $_.Name -like "*$target*" -or $target -like "*$($_.Name)*" } | Select-Object -First 1
 }
 
-# 3. Only if NO target was specified at all (empty), perform default thermal printer discovery
-if (-not $printer -and -not $target) {
+# 3. Fall back to generic thermal/POS printer discovery whenever the exact name the caller
+# guessed (e.g. a hardcoded "Speed-X 400UL") doesn't match what's actually installed - the real
+# printer model name varies by unit (e.g. "SPEED-X 300U") and callers never know it in advance,
+# so this must run whenever nothing matched above, not only when no target was given at all.
+if (-not $printer) {
     $printer = $allPrinters | Where-Object { $_.Name -match 'Speed-X|POS|Thermal|Receipt|XP-|RP-|Xprinter|Epson|58|80' -and $_.Name -notmatch 'PDF|XPS|Fax|OneNote|Document' } | Select-Object -First 1
 }
 
