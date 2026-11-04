@@ -187,6 +187,12 @@ export function startLocalLaptopRelayAgent() {
                 invoiceData: data.job.invoiceData
               });
 
+              if (printRes.success) {
+                console.log(`[cloudPrinterRelay] Job ${data.job.id} printed OK on ${printRes.printerName || 'Speed-X 400UL'}`);
+              } else {
+                console.error(`[cloudPrinterRelay] Job ${data.job.id} FAILED to print: ${printRes.reason || '(no reason given)'}`);
+              }
+
               // Send Ack back to cloud
               await fetch(`${CLOUD_URL}/api/integrations/printer-relay/ack?secret=${encodeURIComponent(RELAY_SECRET)}`, {
                 method: 'POST',
