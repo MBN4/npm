@@ -2071,7 +2071,7 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
                   {settings['license_number'] ? ` | DSL: ${settings['license_number']}` : ''}
                 </div>
                 <div style={{ fontWeight: 800, borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '4px 0', margin: '6px 0', fontSize: '11px' }}>
-                  SPEED-X 400UL CASH MEMO / RECEIPT
+                  OFFICIAL CASH MEMO / SALES INVOICE
                 </div>
               </div>
 
@@ -2121,6 +2121,11 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
                         <td style={{ padding: '3px 0', textAlign: 'left', verticalAlign: 'top' }}>
                           <strong style={{ display: 'block', fontSize: '10px', color: '#000' }}>{i + 1}. {it.brandName}</strong>
                           <span style={{ fontSize: '8.5px', color: '#444' }}>{breakdown}</span>
+                          {(it.batchNumber || it.expiryDate) && (
+                            <div style={{ fontSize: '8px', color: '#555' }}>
+                              Batch: {it.batchNumber || '-'}   Exp: {it.expiryDate || '-'}
+                            </div>
+                          )}
                         </td>
                         <td style={{ textAlign: 'center', verticalAlign: 'top', padding: '3px 0', fontWeight: 700 }}>
                           {"   "}{it.quantity}{"   "}
@@ -2139,10 +2144,10 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
 
               {/* Totals */}
               <div style={{ borderTop: '1px dashed #000', paddingTop: '6px', fontSize: '10.5px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                  <span>Total Units: {lastInvoice.items.reduce((sum: number, it: any) => sum + (it.quantity || 0), 0)}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px', color: '#444' }}>
+                  <span>Total Line Items: {lastInvoice.items.length}</span>
                   {"   "}
-                  <span>Items: {lastInvoice.items.length}</span>
+                  <span>Total Units: {lastInvoice.items.reduce((sum: number, it: any) => sum + (it.quantity || 0), 0)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
                   <span>Sub Total:</span>
@@ -2185,6 +2190,19 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
                 )}
               </div>
 
+              {/* Clinical Advisory & Store Policy (matches the direct-hardware ESC/POS receipt) */}
+              <div style={{ textAlign: 'center', marginTop: '8px', paddingTop: '6px', borderTop: '1px dashed #000', fontSize: '9px' }}>
+                <div style={{ fontWeight: 800, fontSize: '9.5px', marginBottom: '2px' }}>CLINICAL ADVISORY &amp; STORAGE</div>
+                <div>Store all medicines in a cool, dry place (&lt;30C).</div>
+                <div>Keep all medicines out of reach of children.</div>
+                <div>Take antibiotics strictly as prescribed by doctor.</div>
+              </div>
+              <div style={{ textAlign: 'center', marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed #000', fontSize: '9px' }}>
+                <div style={{ fontWeight: 800, fontSize: '9.5px', marginBottom: '2px' }}>STORE RETURN POLICY</div>
+                <div>Returns accepted within 3 days with this bill.</div>
+                <div>Cold-chain / fridge &amp; cut strips NOT returnable.</div>
+              </div>
+
               {/* Barcode & QR Code Section */}
               <div style={{ textAlign: 'center', marginTop: '10px', paddingTop: '6px', borderTop: '1px dashed #000' }}>
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4px' }}>
@@ -2196,11 +2214,10 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
                 </div>
               </div>
 
-              {/* Footer */}
+              {/* Footer (matches the direct-hardware ESC/POS receipt) */}
               <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '9.5px', fontWeight: 700 }}>
-                <div>{settings['receipt_footer'] || 'Thank you for choosing NMP!'}</div>
-                <div style={{ fontStyle: 'italic', marginTop: '2px', color: '#15803d' }}>Your Health Our Priority 🍃</div>
-                <div style={{ fontSize: '8px', marginTop: '2px', fontWeight: 400, color: '#555' }}>Keep all medicines stored below 30°C in dry place.</div>
+                <div>{settings['receipt_footer'] || 'Thank You For Choosing NMP!'}</div>
+                <div style={{ marginTop: '2px' }}>*** YOUR HEALTH, OUR PRIORITY ***</div>
                 <div style={{ fontSize: '8px', marginTop: '4px', fontWeight: 400 }}>Proprietor: Naveed Ahmed Khan</div>
               </div>
             </div>
