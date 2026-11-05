@@ -330,6 +330,12 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
   const [hardwarePrinterOnline, setHardwarePrinterOnline] = useState<boolean | null>(null);
   const [detectedPrinterName, setDetectedPrinterName] = useState<string>('Speed-X 400UL');
   const [isDirectPrinting, setIsDirectPrinting] = useState<boolean>(false);
+  // Guards against the same invoice printing more than once in quick succession - e.g. the
+  // auto-print-on-checkout trigger firing at the same time as a cashier impatiently clicking
+  // "Print" themselves, or a slow hardware acknowledgement causing the browser fallback to also
+  // fire after the direct print already went through. Without this, one sale could come out of
+  // the printer two or three times.
+  const lastPrintedInvoiceRef = useRef<{ invoiceNumber: string; at: number } | null>(null);
 
   useEffect(() => {
     detectSpeedXPrinter().then(status => {
@@ -340,9 +346,16 @@ export const PosView: React.FC<PosViewProps> = ({ onNavigate }) => {
 
   // Direct Zero-Click Hardware Printing to Speed-X 400UL
   const handleDirectHardwarePrint = async (invDataOrNum?: any) => {
+    const invToPrint = invDataOrNum || lastInvoice;
+    const invNo: string | undefined = typeof invDataOrNum === 'string' ? invDataOrNum : invToPrint?.invoiceNumber;
+    const now = Date.now();
+    if (invNo && lastPrintedInvoiceRef.current?.invoiceNumber === invNo && now - lastPrintedInvoiceRef.current.at < 15000) {
+      return;
+    }
+    if (invNo) lastPrintedInvoiceRef.current = { invoiceNumber: invNo, at: now };
+
     setIsDirectPrinting(true);
     try {
-      const invToPrint = invDataOrNum || lastInvoice;
       if (invToPrint) {
         const res = await printReceiptDirectHardware(invToPrint);
         if (res.success) {
