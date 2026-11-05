@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { X, Printer, Download, MessageCircle, FileText, CheckCircle2, AlertTriangle, HelpCircle } from 'lucide-react';
 import { Barcode128, SimpleQRCodeSVG } from '../utils/barcodeGenerator';
 import { printThermalElement, diagnosePrinterEnvironment, PrintDiagnosticResult } from '../utils/thermalPrinter';
@@ -97,6 +97,10 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
   const [hardwarePrinterOnline, setHardwarePrinterOnline] = useState<boolean | null>(null);
   const [detectedPrinterName, setDetectedPrinterName] = useState<string>('Speed-X 400UL');
   const [isDirectPrinting, setIsDirectPrinting] = useState<boolean>(false);
+  // Guards against printing the same invoice twice in quick succession (e.g. an impatient
+  // double-click, or a slow hardware acknowledgement causing the browser fallback to also fire
+  // after the direct print already went through).
+  const lastPrintedInvoiceRef = useRef<{ invoiceNumber: string; at: number } | null>(null);
 
   // Auto-detect Speed-X 400UL hardware printer on modal open
   React.useEffect(() => {
@@ -117,6 +121,12 @@ export const CashMemoModal: React.FC<CashMemoModalProps> = ({
   };
 
   const handleDirectSpeedXPrint = async () => {
+    const now = Date.now();
+    if (lastPrintedInvoiceRef.current?.invoiceNumber === invNo && now - lastPrintedInvoiceRef.current.at < 15000) {
+      return;
+    }
+    lastPrintedInvoiceRef.current = { invoiceNumber: invNo, at: now };
+
     setIsDirectPrinting(true);
     setPrintingStatus(`🖨️ Auto-detected ${detectedPrinterName} - Sending RAW ESC/POS directly...`);
     setPrintErrorAdvice(null);
