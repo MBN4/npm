@@ -108,7 +108,11 @@ export async function extractPdfPages(buffer: Buffer): Promise<Array<{ pageNumbe
       if (wordCount >= 5) {
         results.push({ pageNumber: page.num, embeddedText: page.text, renderedImage: null });
       } else {
-        const screenshot = await parser.getScreenshot({ partial: [page.num], scale: 2 });
+        // scale 2 produced badly garbled OCR on real distributor invoices with small, dense
+        // table text (e.g. "120ML" read as "jaom1", "637.50" read as "67.50") - scale 4 gives
+        // Tesseract enough pixels per character to read the same table almost perfectly, at the
+        // cost of a few extra seconds, which is a fine trade-off for a one-time invoice upload.
+        const screenshot = await parser.getScreenshot({ partial: [page.num], scale: 4 });
         const rendered = screenshot.pages[0] ? Buffer.from(screenshot.pages[0].data) : null;
         results.push({ pageNumber: page.num, embeddedText: null, renderedImage: rendered });
       }
@@ -205,12 +209,19 @@ function detectDocumentType(text: string): ParsedInvoiceDraft['documentType'] {
 }
 
 function detectInvoiceNumber(text: string): string | null {
-  const match = text.match(/\b(?:invoice|inv|bill)\s*(?:no\.?|number|#)?\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9\-\/]{1,24})/i);
-  if (!match) return null;
-  const candidate = match[1].trim();
-  // Reject obvious false positives like matching a trailing date/word fragment.
-  if (/^(no|number|date)$/i.test(candidate)) return null;
-  return candidate;
+  // Scans every "invoice/inv/bill ..." occurrence rather than just the first - a document's own
+  // title line ("SALE TAX INVOICE") matches just as well as the real "Invoice Id: 01-499028"
+  // label further down, so the first match alone isn't reliable. A real invoice number always
+  // contains at least one digit, which a stray word caught after a title heading never does.
+  const re = /\b(?:invoice|inv|bill)\s*(?:id|no\.?|number|#)?\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9\-\/.]{1,24})/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    const candidate = match[1].trim();
+    if (/^(no|number|date|id)$/i.test(candidate)) continue;
+    if (!/\d/.test(candidate)) continue;
+    return candidate;
+  }
+  return null;
 }
 
 function detectInvoiceDateRaw(text: string): string | null {
@@ -222,16 +233,22 @@ function detectInvoiceDateRaw(text: string): string | null {
 
 function detectSupplierName(text: string): string | null {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  for (const line of lines.slice(0, 8)) {
+  // A busy letterhead (logo, QR code) often OCRs into single-word noise before the real company
+  // name line is reached ("Tents" ahead of "Babar Medicine Company") - prefer the first
+  // multi-word candidate, since a real company name is almost never a single word, but still
+  // fall back to a single-word match if nothing better turns up in the scanned window.
+  let singleWordFallback: string | null = null;
+  for (const line of lines.slice(0, 10)) {
     if (line.length < 3 || line.length > 60) continue;
     if (/\b(invoice|quotation|estimate|bill|date|tel|phone|fax|address|gst|ntn)\b/i.test(line)) continue;
     if (/^\d+$/.test(line)) continue;
     // Supplier header lines are typically mostly-letters, often ALL CAPS on printed letterheads.
     const letters = (line.match(/[A-Za-z]/g) || []).length;
     if (letters < line.length * 0.6) continue;
-    return line;
+    if (/\s/.test(line)) return line;
+    if (!singleWordFallback) singleWordFallback = line;
   }
-  return null;
+  return singleWordFallback;
 }
 
 function detectPrintedTotal(text: string): number | null {
@@ -360,12 +377,135 @@ function extractBatchAndExpiry(line: string): { batch: string | null; expiry: st
   };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Wide tabular invoices: many Pakistani pharma distributor invoices print a 10+ column row per
+// product (SR# | Product | Pack | Batch# | Expiry | Unit Price | QTY | Bonus | Gross | Disc% |
+// Discount | Sale Tax | Further Tax | Total). parseLineItem below assumes at most 3 numeric
+// columns (qty/rate/total) and flags everything else as "too many numbers, unclear" - which is
+// most/all of this shape. Rows here are clearly marked by a leading SR# (1, 2, 3, ...), so they
+// are parsed with a dedicated, position-aware pass before falling back to parseLineItem.
+// ---------------------------------------------------------------------------------------------
+
+const PACK_SIZE_RE = /\b\d+\s?(?:ML|MG|GM|KG|L)\b|\b\d+\s?[xX]\s?\d+'?S?\b|\b\d+'?S\b/i;
+const WIDE_ROW_DATE_RE = /\b(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{6})\b/;
+const WIDE_ROW_BATCH_RE = /\b(?=[A-Za-z0-9]{3,10}\b)[A-Za-z]{0,4}\d{2,8}[A-Za-z0-9]*\b/;
+
+function parseDateToken(token: string): string | null {
+  if (/^\d{6}$/.test(token)) {
+    // No-separator DDMMYY, as OCR sometimes drops the slashes entirely (e.g. "010128").
+    const day = parseInt(token.slice(0, 2), 10);
+    const month = parseInt(token.slice(2, 4), 10);
+    const year = normalizeYear(parseInt(token.slice(4, 6), 10));
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  const parts = token.split(/[\/\-]/);
+  if (parts.length === 2) {
+    const month = parseInt(parts[0], 10);
+    const year = normalizeYear(parseInt(parts[1], 10));
+    if (month < 1 || month > 12) return null;
+    const day = lastDayOfMonth(year, month);
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  if (parts.length === 3) {
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
+    const year = normalizeYear(parseInt(parts[2], 10));
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  return null;
+}
+
+function tryParseWideTableRow(line: string, lineNumber: number): ParsedInvoiceLineItem | null {
+  const rowMatch = line.match(/^(\d{1,3})\s+(.+)$/);
+  if (!rowMatch) return null;
+  const srNum = parseInt(rowMatch[1], 10);
+  if (srNum < 1 || srNum > 300) return null;
+  const rest = rowMatch[2].trim();
+  if (rest.length < 4) return null;
+
+  const allNumMatches = [...rest.matchAll(/\d[\d,]*(?:\.\d+)?/g)];
+  if (allNumMatches.length < 3) return null; // too few numeric columns to be a real product row
+
+  const packMatch = rest.match(PACK_SIZE_RE);
+  let productName: string;
+  let afterPack: string;
+  if (packMatch && (packMatch.index || 0) > 0) {
+    productName = rest.slice(0, packMatch.index).trim();
+    afterPack = rest.slice((packMatch.index || 0) + packMatch[0].length);
+  } else {
+    // Many product names in this invoice shape start with a leading numeric product code
+    // ("260-GAVISCON LIQUID", "843-HIGH-C 1000 SACHETS") - skip past that prefix before looking
+    // for the "real" first digit, or the code's own leading digit gets mistaken for it and the
+    // whole row is dropped as having an empty name.
+    const codePrefixMatch = rest.match(/^\d{2,4}-?(?=[A-Za-z])/);
+    const searchFrom = codePrefixMatch ? codePrefixMatch[0].length : 0;
+    const firstDigitIdx = rest.slice(searchFrom).search(/\d/);
+    if (firstDigitIdx < 0) return null;
+    const splitAt = searchFrom + firstDigitIdx;
+    if (splitAt <= 0) return null;
+    productName = rest.slice(0, splitAt).trim();
+    afterPack = rest.slice(splitAt);
+  }
+  productName = productName.replace(/^[\s\-|.:#,]+/, '').replace(/[\s\-|.:#,]+$/, '');
+  if (productName.length < 2) return null;
+
+  let working = afterPack;
+  const dateMatch = working.match(WIDE_ROW_DATE_RE);
+  let expiryDate: string | null = null;
+  if (dateMatch) {
+    expiryDate = parseDateToken(dateMatch[1]);
+    working = working.slice(0, dateMatch.index) + ' ' + working.slice((dateMatch.index || 0) + dateMatch[0].length);
+  }
+
+  let batchNumber: string | null = null;
+  const beforeDate = dateMatch ? afterPack.slice(0, dateMatch.index) : afterPack;
+  const batchMatch = beforeDate.match(WIDE_ROW_BATCH_RE);
+  if (batchMatch) {
+    batchNumber = batchMatch[0];
+    working = working.replace(batchMatch[0], ' ');
+  }
+
+  const nums = [...working.matchAll(/\d[\d,]*(?:\.\d+)?/g)]
+    .map((x) => toNumberOrNull(x[0]))
+    .filter((n): n is number => n !== null);
+
+  // Column order for this layout: Unit Price, Qty, [Bonus,] Gross, Disc%, Discount, Sale Tax,
+  // Further Tax, Total - price and qty are always the first two remaining numbers once the
+  // batch/expiry tokens are removed; everything after that varies invoice to invoice, so it's
+  // not trusted positionally. Always flagged for manual confirmation either way - this is a
+  // best-effort positional read of a dense, variable table, not a confident extraction.
+  return {
+    lineNumber,
+    productNameRaw: productName,
+    strengthRaw: null,
+    dosageFormRaw: null,
+    batchNumber,
+    expiryDate,
+    mfgDate: null,
+    boxesReceived: nums.length >= 2 ? nums[1] : null,
+    supplierPurchaseRate: nums.length >= 1 ? nums[0] : null,
+    rateBasis: 'UNKNOWN',
+    lineDiscountRaw: null,
+    lineTaxRaw: null,
+    lineTotalRaw: nums.length >= 3 ? nums[nums.length - 1] : null,
+    bonusQuantityRaw: null,
+    flaggedUnclear: true,
+    flagReason: 'Read from a multi-column invoice table - confirm quantity, rate, and packaging against the physical invoice before posting.',
+    handwrittenFlag: false,
+  };
+}
+
 function parseLineItem(line: string, lineNumber: number): ParsedInvoiceLineItem | null {
   const genericNumberRe = /\b\d[\d,]*(?:\.\d+)?\b/g;
   const initialNumberCount = (line.match(genericNumberRe) || []).length;
   if (initialNumberCount < 2) return null;
 
-  if (/grand\s*total|net\s*total|total\s*amount|invoice\s*(?:no|number)|supplier|warranty|guarantee|^date\b/i.test(line)) return null;
+  // Common invoice header/metadata labels - never real product lines, even though they often
+  // contain two or more numeric-looking tokens (IDs, dates, tax/registration numbers) that would
+  // otherwise pass the numeric-token check above and get mistaken for a product row.
+  if (/grand\s*total|net\s*total|total\s*amount|invoice\s*(?:id|no|number)|supplier|warranty|guarantee|^date\b|^customer\b|^brick\b|^address\b|dss\s*id|ntn\s*[\/\-]?\s*cnic|\bstr\s*no\b|\bpo\s*no\b|\bbooker\b|^tel\b|\bphone\b|\bfax\b/i.test(line)) return null;
 
   let working = line;
   let flaggedUnclear = false;
@@ -454,14 +594,42 @@ export function parseInvoiceText(combinedText: string): ParsedInvoiceDraft {
 
   const items: ParsedInvoiceLineItem[] = [];
   let lineNumber = 0;
+  // A long product name sometimes wraps onto its own line just above the row that carries its
+  // SR# and numeric columns (e.g. "827-ONSET ORAL SOLUTION" then "5 4MG/5ML 25ML ONS032659 ...").
+  // Track the last plausible bare name-continuation line so it can be prefixed onto the next row.
+  let pendingNamePrefix: string | null = null;
+
   for (const rawLine of lines) {
     const trimmed = rawLine.trim();
     if (!trimmed) continue;
+
+    if (/^\d{1,3}\s+\S/.test(trimmed)) {
+      const wideItem = tryParseWideTableRow(trimmed, lineNumber + 1);
+      if (wideItem) {
+        if (pendingNamePrefix && wideItem.productNameRaw) {
+          wideItem.productNameRaw = `${pendingNamePrefix} ${wideItem.productNameRaw}`.trim();
+        }
+        pendingNamePrefix = null;
+        lineNumber += 1;
+        items.push(wideItem);
+        continue;
+      }
+    }
+
     const item = parseLineItem(trimmed, lineNumber + 1);
     if (item) {
       lineNumber += 1;
       items.push(item);
+      pendingNamePrefix = null;
+      continue;
     }
+
+    const lettersCount = (trimmed.match(/[A-Za-z]/g) || []).length;
+    const looksLikeNameContinuation = trimmed.length >= 3 && trimmed.length <= 50
+      && lettersCount / trimmed.length > 0.6
+      && !PACK_SIZE_RE.test(trimmed)
+      && !/grand\s*total|net\s*total|total|warranty|guarantee/i.test(trimmed);
+    pendingNamePrefix = looksLikeNameContinuation ? trimmed : null;
   }
 
   const calculatedTotal = items.some((i) => i.lineTotalRaw !== null)
