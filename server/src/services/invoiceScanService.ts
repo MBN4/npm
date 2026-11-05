@@ -417,7 +417,64 @@ function parseDateToken(token: string): string | null {
   return null;
 }
 
-function tryParseWideTableRow(line: string, lineNumber: number): ParsedInvoiceLineItem | null {
+// The numeric (non batch/expiry) columns a wide-table invoice can declare, keyed by what its own
+// header calls them. Order matters: it's filled in from left-to-right as found in that specific
+// invoice's header row, so a row's remaining numbers are read "according to the heading" instead
+// of a fixed guessed order - an invoice that prints Qty before Price reads correctly, and so does
+// one that prints Price before Qty.
+type WideTableColumnKey = 'price' | 'qty' | 'bonus' | 'gross' | 'discPct' | 'discount' | 'tax' | 'tax2' | 'total';
+
+const WIDE_TABLE_COLUMN_PATTERNS: Array<[WideTableColumnKey, RegExp]> = [
+  ['price', /\b(?:unit\s*price|rate|price)\b/],
+  ['qty', /\b(?:qty|quantity)\b/],
+  ['bonus', /\bbonus\b|\bfree\b|\bf\.?o\.?c\.?\b/],
+  ['gross', /\bgross\b/],
+  ['discPct', /disc\s*%|disc%|discount\s*%/],
+  ['discount', /\bdiscount\b/],
+  ['tax', /\bsale\s*tax\b|\bs\.?\s*tax\b|\bgst\b/],
+  ['tax2', /\bfurther\b.*\btax\b|\bf\.?\s*tax\b/],
+  ['total', /\btotal\b/],
+];
+
+/**
+ * Reads the invoice's own column headings (e.g. "SR# | Product | Pack | Batch # | Expiry | Unit
+ * Price | QTY | Bonus | Gross | Disc% | Discount | Sale Tax | Further S.Tax | Total") and returns
+ * the numeric columns in the left-to-right order THIS invoice actually prints them, so each row's
+ * remaining numbers map onto the columns this specific invoice declared - not a fixed assumption
+ * that happens to match some invoices and scramble others.
+ */
+function detectWideTableColumns(text: string): WideTableColumnKey[] | null {
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.toLowerCase();
+    if (!/\bproduct\b/.test(line)) continue;
+    const found: Array<{ key: WideTableColumnKey; index: number }> = [];
+    for (const [key, re] of WIDE_TABLE_COLUMN_PATTERNS) {
+      const m = line.match(re);
+      if (m && m.index !== undefined) found.push({ key, index: m.index });
+    }
+    // Only trust this as a reliable header when the three columns every row actually needs
+    // (price, qty, total) were all legible - a header row is often printed in a smaller, more
+    // decorative font than the data rows below it, so a column name can OCR into an unreadable
+    // symbol even when the data rows themselves read perfectly. Using a partially-read header
+    // would silently shift every later column out of alignment, which is worse than just using
+    // the plain default order - so this falls back to that default instead of guessing.
+    const keys = new Set(found.map((f) => f.key));
+    if (!keys.has('price') || !keys.has('qty') || !keys.has('total')) continue;
+    found.sort((a, b) => a.index - b.index);
+    // De-duplicate: "discount" also matches inside "disc%"'s neighborhood on some OCR reads.
+    const seen = new Set<WideTableColumnKey>();
+    const ordered: WideTableColumnKey[] = [];
+    for (const f of found) {
+      if (seen.has(f.key)) continue;
+      seen.add(f.key);
+      ordered.push(f.key);
+    }
+    return ordered;
+  }
+  return null;
+}
+
+function tryParseWideTableRow(line: string, lineNumber: number, columnOrder: WideTableColumnKey[] | null): ParsedInvoiceLineItem | null {
   const rowMatch = line.match(/^(\d{1,3})\s+(.+)$/);
   if (!rowMatch) return null;
   const srNum = parseInt(rowMatch[1], 10);
@@ -471,11 +528,23 @@ function tryParseWideTableRow(line: string, lineNumber: number): ParsedInvoiceLi
     .map((x) => toNumberOrNull(x[0]))
     .filter((n): n is number => n !== null);
 
-  // Column order for this layout: Unit Price, Qty, [Bonus,] Gross, Disc%, Discount, Sale Tax,
-  // Further Tax, Total - price and qty are always the first two remaining numbers once the
-  // batch/expiry tokens are removed; everything after that varies invoice to invoice, so it's
-  // not trusted positionally. Always flagged for manual confirmation either way - this is a
-  // best-effort positional read of a dense, variable table, not a confident extraction.
+  // Map the remaining numbers onto this invoice's own declared column order (from its header
+  // row) when we confidently have one - different invoices order their trailing columns
+  // differently (some print Qty before Price, some after), so this reads correctly either way.
+  // Without a confident header, fall back to the simple, forgiving assumption that holds
+  // regardless of how many trailing discount/tax columns OCR actually produced distinct numbers
+  // for: price is first, qty is second, and whatever the last number is, is the line total.
+  const byColumn: Partial<Record<WideTableColumnKey, number>> = {};
+  if (columnOrder && columnOrder.length > 0) {
+    columnOrder.forEach((key, i) => {
+      if (nums[i] !== undefined) byColumn[key] = nums[i];
+    });
+  } else {
+    if (nums.length >= 1) byColumn.price = nums[0];
+    if (nums.length >= 2) byColumn.qty = nums[1];
+    if (nums.length >= 3) byColumn.total = nums[nums.length - 1];
+  }
+
   return {
     lineNumber,
     productNameRaw: productName,
@@ -484,15 +553,17 @@ function tryParseWideTableRow(line: string, lineNumber: number): ParsedInvoiceLi
     batchNumber,
     expiryDate,
     mfgDate: null,
-    boxesReceived: nums.length >= 2 ? nums[1] : null,
-    supplierPurchaseRate: nums.length >= 1 ? nums[0] : null,
+    boxesReceived: byColumn.qty ?? null,
+    supplierPurchaseRate: byColumn.price ?? null,
     rateBasis: 'UNKNOWN',
-    lineDiscountRaw: null,
-    lineTaxRaw: null,
-    lineTotalRaw: nums.length >= 3 ? nums[nums.length - 1] : null,
-    bonusQuantityRaw: null,
+    lineDiscountRaw: byColumn.discount ?? null,
+    lineTaxRaw: byColumn.tax ?? null,
+    lineTotalRaw: byColumn.total ?? (nums.length >= 3 ? nums[nums.length - 1] : null),
+    bonusQuantityRaw: byColumn.bonus ?? null,
     flaggedUnclear: true,
-    flagReason: 'Read from a multi-column invoice table - confirm quantity, rate, and packaging against the physical invoice before posting.',
+    flagReason: columnOrder
+      ? 'Read from the invoice\'s own column headings - confirm quantity, rate, and packaging against the physical invoice before posting.'
+      : 'Read from a multi-column invoice table - confirm quantity, rate, and packaging against the physical invoice before posting.',
     handwrittenFlag: false,
   };
 }
@@ -591,6 +662,7 @@ function parseLineItem(line: string, lineNumber: number): ParsedInvoiceLineItem 
 
 export function parseInvoiceText(combinedText: string): ParsedInvoiceDraft {
   const lines = combinedText.split('\n');
+  const wideTableColumns = detectWideTableColumns(combinedText);
 
   const items: ParsedInvoiceLineItem[] = [];
   let lineNumber = 0;
@@ -604,7 +676,7 @@ export function parseInvoiceText(combinedText: string): ParsedInvoiceDraft {
     if (!trimmed) continue;
 
     if (/^\d{1,3}\s+\S/.test(trimmed)) {
-      const wideItem = tryParseWideTableRow(trimmed, lineNumber + 1);
+      const wideItem = tryParseWideTableRow(trimmed, lineNumber + 1, wideTableColumns);
       if (wideItem) {
         if (pendingNamePrefix && wideItem.productNameRaw) {
           wideItem.productNameRaw = `${pendingNamePrefix} ${wideItem.productNameRaw}`.trim();
