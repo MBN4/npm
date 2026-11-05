@@ -111,3 +111,39 @@ Navigate to **Settings > Thermal Printer & POS**:
 - **Receipt Header & Footer**: Configure pharmacy trade name, phone numbers, drug sale license (DSL), NTN, and return policy wording.
 - **Hardware Triggers**: Toggle ESC/POS auto-cutter command (`\x1D\x56\x41\x00`) and cash drawer kick pulse (`\x1B\x70\x00\x19\xFA`).
 - **Barcode Sticker Printing**: Navigate to **Settings > Barcode Label Generator** to generate and print shelf stickers formatted for standard 2-column or 3-column sticker sheets using `window.print()`.
+
+### 8.1 Direct Hardware Printing From the Live (Cloud) Site — the Print Bridge
+
+The live/cloud site (Fly.io + Vercel) has no way to reach a USB thermal printer by itself — a
+printer is physically attached to one specific PC, and the cloud backend cannot talk to local
+hardware. To get the crisp, full-size ESC/POS receipt (bold text, large logo/QR/barcode) when
+billing from the live site, the PC the printer is actually plugged into must run a small
+background process — the **print bridge** — which:
+- opens a local WebSocket bridge (`ws://127.0.0.1:5001`) so the browser on that same PC can print
+  instantly, and
+- polls the live site in the background so a cashier on *any* device (another counter, a phone)
+  can still trigger a print that comes out on this PC's printer.
+
+**One-time setup, on the PC the printer is physically connected to:**
+1. `git clone` this repository there (or keep it updated with `git pull` — it must track `main`,
+   not an old feature branch, or it will silently miss printer fixes).
+2. `cd server && npm install && npm run build`.
+   - If `npm install` fails compiling `better-sqlite3` with a "Visual Studio" / `node-gyp` error,
+     either install Visual Studio Build Tools ("Desktop development with C++" workload), **or**
+     avoid that entirely: run `npm install --ignore-scripts` instead (skips the native build for
+     every package), then copy a working `node_modules/better-sqlite3` folder from another
+     Windows PC with the same Node.js version onto this PC, replacing the one that install step
+     created. The compiled binary is portable across machines with the same OS/architecture/Node
+     version, so no compiler is needed on this PC at all.
+3. Press `Win+R` → `shell:startup` → create a shortcut there to `server\start-print-bridge.bat`.
+4. Restart the PC once and confirm a small console window appears on its own, showing
+   `[localPrinterWs] ... listening on ws://127.0.0.1:5001` and
+   `[cloudPrinterRelay] Starting local Speed-X 400UL agent polling: ...`.
+
+**Without this running**, clicking "Auto-Print" on the live site still works — it automatically
+falls back to the browser's own print dialog — but that output is visibly fainter and smaller
+(logo, QR, barcode) than the direct ESC/POS print, because the browser rasterizes the whole page
+as a grayscale image rather than sending native printer commands. If receipts suddenly look
+faint/small again after previously printing crisply, the print bridge on that PC has stopped
+running (closed terminal, PC restarted without the Startup shortcut set up yet, etc.) — restart it
+via the Startup shortcut, or run `server\start-print-bridge.bat` directly.

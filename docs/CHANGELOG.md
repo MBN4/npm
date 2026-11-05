@@ -2,6 +2,49 @@
 
 All notable changes and architectural deliverables for **Naveed Medical Pharmacy (NMP)** are documented below.
 
+## 2026-11-05 — Receipt Printing Overhaul
+
+A field report of garbled, misaligned thermal receipts on the live site traced back to several
+independent bugs across both the direct-hardware ESC/POS engine and the browser-print fallback
+path. See `docs/ADMIN_GUIDE.md` §8.1 for the new print-bridge setup this depends on.
+
+- **Fixed column alignment on real hardware**: the ESC/POS engine assumed a hardcoded 44-char
+  line width that matched neither 80mm (48 chars) nor 58mm (32 chars) paper, so lines wrapped
+  mid-word/mid-number on the printer's real line. Line width is now derived from the configured
+  paper width, overflowing text word-wraps properly, and two-column rows that don't fit stack
+  into a label line + a right-aligned value line instead of overflowing.
+- **Fixed the paper-width setting being silently ignored**: the settings lookup never selected
+  `printer_*` keys, so `printer_paper_width` from Settings had no effect on the print engine -
+  it always rendered as if on 80mm paper.
+- **Fixed printer auto-detection failing on real units**: direct-print printer matching only
+  widened its search to generic thermal/POS discovery when no printer name was given at all; in
+  practice every caller hardcodes a guessed name ("Speed-X 400UL"), so a unit installed under a
+  different model name (e.g. "SPEED-X 300U") never matched and silently fell back to the browser
+  dialog every time.
+- **Fixed a false "printed successfully" report**: the cloud print relay assumed success when the
+  local print agent didn't acknowledge a job within 3.5 seconds, instead of reporting failure -
+  this masked real failures (e.g. the agent running on a machine with no matching printer
+  attached) and skipped the fallback entirely, so nothing printed at all while the UI said it had.
+- **Fixed duplicate printing**: a single sale could print two or three times (the
+  auto-print-on-checkout trigger racing a manual click, or a slow hardware acknowledgement
+  triggering the browser fallback after the direct print already went through). Added a
+  short-lived per-invoice guard so a repeat trigger for the same invoice is ignored.
+- **Fixed non-functional QR codes and barcodes**: `Barcode128` and `SimpleQRCodeSVG` (used by every
+  browser-rendered receipt) never actually encoded anything - both just hashed the invoice number
+  into a random-looking but meaningless pattern of SVG rectangles. No scanner could ever read
+  them. Replaced with real `jsbarcode` (Code 128) and `qrcode` (QR) rendering. (The direct-hardware
+  path already used a real barcode library server-side and was unaffected.)
+- **Unified receipt content across all three independent renderers**: the checkout receipt
+  (`PosView`), the cash-memo popup (`CashMemoModal`), and the reprint slip (`BillHistoryView`)
+  each had their own separate copy of the thermal-receipt markup, which had drifted out of sync
+  with the ESC/POS engine's format. All three now show the same header, per-item batch/expiry,
+  a Total Line Items / Total Units row, the Clinical Advisory & Storage and Store Return Policy
+  sections, and matching footer wording.
+- **Added `server/start-print-bridge.bat`**: a standalone script that runs only the printer
+  bridge (not the full local-fallback offline instance) so a PC with a USB thermal printer
+  attached can serve direct hardware prints to the live cloud site with a single Windows Startup
+  shortcut and no further manual steps.
+
 ## Unreleased local changes — 2026-09-22
 
 - **Patients & prescriptions:** Existing patient profiles can be edited from Patients & CRM or beside the selected patient in an Rx (with patient management permission) without changing their ID or financial history. Name, mobile, age, gender, allergy notes, and credit limit can be corrected in CRM; optional fields can be cleared. A new patient can also be registered and selected while writing a prescription.
