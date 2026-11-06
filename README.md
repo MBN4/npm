@@ -134,6 +134,7 @@ git push nmp-org main
 ## 📚 Living Documentation
 
 Full operational guides and architectural specs are located in the [`/docs/`](./docs) folder:
+- [AI implementation handoff prompt](./docs/AI_IMPLEMENTATION_PROMPT.md)
 - [Master Specification](./docs/MASTER_SPEC.md)
 - [UI Navigation Map](./docs/UI_MAP.md)
 - [Project Roadmap & Status](./docs/PROJECT_STATUS.md)
