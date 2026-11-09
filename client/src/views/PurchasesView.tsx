@@ -69,6 +69,37 @@ export interface AiQuestion {
   options: Array<{ label: string; value: any }>;
 }
 
+// The hosted site (Vercel) forwards /api/* to the Fly.io server. Large or slow requests such as
+// invoice photos can fail inside that forwarder, which answers with a plain-text error page
+// ("An error occurred...") instead of JSON. Uploads therefore fall back to calling the API
+// server directly, and every response is parsed defensively.
+const HOSTED_API_ORIGIN = 'https://nmp-api.fly.dev';
+
+function isHostedSite(): boolean {
+  const host = window.location.hostname;
+  if (!host || host === 'localhost' || host === '127.0.0.1' || host.endsWith('.fly.dev')) return false;
+  if (/^(10|127|192\.168|172\.(1[6-9]|2\d|3[01]))\./.test(host)) return false;
+  return true;
+}
+
+async function readJsonResponse(res: Response): Promise<any | null> {
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function serverFailureMessage(status: number): string {
+  if (status === 413) return 'This invoice file is too large. Please upload a smaller photo (or one page at a time).';
+  if (status === 502 || status === 503 || status === 504 || status === 500) {
+    return `The server could not finish reading this invoice (HTTP ${status}). Please try again in a moment; if it keeps failing, try a clearer or smaller photo.`;
+  }
+  return `The server returned an unexpected response (HTTP ${status}). Please try again.`;
+}
+
 async function optimizeImageForAi(file: File): Promise<File> {
   if (!file.type.startsWith('image/')) return file;
   return new Promise(resolve => {
@@ -466,13 +497,29 @@ export const PurchasesView: React.FC = () => {
       const formData = new FormData();
       optimizedFiles.forEach(f => formData.append('files', f));
 
-      const res = await fetch('/api/purchases/scans/ai-quick-extract', {
+      const sendTo = (origin: string) => fetch(`${origin}/api/purchases/scans/ai-quick-extract`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData
       });
 
-      const data = await res.json();
+      let res: Response;
+      let data: any = null;
+      try {
+        res = await sendTo('');
+        data = await readJsonResponse(res);
+      } catch (networkErr) {
+        if (!isHostedSite()) throw networkErr;
+        res = await sendTo(HOSTED_API_ORIGIN);
+        data = await readJsonResponse(res);
+      }
+      if (data === null && isHostedSite()) {
+        res = await sendTo(HOSTED_API_ORIGIN);
+        data = await readJsonResponse(res);
+      }
+      if (data === null) {
+        throw new Error(serverFailureMessage(res.status));
+      }
       if (!res.ok) {
         throw new Error(data.error || 'Failed to extract invoice data');
       }
@@ -620,7 +667,11 @@ export const PurchasesView: React.FC = () => {
         })
       });
 
-      const data = await res.json();
+      const data = await readJsonResponse(res);
+      if (data === null) {
+        setStatusMessage({ text: serverFailureMessage(res.status), type: 'error' });
+        return;
+      }
       if (!res.ok) {
         setStatusMessage({ text: data.error || 'Failed to record purchase', type: 'error' });
         return;

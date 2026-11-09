@@ -22,6 +22,11 @@ function resolveLocalLangPath(): string | null {
 
 const localLangPath = resolveLocalLangPath();
 let workerPromise: Promise<Tesseract.Worker> | null = null;
+let workerIdleTimer: NodeJS.Timeout | null = null;
+let activeOcrJobs = 0;
+// The OCR engine holds ~150MB+ while loaded. The hosted server runs on a small VM, so release it
+// after a quiet spell instead of keeping it resident forever next to the rest of the app.
+const WORKER_IDLE_MS = 2 * 60 * 1000;
 
 function getWorker(): Promise<Tesseract.Worker> {
   if (!workerPromise) {
@@ -29,8 +34,22 @@ function getWorker(): Promise<Tesseract.Worker> {
       ...(localLangPath ? { langPath: localLangPath, gzip: true } : {}),
       logger: () => {},
     });
+    // A failed start-up must not poison every later scan with the same rejected promise.
+    workerPromise.catch(() => { workerPromise = null; });
   }
   return workerPromise;
+}
+
+function scheduleWorkerShutdown(): void {
+  if (workerIdleTimer) clearTimeout(workerIdleTimer);
+  workerIdleTimer = setTimeout(() => {
+    workerIdleTimer = null;
+    if (activeOcrJobs > 0 || !workerPromise) return;
+    const pending = workerPromise;
+    workerPromise = null;
+    pending.then(w => w.terminate()).catch(() => {});
+  }, WORKER_IDLE_MS);
+  workerIdleTimer.unref?.();
 }
 
 export interface ParsedInvoiceLineItem {
@@ -79,9 +98,15 @@ export async function ocrImageBuffer(buffer: Buffer, _mimeType?: string): Promis
 }
 
 async function runOcr(buffer: Buffer): Promise<Tesseract.Page> {
-  const worker = await getWorker();
-  const { data } = await worker.recognize(buffer, {}, { blocks: true, text: true } as any);
-  return data;
+  activeOcrJobs++;
+  try {
+    const worker = await getWorker();
+    const { data } = await worker.recognize(buffer, {}, { blocks: true, text: true } as any);
+    return data;
+  } finally {
+    activeOcrJobs--;
+    scheduleWorkerShutdown();
+  }
 }
 
 export async function extractPdfPages(buffer: Buffer): Promise<Array<{ pageNumber: number; embeddedText: string | null; renderedImage: Buffer | null }>> {
@@ -508,6 +533,20 @@ function parsePackagingStructure(packStr: string | null, cleanName: string): { b
  * Auto-Pilot Matching & Creation Engine
  * Strips phone/tax/header lines and auto-matches or registers medicines in SQLite.
  */
+// The purchase form's date input only accepts YYYY-MM-DD; invoices print DD/MM/YYYY, DD-MM-YY etc.
+function normalizeInvoiceDate(raw: string | null): string | null {
+  if (!raw) return null;
+  const text = raw.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const m = text.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  const year = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 function autoMatchAndRegisterCatalog(extracted: {
   supplierName: string | null;
   invoiceNumber: string | null;
@@ -555,6 +594,10 @@ function autoMatchAndRegisterCatalog(extracted: {
     if (nonMedicineKeywords.some(bad => name.includes(bad))) return false;
     // Don't treat bare phone numbers or postal addresses as medicines
     if (/^\+?\d[\d\s-]{6,}\d$/.test(name)) return false;
+    // Header/label lines ("Date:", "Invoice No:", "Customer", "Page 1") are not medicines -
+    // without this they were auto-registered into the catalog as fake products.
+    if (/^(date|dated|invoice|inv\b|bill|customer|cust\b|page|s\.?\s?no|sr\b|qty|description|product|item|grand|net\b|gross|discount|gst|balance|received|signature|cash)\b/.test(name)) return false;
+    if (/:$/.test(name) || /^[^a-z]*$/.test(name)) return false;
     return true;
   });
 
@@ -643,7 +686,7 @@ function autoMatchAndRegisterCatalog(extracted: {
     supplierName: targetSupplierName,
     matchedSupplierId,
     invoiceNumber: extracted.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`,
-    purchaseDate: extracted.purchaseDate || new Date().toISOString().split('T')[0],
+    purchaseDate: normalizeInvoiceDate(extracted.purchaseDate) || new Date().toISOString().split('T')[0],
     rawNotes: extracted.warrantyText,
     clarificationQuestions: clarificationQuestions.slice(0, 3),
     items: matchedItems
