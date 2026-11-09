@@ -96,6 +96,46 @@ For a frontend-backed feature, follow this path as applicable:
 
 Not every feature needs every layer. Keep the change limited to the layers required by the task, but make the entire feature work end to end.
 
+### Known recent startup issue: login reports HTTP 502
+
+The local development app recently showed this error on the login screen:
+
+> Server is not responding yet (status 502). Please wait a moment and try again.
+
+The actual problem was not an incorrect username/password and not primarily a frontend login bug. Vite was running on port 5173, but its `/api` proxy could not reach the backend on port 5000 because the backend crashed during module loading. The server error was:
+
+```text
+SyntaxError: The requested module '../services/invoiceScanService.js'
+does not provide an export named 'getGeminiApiKey'
+```
+
+#### Why it happened
+
+Uncommitted invoice-scanning UI/API work had been added across:
+
+- `client/src/views/PurchasesView.tsx` — added the quick AI invoice-upload UI and a request to `POST /api/purchases/scans/ai-quick-extract`.
+- `client/src/components/ScanUploadModal.tsx` — added an AI availability check to `GET /api/purchases/scans/ai-status`.
+- `server/src/routes/purchaseInvoiceScanRoutes.ts` — imported and called `getGeminiApiKey` and `quickAiExtractInvoice` for those endpoints.
+
+However, `server/src/services/invoiceScanService.ts` still only implemented the local OCR and text-parsing functions; it did not export either of the two new functions. Because the backend uses ES modules, importing the route with missing named exports throws before Express starts listening. The frontend server can still start, so the browser page loads, but login/API requests receive a 502 from the development proxy and cannot succeed.
+
+#### Diagnostic conclusion and repair
+
+The missing service implementations were added to `server/src/services/invoiceScanService.ts`:
+
+- `getGeminiApiKey()` reads `GEMINI_API_KEY` from the backend process environment and returns no key when it is unset.
+- `quickAiExtractInvoice(...)` validates file types and empty uploads, sends the uploaded invoice content to Gemini using the configured server-side key, parses the returned JSON, validates/coerces the result, and returns the fields expected by the purchase form. It does not claim to match supplier or medicine catalog IDs; those remain `null` for staff to review and select.
+- The model label in `server/src/routes/purchaseInvoiceScanRoutes.ts` was aligned with the service's Gemini 2.5 Flash model.
+- The user-facing action label in `client/src/views/PurchasesView.tsx` was changed to avoid claiming a specific free tier/model behavior.
+
+The environment variable name is `GEMINI_API_KEY`; configure it in `server/.env` if AI extraction is wanted. Never copy, print, commit, or share the actual key. Invoice extraction is optional: ordinary server startup and local OCR should not require a Gemini key.
+
+#### Verification and working-tree caution
+
+After this repair, both `npm --prefix server run build` and `npm --prefix client run build` passed. A local startup check confirmed `GET http://127.0.0.1:5000/api/health` returned healthy and the frontend returned HTTP 200. The development servers were then stopped as requested. The live Gemini API call was not exercised, so do not claim that external AI extraction has been verified.
+
+These invoice-scanning files may contain uncommitted changes. Before further edits, inspect `git status` and `git diff` for all of the files above and preserve the user's work. Do not remove the quick-AI imports/UI as a shortcut for fixing startup; ensure every route import has a real, type-safe implementation and test/build the complete client-server path.
+
 ### Non-negotiable business and engineering rules
 
 - Preserve strict FEFO behavior and never allow expired batches or negative stock to be sold.
