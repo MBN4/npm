@@ -1,6 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.js';
-import { Camera, Upload, X, FileText, Loader2 } from 'lucide-react';
+import { Camera, Upload, X, FileText, Loader2, Sparkles } from 'lucide-react';
 
 interface PendingFile {
   file: File;
@@ -9,8 +9,6 @@ interface PendingFile {
 
 interface ScanUploadModalProps {
   title?: string;
-  // When scanId is provided, files are appended as extra pages to that existing draft
-  // (POST /:id/pages). Otherwise a brand-new scan is created (POST /).
   scanId?: number;
   onClose: () => void;
   onCreated: (scanId: number) => void;
@@ -22,8 +20,18 @@ export const ScanUploadModal: React.FC<ScanUploadModalProps> = ({ title, scanId,
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isGeminiActive, setIsGeminiActive] = useState(false);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetch('/api/purchases/scans/ai-status', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(data => setIsGeminiActive(Boolean(data.geminiEnabled)))
+      .catch(() => setIsGeminiActive(false));
+  }, [token]);
 
   const addFiles = (list: FileList | null) => {
     if (!list || list.length === 0) return;
@@ -83,10 +91,16 @@ export const ScanUploadModal: React.FC<ScanUploadModalProps> = ({ title, scanId,
     <div className="modal-overlay">
       <div className="modal-content" style={{ maxWidth: '640px' }}>
         <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Camera size={20} style={{ color: 'var(--primary)' }} />
-            <span>{title || 'Scan Invoice'}</span>
-          </h3>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{title || 'Scan Invoice'}</h3>
+            {isGeminiActive && (
+              <span className="badge badge-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.7rem' }}>
+                <Sparkles size={11} />
+                <span>Gemini API configured</span>
+              </span>
+            )}
+          </div>
           <button onClick={onClose} className="btn btn-secondary btn-sm" style={{ padding: '0.3rem' }}>
             <X size={16} />
           </button>
@@ -94,7 +108,7 @@ export const ScanUploadModal: React.FC<ScanUploadModalProps> = ({ title, scanId,
 
         <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            Capture or upload one or more pages/photos of the supplier invoice. You can add more before submitting.
+            Capture or upload one or more pages/photos of the supplier invoice. Local OCR will extract the text for review before stock is posted.
           </p>
 
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -160,7 +174,7 @@ export const ScanUploadModal: React.FC<ScanUploadModalProps> = ({ title, scanId,
             <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}>Cancel</button>
             <button type="button" className="btn btn-primary" onClick={handleSubmit} disabled={isSubmitting || files.length === 0}>
               {isSubmitting ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
-              <span>{isSubmitting ? 'Uploading...' : scanId ? 'Add Pages' : 'Scan Invoice'}</span>
+              <span>{isSubmitting ? 'Processing...' : scanId ? 'Add Pages' : 'Process Invoice'}</span>
             </button>
           </div>
         </div>

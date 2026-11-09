@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import { app } from '../index.js';
+import { db } from '../db/index.js';
 import { seedDatabase } from '../db/seed.js';
 
 let adminToken: string;
@@ -58,9 +59,9 @@ describe('Phase 3 - Suppliers & Purchases Inward Test Suite', () => {
       supplierId: 1,
       invoiceNumber: invNumber,
       purchaseDate: '2026-09-07',
-      subtotal: 1500.0,
-      totalAmount: 1500.0,
-      paidAmount: 500.0, // Partial payment: 1000 remaining
+      subtotal: 1250.0,
+      totalAmount: 1250.0,
+      paidAmount: 500.0, // Partial payment: 750 remaining
       paymentMethod: 'CASH',
       items: [
         {
@@ -68,8 +69,13 @@ describe('Phase 3 - Suppliers & Purchases Inward Test Suite', () => {
           batchNumber: batchNum,
           expiryDate: '2028-06-30',
           mfgDate: '2026-01-01',
-          purchasePrice: 2.50,
-          salePrice: 3.50,
+          boxesReceived: 5,
+          stripsPerBox: 10,
+          unitsPerStrip: 10,
+          confirmedPurchaseCostPerBox: 250.0,
+          printedMrpPerBox: 350.0,
+          purchasePrice: 250.0,
+          salePrice: 350.0,
           quantity: 500,
           bonusQuantity: 50,
           lineTotal: 1250.0
@@ -84,7 +90,7 @@ describe('Phase 3 - Suppliers & Purchases Inward Test Suite', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.purchaseId).toBeDefined();
-    expect(res.body.remaining).toBe(1000.0);
+    expect(res.body.remaining).toBe(750.0);
 
     // Verify batch was created with quantity = 550 (500 + 50 bonus)
     const batchRes = await request(app)
@@ -94,6 +100,20 @@ describe('Phase 3 - Suppliers & Purchases Inward Test Suite', () => {
     const newBatch = batchRes.body.batches.find((b: any) => b.batch_number === batchNum);
     expect(newBatch).toBeDefined();
     expect(newBatch.quantity).toBe(550);
+    expect(newBatch.purchase_price).toBe(2.5);
+    expect(newBatch.sale_price).toBe(3.5);
+
+    const purchaseLedger = db.prepare(`
+      SELECT debit, credit FROM supplier_ledgers
+      WHERE supplier_id = ? AND transaction_type = 'PURCHASE_INWARD' AND reference_id = ?
+    `).get(1, invNumber) as { debit: number; credit: number };
+    expect(purchaseLedger.debit).toBe(500);
+    expect(purchaseLedger.credit).toBe(1250);
+
+    const cashbookEntry = db.prepare(`
+      SELECT amount FROM cashbook_entries WHERE reference_type = 'PURCHASE' AND reference_id = ?
+    `).get(String(res.body.purchaseId)) as { amount: number };
+    expect(cashbookEntry.amount).toBe(500);
 
     // Verify stock movement was recorded
     const movRes = await request(app)

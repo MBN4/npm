@@ -62,7 +62,7 @@ purchaseRouter.get('/:id', authenticateToken, (req: AuthenticatedRequest, res: R
   res.json({ purchase, items });
 });
 
-// Record inward purchase invoice (Atomic Transaction)
+// Record inward purchase invoice (Atomic Transaction with 3-Tier Packaging & Box/Tablet Math)
 purchaseRouter.post('/', authenticateToken, requirePermission('create_purchases'), (req: AuthenticatedRequest, res: Response) => {
   const {
     supplierId, invoiceNumber, purchaseDate, items,
@@ -115,29 +115,48 @@ purchaseRouter.post('/', authenticateToken, requirePermission('create_purchases'
 
       const purchaseId = pResult.lastInsertRowid;
 
-      // 2. Process Items and update Batches & Stock Movements
+      // 2. Process Items with Box & Tablet Math
       const insertItem = db.prepare(`
         INSERT INTO purchase_items (
           purchase_id, medicine_id, batch_id, batch_number, expiry_date, mfg_date,
-          purchase_price, sale_price, quantity, bonus_quantity, line_discount, line_total
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          purchase_price, sale_price, quantity, bonus_quantity, line_discount, line_total,
+          boxes_received, strips_per_box, units_per_strip, printed_mrp_per_box, confirmed_purchase_cost_per_box, rate_basis
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const item of items) {
         const medId = Number(item.medicineId);
         const batchNum = String(item.batchNumber).trim();
         const expiry = String(item.expiryDate).trim();
-        const qty = Number(item.quantity) || 0;
-        const bonus = Number(item.bonusQuantity) || 0;
-        const costPrice = Number(item.purchasePrice) || 0;
-        const salePrice = Number(item.salePrice) || 0;
-        const lineTotal = Number(item.lineTotal) || (qty * costPrice);
 
-        if (!medId || !batchNum || !expiry || qty <= 0) {
+        const boxesReceived = Number(item.boxesReceived) || Number(item.boxes) || 1;
+        const stripsPerBox = Math.max(1, Number(item.stripsPerBox) || Number(item.blistersPerBox) || 1);
+        const unitsPerStrip = Math.max(1, Number(item.unitsPerStrip) || Number(item.tabsPerBlister) || 1);
+        const unitsPerBox = stripsPerBox * unitsPerStrip;
+
+        const totalSellableUnits = item.quantity && Number(item.quantity) >= unitsPerBox
+          ? Number(item.quantity)
+          : Math.round(boxesReceived * unitsPerBox);
+
+        const bonusUnits = Number(item.bonusQuantity) || 0;
+
+        const boxCost = Number(item.confirmedPurchaseCostPerBox) || Number(item.purchasePrice) || 0;
+        const boxMrp = Number(item.printedMrpPerBox) || Number(item.mrp) || Number(item.salePrice) || Number((boxCost * 1.25).toFixed(2));
+
+        const perUnitCost = unitsPerBox > 1
+          ? Math.round((boxCost / unitsPerBox) * 10000) / 10000
+          : boxCost;
+
+        const perUnitSaleMrp = unitsPerBox > 1
+          ? Math.round((boxMrp / unitsPerBox) * 100) / 100
+          : boxMrp;
+
+        const lineTotal = Number(item.lineTotal) || Number((boxesReceived * boxCost).toFixed(2));
+
+        if (!medId || !batchNum || !expiry || totalSellableUnits <= 0) {
           throw new Error(`Invalid item details for medicine ID: ${medId}`);
         }
 
-        // Check if this batch already exists for this medicine
         const existingBatch = db.prepare(`
           SELECT id, quantity, purchase_price FROM batches WHERE medicine_id = ? AND batch_number = ?
         `).get(medId, batchNum) as any;
@@ -147,13 +166,13 @@ purchaseRouter.post('/', authenticateToken, requirePermission('create_purchases'
 
         if (existingBatch) {
           batchId = existingBatch.id;
-          const incomingQty = qty + bonus;
+          const incomingQty = totalSellableUnits + bonusUnits;
           newBatchQty = existingBatch.quantity + incomingQty;
-          // Weighted-average the cost across old + newly received stock so already-received/possibly-sold
-          // units aren't silently re-valued at the new invoice's cost.
-          const weightedCost = newBatchQty > 0
-            ? ((existingBatch.quantity * existingBatch.purchase_price) + (incomingQty * costPrice)) / newBatchQty
-            : costPrice;
+
+          const weightedUnitCost = newBatchQty > 0
+            ? ((existingBatch.quantity * existingBatch.purchase_price) + (incomingQty * perUnitCost)) / newBatchQty
+            : perUnitCost;
+
           db.prepare(`
             UPDATE batches SET
               quantity = ?,
@@ -163,9 +182,9 @@ purchaseRouter.post('/', authenticateToken, requirePermission('create_purchases'
               expiry_date = ?,
               updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-          `).run(newBatchQty, Math.round(weightedCost * 100) / 100, salePrice, bonus, expiry, batchId);
+          `).run(newBatchQty, Math.round(weightedUnitCost * 10000) / 10000, perUnitSaleMrp, bonusUnits, expiry, batchId);
         } else {
-          newBatchQty = qty + bonus;
+          newBatchQty = totalSellableUnits + bonusUnits;
           const bResult = db.prepare(`
             INSERT INTO batches (
               medicine_id, batch_number, expiry_date, mfg_date, purchase_price,
@@ -176,16 +195,15 @@ purchaseRouter.post('/', authenticateToken, requirePermission('create_purchases'
             batchNum,
             expiry,
             item.mfgDate || null,
-            costPrice,
-            salePrice,
+            perUnitCost,
+            perUnitSaleMrp,
             newBatchQty,
-            bonus,
+            bonusUnits,
             supplierId
           );
           batchId = Number(bResult.lastInsertRowid);
         }
 
-        // Record stock movement (Traceability)
         db.prepare(`
           INSERT INTO stock_movements (
             batch_id, movement_type, quantity_change, balance_after,
@@ -193,14 +211,13 @@ purchaseRouter.post('/', authenticateToken, requirePermission('create_purchases'
           ) VALUES (?, 'PURCHASE', ?, ?, 'PURCHASE_INVOICE', ?, ?, ?)
         `).run(
           batchId,
-          qty + bonus,
+          totalSellableUnits + bonusUnits,
           newBatchQty,
           invoiceNumber,
-          `Inward stock purchase from ${supplier.name}`,
+          `Inward stock purchase from ${supplier.name} (${boxesReceived} boxes × ${unitsPerBox} units)`,
           req.user?.id
         );
 
-        // Record purchase item
         insertItem.run(
           purchaseId,
           medId,
@@ -208,12 +225,18 @@ purchaseRouter.post('/', authenticateToken, requirePermission('create_purchases'
           batchNum,
           expiry,
           item.mfgDate || null,
-          costPrice,
-          salePrice,
-          qty,
-          bonus,
+          perUnitCost,
+          perUnitSaleMrp,
+          totalSellableUnits,
+          bonusUnits,
           Number(item.lineDiscount) || 0,
-          lineTotal
+          lineTotal,
+          boxesReceived,
+          stripsPerBox,
+          unitsPerStrip,
+          boxMrp,
+          boxCost,
+          'PER_BOX'
         );
       }
 
@@ -228,13 +251,13 @@ purchaseRouter.post('/', authenticateToken, requirePermission('create_purchases'
       `).run(
         supplierId,
         invoiceNumber,
-        paid, // debit: what was paid immediately
-        total, // credit: total cost of bill
+        paid,
+        total,
         newSupplierBalance,
         `Purchase Invoice #${invoiceNumber} (Total: Rs. ${total}, Paid: Rs. ${paid})`
       );
 
-      // 4. If paid amount > 0, log in Cashbook
+      // 4. Cashbook Entry if cash paid
       if (paid > 0) {
         db.prepare(`
           INSERT INTO cashbook_entries (

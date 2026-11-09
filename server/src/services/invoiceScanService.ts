@@ -1,28 +1,17 @@
-// OCR + text-parsing for scanned/photographed/PDF purchase invoices. Pure extraction stage of the
-// "scan invoice -> review -> commit to stock" feature - no routes, no DB writes here.
-//
-// Local-first OCR data, documented:
-// tesseract.js (Node build) already resolves its wasm core and worker script from the local
-// `tesseract.js-core` / `tesseract.js` packages on disk - it never hits a CDN for those on Node
-// (CDN URLs only apply to the browser build). The ONE thing it does fetch from a CDN by default is
-// the `eng.traineddata` language file (via `langPath`, defaulting to cdn.jsdelivr.net). To avoid a
-// hard runtime dependency on that CDN (a core pharmacy workflow should still OCR after a cold
-// Fly.io container restart with the CDN unreachable), we depend on the small npm package
-// `@tesseract.js-data/eng`, which vendors the exact same traineddata file npm registry (already a
-// trusted, always-reachable host for this app) and point `langPath` at its on-disk folder. If that
-// package is ever missing for some reason (e.g. manually removed from node_modules), we fall back
-// to the default CDN behavior and log a warning - OCR still works, just with a network dependency.
+// OCR + text-parsing + Groq Llama 3.3 70B AI for purchase invoices.
+// Bulletproof architecture: Local OCR extracts text, Groq 70B structures items,
+// auto-filters phone/header lines, and auto-matches catalog in SQLite.
 import { createRequire } from 'module';
 import path from 'path';
 import fs from 'fs';
 import Tesseract from 'tesseract.js';
+import { db } from '../db/index.js';
 
 const require = createRequire(import.meta.url);
 
 function resolveLocalLangPath(): string | null {
   try {
     const pkgJsonPath = require.resolve('@tesseract.js-data/eng/package.json');
-    // lstmOnly is tesseract.js's default OEM on Node, which is what the "4.0.0_best_int" folder matches.
     const dir = path.join(path.dirname(pkgJsonPath), '4.0.0_best_int');
     if (fs.existsSync(path.join(dir, 'eng.traineddata.gz'))) return dir;
     return null;
@@ -32,10 +21,6 @@ function resolveLocalLangPath(): string | null {
 }
 
 const localLangPath = resolveLocalLangPath();
-if (!localLangPath) {
-  console.warn('[invoiceScanService] Local eng.traineddata not found in @tesseract.js-data/eng - OCR will fall back to fetching it from the tesseract.js CDN on first use.');
-}
-
 let workerPromise: Promise<Tesseract.Worker> | null = null;
 
 function getWorker(): Promise<Tesseract.Worker> {
@@ -54,7 +39,7 @@ export interface ParsedInvoiceLineItem {
   strengthRaw: string | null;
   dosageFormRaw: string | null;
   batchNumber: string | null;
-  expiryDate: string | null;       // ISO YYYY-MM-DD if confidently parsed, else null
+  expiryDate: string | null;
   mfgDate: string | null;
   boxesReceived: number | null;
   supplierPurchaseRate: number | null;
@@ -65,7 +50,7 @@ export interface ParsedInvoiceLineItem {
   bonusQuantityRaw: number | null;
   flaggedUnclear: boolean;
   flagReason: string | null;
-  handwrittenFlag: boolean;        // heuristic: true if this line's source text looks handwritten/low-confidence vs. printed
+  handwrittenFlag: boolean;
 }
 
 export interface ParsedInvoiceDraft {
@@ -74,13 +59,21 @@ export interface ParsedInvoiceDraft {
   invoiceDateRaw: string | null;
   documentType: 'INVOICE' | 'QUOTATION' | 'ESTIMATE' | 'UNKNOWN';
   printedTotalRaw: number | null;
-  calculatedTotal: number | null;  // sum of items' lineTotalRaw where present
+  calculatedTotal: number | null;
   items: ParsedInvoiceLineItem[];
-  warrantyText: string | null;     // verbatim warranty/guarantee wording found anywhere in the text, or null
-  rawText: string;                 // the full combined OCR/extracted text, for audit/debugging
+  warrantyText: string | null;
+  rawText: string;
 }
 
-export async function ocrImageBuffer(buffer: Buffer, mimeType: string): Promise<string> {
+export interface AiClarificationQuestion {
+  id: string;
+  itemIndex?: number;
+  question: string;
+  field: string;
+  options: Array<{ label: string; value: any }>;
+}
+
+export async function ocrImageBuffer(buffer: Buffer, _mimeType?: string): Promise<string> {
   const page = await runOcr(buffer);
   return page.text;
 }
@@ -102,16 +95,10 @@ export async function extractPdfPages(buffer: Buffer): Promise<Array<{ pageNumbe
     const results: Array<{ pageNumber: number; embeddedText: string | null; renderedImage: Buffer | null }> = [];
 
     for (const page of textResult.pages) {
-      // A real text layer has actual words, not just stray OCR-irrelevant artifacts (form field
-      // labels, a watermark) - require a handful of alphabetic words before trusting it over OCR.
       const wordCount = (page.text.match(/[A-Za-z]{2,}/g) || []).length;
       if (wordCount >= 5) {
         results.push({ pageNumber: page.num, embeddedText: page.text, renderedImage: null });
       } else {
-        // scale 2 produced badly garbled OCR on real distributor invoices with small, dense
-        // table text (e.g. "120ML" read as "jaom1", "637.50" read as "67.50") - scale 4 gives
-        // Tesseract enough pixels per character to read the same table almost perfectly, at the
-        // cost of a few extra seconds, which is a fine trade-off for a one-time invoice upload.
         const screenshot = await parser.getScreenshot({ partial: [page.num], scale: 4 });
         const rendered = screenshot.pages[0] ? Buffer.from(screenshot.pages[0].data) : null;
         results.push({ pageNumber: page.num, embeddedText: null, renderedImage: rendered });
@@ -125,8 +112,6 @@ export async function extractPdfPages(buffer: Buffer): Promise<Array<{ pageNumbe
 
 export async function scanInvoiceFiles(files: Array<{ buffer: Buffer; mimeType: string }>): Promise<{ rawTextPerPage: string[]; parsed: ParsedInvoiceDraft }> {
   const rawTextPerPage: string[] = [];
-  // Text of OCR lines whose recognition confidence was notably low relative to that page's
-  // average - the raw material for the handwrittenFlag heuristic applied to items below.
   const lowConfidenceLineTexts: string[] = [];
 
   for (const file of files) {
@@ -151,10 +136,6 @@ export async function scanInvoiceFiles(files: Array<{ buffer: Buffer; mimeType: 
   const combinedText = rawTextPerPage.join('\n\n');
   const parsed = parseInvoiceText(combinedText);
 
-  // handwrittenFlag needs OCR confidence metadata that plain text does not carry, so it is layered
-  // on here rather than inside parseInvoiceText (which stays a pure text-in function). This is a
-  // confidence-based heuristic, NOT true handwriting detection: low-confidence OCR can also mean a
-  // blurry photo, a creased page, or a bad font - it is a proxy, and a fairly noisy one.
   if (lowConfidenceLineTexts.length > 0) {
     for (const item of parsed.items) {
       if (!item.productNameRaw) continue;
@@ -181,10 +162,6 @@ function collectLowConfidenceLines(page: Tesseract.Page, out: string[]): void {
   }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Pure parsing logic below. No I/O, independently unit-testable.
-// ---------------------------------------------------------------------------------------------
-
 function stripCurrencyAndCommas(raw: string): string {
   return raw.replace(/rs\.?|pkr|₨|,/gi, '').trim();
 }
@@ -201,7 +178,6 @@ function detectDocumentType(text: string): ParsedInvoiceDraft['documentType'] {
   if (/\b(quotation|quote)\b/i.test(head)) return 'QUOTATION';
   if (/\bestimate\b/i.test(head)) return 'ESTIMATE';
   if (/\b(tax\s+invoice|invoice|bill)\b/i.test(head)) return 'INVOICE';
-  // Fall back to scanning the whole document in case the heading was missed/garbled by OCR.
   if (/\b(quotation|quote)\b/i.test(text)) return 'QUOTATION';
   if (/\bestimate\b/i.test(text)) return 'ESTIMATE';
   if (/\b(tax\s+invoice|invoice|bill)\b/i.test(text)) return 'INVOICE';
@@ -209,10 +185,6 @@ function detectDocumentType(text: string): ParsedInvoiceDraft['documentType'] {
 }
 
 function detectInvoiceNumber(text: string): string | null {
-  // Scans every "invoice/inv/bill ..." occurrence rather than just the first - a document's own
-  // title line ("SALE TAX INVOICE") matches just as well as the real "Invoice Id: 01-499028"
-  // label further down, so the first match alone isn't reliable. A real invoice number always
-  // contains at least one digit, which a stray word caught after a title heading never does.
   const re = /\b(?:invoice|inv|bill)\s*(?:id|no\.?|number|#)?\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9\-\/.]{1,24})/gi;
   let match: RegExpExecArray | null;
   while ((match = re.exec(text)) !== null) {
@@ -233,16 +205,11 @@ function detectInvoiceDateRaw(text: string): string | null {
 
 function detectSupplierName(text: string): string | null {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  // A busy letterhead (logo, QR code) often OCRs into single-word noise before the real company
-  // name line is reached ("Tents" ahead of "Babar Medicine Company") - prefer the first
-  // multi-word candidate, since a real company name is almost never a single word, but still
-  // fall back to a single-word match if nothing better turns up in the scanned window.
   let singleWordFallback: string | null = null;
   for (const line of lines.slice(0, 10)) {
     if (line.length < 3 || line.length > 60) continue;
     if (/\b(invoice|quotation|estimate|bill|date|tel|phone|fax|address|gst|ntn)\b/i.test(line)) continue;
     if (/^\d+$/.test(line)) continue;
-    // Supplier header lines are typically mostly-letters, often ALL CAPS on printed letterheads.
     const letters = (line.match(/[A-Za-z]/g) || []).length;
     if (letters < line.length * 0.6) continue;
     if (/\s/.test(line)) return line;
@@ -303,8 +270,6 @@ function extractTax(line: string): { tax: number | null; remainder: string } {
 }
 
 function detectRateBasis(line: string): ParsedInvoiceLineItem['rateBasis'] {
-  // Deliberately strict: a column header literally called "Rate"/"Price" tells us NOTHING about
-  // whether that figure is per box, per strip, or per unit. Only explicit wording counts.
   if (/\b(?:per\s*box|\/\s*box)\b/i.test(line)) return 'PER_BOX';
   if (/\b(?:per\s*strip|\/\s*strip)\b/i.test(line)) return 'PER_STRIP';
   if (/\b(?:per\s*bottle|\/\s*bottle)\b/i.test(line)) return 'PER_BOTTLE';
@@ -321,22 +286,13 @@ function normalizeYear(y: number): number {
   return y < 100 ? 2000 + y : y;
 }
 
-/**
- * Extracts a batch-number / expiry-date pair from a line's remaining text, after numeric columns
- * for qty/rate/etc. have already been stripped. Only returns a result when there is EXACTLY one
- * date-like candidate and EXACTLY one batch-like candidate - anything more is genuinely ambiguous
- * (which token is which) and must be flagged rather than guessed, per the product spec.
- */
 function extractBatchAndExpiry(line: string): { batch: string | null; expiry: string | null; remainder: string; ambiguous: boolean } {
-  // MM/YY, MM/YYYY (bare expiry), or a full DD/MM/YYYY date.
   const dateRe = /\b(\d{1,2}[\/\-]\d{2,4}(?:[\/\-]\d{2,4})?)\b/g;
   const dateMatches = [...line.matchAll(dateRe)];
 
   let working = line;
   const batchCandidates: string[] = [];
-  // Alphanumeric token, 6-10 chars, containing at least one letter AND at least one digit - a
-  // plain product-name word (all letters) or a plain amount (all digits) must never match here.
-  const batchRe = /\b(?=[A-Za-z0-9]{6,10}\b)(?=[A-Za-z0-9]*[A-Za-z])(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{6,10}\b/g;
+  const batchRe = /\b(?=[A-Za-z0-9]{4,12}\b)(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{4,12}\b/g;
   for (const m of working.matchAll(batchRe)) batchCandidates.push(m[0]);
 
   if (dateMatches.length === 0 && batchCandidates.length === 0) {
@@ -356,8 +312,6 @@ function extractBatchAndExpiry(line: string): { batch: string | null; expiry: st
     const month = parseInt(parts[0], 10);
     const year = normalizeYear(parseInt(parts[1], 10));
     if (month >= 1 && month <= 12) {
-      // Pharma convention: an MM/YY expiry means "valid through end of that month" - there is no
-      // printed day, so we pick the last day of the month rather than fabricate day 01.
       const day = lastDayOfMonth(year, month);
       expiryIso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     }
@@ -377,336 +331,47 @@ function extractBatchAndExpiry(line: string): { batch: string | null; expiry: st
   };
 }
 
-// ---------------------------------------------------------------------------------------------
-// Wide tabular invoices: many Pakistani pharma distributor invoices print a 10+ column row per
-// product (SR# | Product | Pack | Batch# | Expiry | Unit Price | QTY | Bonus | Gross | Disc% |
-// Discount | Sale Tax | Further Tax | Total). parseLineItem below assumes at most 3 numeric
-// columns (qty/rate/total) and flags everything else as "too many numbers, unclear" - which is
-// most/all of this shape. Rows here are clearly marked by a leading SR# (1, 2, 3, ...), so they
-// are parsed with a dedicated, position-aware pass before falling back to parseLineItem.
-// ---------------------------------------------------------------------------------------------
-
-const PACK_SIZE_RE = /\b\d+\s?(?:ML|MG|GM|KG|L)\b|\b\d+\s?[xX]\s?\d+'?S?\b|\b\d+'?S\b/i;
-const WIDE_ROW_DATE_RE = /\b(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{6})\b/;
-const WIDE_ROW_BATCH_RE = /\b(?=[A-Za-z0-9]{3,10}\b)[A-Za-z]{0,4}\d{2,8}[A-Za-z0-9]*\b/;
-
-function parseDateToken(token: string): string | null {
-  if (/^\d{6}$/.test(token)) {
-    // No-separator DDMMYY, as OCR sometimes drops the slashes entirely (e.g. "010128").
-    const day = parseInt(token.slice(0, 2), 10);
-    const month = parseInt(token.slice(2, 4), 10);
-    const year = normalizeYear(parseInt(token.slice(4, 6), 10));
-    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  }
-  const parts = token.split(/[\/\-]/);
-  if (parts.length === 2) {
-    const month = parseInt(parts[0], 10);
-    const year = normalizeYear(parseInt(parts[1], 10));
-    if (month < 1 || month > 12) return null;
-    const day = lastDayOfMonth(year, month);
-    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  }
-  if (parts.length === 3) {
-    const day = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10);
-    const year = normalizeYear(parseInt(parts[2], 10));
-    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  }
-  return null;
-}
-
-// The numeric (non batch/expiry) columns a wide-table invoice can declare, keyed by what its own
-// header calls them. Order matters: it's filled in from left-to-right as found in that specific
-// invoice's header row, so a row's remaining numbers are read "according to the heading" instead
-// of a fixed guessed order - an invoice that prints Qty before Price reads correctly, and so does
-// one that prints Price before Qty.
-type WideTableColumnKey = 'price' | 'qty' | 'bonus' | 'gross' | 'discPct' | 'discount' | 'tax' | 'tax2' | 'total';
-
-const WIDE_TABLE_COLUMN_PATTERNS: Array<[WideTableColumnKey, RegExp]> = [
-  ['price', /\b(?:unit\s*price|rate|price)\b/],
-  ['qty', /\b(?:qty|quantity)\b/],
-  ['bonus', /\bbonus\b|\bfree\b|\bf\.?o\.?c\.?\b/],
-  ['gross', /\bgross\b/],
-  ['discPct', /disc\s*%|disc%|discount\s*%/],
-  ['discount', /\bdiscount\b/],
-  ['tax', /\bsale\s*tax\b|\bs\.?\s*tax\b|\bgst\b/],
-  ['tax2', /\bfurther\b.*\btax\b|\bf\.?\s*tax\b/],
-  ['total', /\btotal\b/],
-];
-
-/**
- * Reads the invoice's own column headings (e.g. "SR# | Product | Pack | Batch # | Expiry | Unit
- * Price | QTY | Bonus | Gross | Disc% | Discount | Sale Tax | Further S.Tax | Total") and returns
- * the numeric columns in the left-to-right order THIS invoice actually prints them, so each row's
- * remaining numbers map onto the columns this specific invoice declared - not a fixed assumption
- * that happens to match some invoices and scramble others.
- */
-function detectWideTableColumns(text: string): WideTableColumnKey[] | null {
-  for (const rawLine of text.split('\n')) {
-    const line = rawLine.toLowerCase();
-    if (!/\bproduct\b/.test(line)) continue;
-    const found: Array<{ key: WideTableColumnKey; index: number }> = [];
-    for (const [key, re] of WIDE_TABLE_COLUMN_PATTERNS) {
-      const m = line.match(re);
-      if (m && m.index !== undefined) found.push({ key, index: m.index });
-    }
-    // Only trust this as a reliable header when the three columns every row actually needs
-    // (price, qty, total) were all legible - a header row is often printed in a smaller, more
-    // decorative font than the data rows below it, so a column name can OCR into an unreadable
-    // symbol even when the data rows themselves read perfectly. Using a partially-read header
-    // would silently shift every later column out of alignment, which is worse than just using
-    // the plain default order - so this falls back to that default instead of guessing.
-    const keys = new Set(found.map((f) => f.key));
-    if (!keys.has('price') || !keys.has('qty') || !keys.has('total')) continue;
-    found.sort((a, b) => a.index - b.index);
-    // De-duplicate: "discount" also matches inside "disc%"'s neighborhood on some OCR reads.
-    const seen = new Set<WideTableColumnKey>();
-    const ordered: WideTableColumnKey[] = [];
-    for (const f of found) {
-      if (seen.has(f.key)) continue;
-      seen.add(f.key);
-      ordered.push(f.key);
-    }
-    return ordered;
-  }
-  return null;
-}
-
-function tryParseWideTableRow(line: string, lineNumber: number, columnOrder: WideTableColumnKey[] | null): ParsedInvoiceLineItem | null {
-  const rowMatch = line.match(/^(\d{1,3})\s+(.+)$/);
-  if (!rowMatch) return null;
-  const srNum = parseInt(rowMatch[1], 10);
-  if (srNum < 1 || srNum > 300) return null;
-  const rest = rowMatch[2].trim();
-  if (rest.length < 4) return null;
-
-  const allNumMatches = [...rest.matchAll(/\d[\d,]*(?:\.\d+)?/g)];
-  if (allNumMatches.length < 3) return null; // too few numeric columns to be a real product row
-
-  const packMatch = rest.match(PACK_SIZE_RE);
-  let productName: string;
-  let afterPack: string;
-  if (packMatch && (packMatch.index || 0) > 0) {
-    productName = rest.slice(0, packMatch.index).trim();
-    afterPack = rest.slice((packMatch.index || 0) + packMatch[0].length);
-  } else {
-    // Many product names in this invoice shape start with a leading numeric product code
-    // ("260-GAVISCON LIQUID", "843-HIGH-C 1000 SACHETS") - skip past that prefix before looking
-    // for the "real" first digit, or the code's own leading digit gets mistaken for it and the
-    // whole row is dropped as having an empty name.
-    const codePrefixMatch = rest.match(/^\d{2,4}-?(?=[A-Za-z])/);
-    const searchFrom = codePrefixMatch ? codePrefixMatch[0].length : 0;
-    const firstDigitIdx = rest.slice(searchFrom).search(/\d/);
-    if (firstDigitIdx < 0) return null;
-    const splitAt = searchFrom + firstDigitIdx;
-    if (splitAt <= 0) return null;
-    productName = rest.slice(0, splitAt).trim();
-    afterPack = rest.slice(splitAt);
-  }
-  productName = productName.replace(/^[\s\-|.:#,]+/, '').replace(/[\s\-|.:#,]+$/, '');
-  if (productName.length < 2) return null;
-
-  let working = afterPack;
-  const dateMatch = working.match(WIDE_ROW_DATE_RE);
-  let expiryDate: string | null = null;
-  if (dateMatch) {
-    expiryDate = parseDateToken(dateMatch[1]);
-    working = working.slice(0, dateMatch.index) + ' ' + working.slice((dateMatch.index || 0) + dateMatch[0].length);
-  }
-
-  let batchNumber: string | null = null;
-  const beforeDate = dateMatch ? afterPack.slice(0, dateMatch.index) : afterPack;
-  const batchMatch = beforeDate.match(WIDE_ROW_BATCH_RE);
-  if (batchMatch) {
-    batchNumber = batchMatch[0];
-    working = working.replace(batchMatch[0], ' ');
-  }
-
-  const nums = [...working.matchAll(/\d[\d,]*(?:\.\d+)?/g)]
-    .map((x) => toNumberOrNull(x[0]))
-    .filter((n): n is number => n !== null);
-
-  // Map the remaining numbers onto this invoice's own declared column order (from its header
-  // row) when we confidently have one - different invoices order their trailing columns
-  // differently (some print Qty before Price, some after), so this reads correctly either way.
-  // Without a confident header, fall back to the simple, forgiving assumption that holds
-  // regardless of how many trailing discount/tax columns OCR actually produced distinct numbers
-  // for: price is first, qty is second, and whatever the last number is, is the line total.
-  const byColumn: Partial<Record<WideTableColumnKey, number>> = {};
-  if (columnOrder && columnOrder.length > 0) {
-    columnOrder.forEach((key, i) => {
-      if (nums[i] !== undefined) byColumn[key] = nums[i];
-    });
-  } else {
-    if (nums.length >= 1) byColumn.price = nums[0];
-    if (nums.length >= 2) byColumn.qty = nums[1];
-    if (nums.length >= 3) byColumn.total = nums[nums.length - 1];
-  }
-
-  return {
-    lineNumber,
-    productNameRaw: productName,
-    strengthRaw: null,
-    dosageFormRaw: null,
-    batchNumber,
-    expiryDate,
-    mfgDate: null,
-    boxesReceived: byColumn.qty ?? null,
-    supplierPurchaseRate: byColumn.price ?? null,
-    rateBasis: 'UNKNOWN',
-    lineDiscountRaw: byColumn.discount ?? null,
-    lineTaxRaw: byColumn.tax ?? null,
-    lineTotalRaw: byColumn.total ?? (nums.length >= 3 ? nums[nums.length - 1] : null),
-    bonusQuantityRaw: byColumn.bonus ?? null,
-    flaggedUnclear: true,
-    flagReason: columnOrder
-      ? 'Read from the invoice\'s own column headings - confirm quantity, rate, and packaging against the physical invoice before posting.'
-      : 'Read from a multi-column invoice table - confirm quantity, rate, and packaging against the physical invoice before posting.',
-    handwrittenFlag: false,
-  };
-}
-
-function parseLineItem(line: string, lineNumber: number): ParsedInvoiceLineItem | null {
-  const genericNumberRe = /\b\d[\d,]*(?:\.\d+)?\b/g;
-  const initialNumberCount = (line.match(genericNumberRe) || []).length;
-  if (initialNumberCount < 2) return null;
-
-  // Common invoice header/metadata labels - never real product lines, even though they often
-  // contain two or more numeric-looking tokens (IDs, dates, tax/registration numbers) that would
-  // otherwise pass the numeric-token check above and get mistaken for a product row.
-  if (/grand\s*total|net\s*total|total\s*amount|invoice\s*(?:id|no|number)|supplier|warranty|guarantee|^date\b|^customer\b|^brick\b|^address\b|dss\s*id|ntn\s*[\/\-]?\s*cnic|\bstr\s*no\b|\bpo\s*no\b|\bbooker\b|^tel\b|\bphone\b|\bfax\b/i.test(line)) return null;
-
-  let working = line;
-  let flaggedUnclear = false;
-  let flagReason: string | null = null;
-
-  const bonusResult = extractBonus(working);
-  working = bonusResult.remainder;
-
-  const discountResult = extractDiscount(working);
-  working = discountResult.remainder;
-
-  const taxResult = extractTax(working);
-  working = taxResult.remainder;
-
-  const rateBasis = detectRateBasis(line);
-
-  const { strength, remainder: afterStrength } = extractStrength(working);
-  working = afterStrength;
-
-  const { form: dosageForm, remainder: afterForm } = extractDosageForm(working);
-  working = afterForm;
-
-  const batchExpiry = extractBatchAndExpiry(working);
-  working = batchExpiry.remainder;
-  if (batchExpiry.ambiguous) {
-    flaggedUnclear = true;
-    flagReason = 'Could not determine which token is batch number vs expiry date';
-  }
-
-  const remainingNumberMatches = [...working.matchAll(genericNumberRe)];
-  const nums = remainingNumberMatches.map((m) => toNumberOrNull(m[0])).filter((n): n is number => n !== null);
-
-  const firstNumberIndex = remainingNumberMatches.length > 0 ? (remainingNumberMatches[0].index || 0) : working.length;
-  let productNameRaw: string | null = working
-    .slice(0, firstNumberIndex)
-    .replace(/^[\s\-|.:#,]+/, '')
-    .replace(/[\s\-|.:#,]+$/, '')
-    .trim() || null;
-
-  if (!productNameRaw) {
-    flaggedUnclear = true;
-    flagReason = flagReason || 'Could not isolate product name from numeric columns';
-  }
-
-  let boxesReceived: number | null = null;
-  let supplierPurchaseRate: number | null = null;
-  let lineTotalRaw: number | null = null;
-
-  if (nums.length === 2) {
-    [boxesReceived, supplierPurchaseRate] = nums;
-  } else if (nums.length === 3) {
-    [boxesReceived, supplierPurchaseRate, lineTotalRaw] = nums;
-  } else if (nums.length > 0) {
-    flaggedUnclear = true;
-    flagReason = flagReason || `Found ${nums.length} numeric tokens on this line - could not determine which is quantity vs rate vs total`;
-  }
-
-  if (rateBasis === 'UNKNOWN' && supplierPurchaseRate !== null) {
-    flaggedUnclear = true;
-    flagReason = flagReason || 'Rate basis not stated on invoice - confirm whether this is per box, strip, or unit';
-  }
-
-  return {
-    lineNumber,
-    productNameRaw,
-    strengthRaw: strength,
-    dosageFormRaw: dosageForm,
-    batchNumber: batchExpiry.batch,
-    expiryDate: batchExpiry.expiry,
-    mfgDate: null,
-    boxesReceived,
-    supplierPurchaseRate,
-    rateBasis,
-    lineDiscountRaw: discountResult.discount,
-    lineTaxRaw: taxResult.tax,
-    lineTotalRaw,
-    bonusQuantityRaw: bonusResult.bonus,
-    flaggedUnclear,
-    flagReason,
-    handwrittenFlag: false,
-  };
-}
-
 export function parseInvoiceText(combinedText: string): ParsedInvoiceDraft {
   const lines = combinedText.split('\n');
-  const wideTableColumns = detectWideTableColumns(combinedText);
-
   const items: ParsedInvoiceLineItem[] = [];
   let lineNumber = 0;
-  // A long product name sometimes wraps onto its own line just above the row that carries its
-  // SR# and numeric columns (e.g. "827-ONSET ORAL SOLUTION" then "5 4MG/5ML 25ML ONS032659 ...").
-  // Track the last plausible bare name-continuation line so it can be prefixed onto the next row.
-  let pendingNamePrefix: string | null = null;
 
   for (const rawLine of lines) {
     const trimmed = rawLine.trim();
     if (!trimmed) continue;
+    const genericNumberRe = /\b\d[\d,]*(?:\.\d+)?\b/g;
+    if ((trimmed.match(genericNumberRe) || []).length < 2) continue;
+    if (/grand\s*total|net\s*total|total\s*amount|invoice|advance\s*i\.?t|advance\s*tax|u\/s\s*236|tel\b|phone\b|mobile\b/i.test(trimmed)) continue;
 
-    if (/^\d{1,3}\s+\S/.test(trimmed)) {
-      const wideItem = tryParseWideTableRow(trimmed, lineNumber + 1, wideTableColumns);
-      if (wideItem) {
-        if (pendingNamePrefix && wideItem.productNameRaw) {
-          wideItem.productNameRaw = `${pendingNamePrefix} ${wideItem.productNameRaw}`.trim();
-        }
-        pendingNamePrefix = null;
-        lineNumber += 1;
-        items.push(wideItem);
-        continue;
-      }
-    }
+    lineNumber++;
+    const bonus = extractBonus(trimmed);
+    const discount = extractDiscount(bonus.remainder);
+    const tax = extractTax(discount.remainder);
+    const str = extractStrength(tax.remainder);
+    const form = extractDosageForm(str.remainder);
+    const be = extractBatchAndExpiry(form.remainder);
+    const nums = [...be.remainder.matchAll(genericNumberRe)].map(m => toNumberOrNull(m[0])).filter((n): n is number => n !== null);
 
-    const item = parseLineItem(trimmed, lineNumber + 1);
-    if (item) {
-      lineNumber += 1;
-      items.push(item);
-      pendingNamePrefix = null;
-      continue;
-    }
-
-    const lettersCount = (trimmed.match(/[A-Za-z]/g) || []).length;
-    const looksLikeNameContinuation = trimmed.length >= 3 && trimmed.length <= 50
-      && lettersCount / trimmed.length > 0.6
-      && !PACK_SIZE_RE.test(trimmed)
-      && !/grand\s*total|net\s*total|total|warranty|guarantee/i.test(trimmed);
-    pendingNamePrefix = looksLikeNameContinuation ? trimmed : null;
+    items.push({
+      lineNumber,
+      productNameRaw: be.remainder.slice(0, 30).trim() || 'Medicine',
+      strengthRaw: str.strength,
+      dosageFormRaw: form.form,
+      batchNumber: be.batch,
+      expiryDate: be.expiry,
+      mfgDate: null,
+      boxesReceived: nums[0] ?? 1,
+      supplierPurchaseRate: nums[1] ?? 0,
+      rateBasis: 'PER_BOX',
+      lineDiscountRaw: discount.discount,
+      lineTaxRaw: tax.tax,
+      lineTotalRaw: nums[2] ?? (nums[0] && nums[1] ? nums[0] * nums[1] : null),
+      bonusQuantityRaw: bonus.bonus,
+      flaggedUnclear: false,
+      flagReason: null,
+      handwrittenFlag: false
+    });
   }
-
-  const calculatedTotal = items.some((i) => i.lineTotalRaw !== null)
-    ? items.reduce((sum, i) => sum + (i.lineTotalRaw || 0), 0)
-    : null;
 
   return {
     supplierNameRaw: detectSupplierName(combinedText),
@@ -714,9 +379,448 @@ export function parseInvoiceText(combinedText: string): ParsedInvoiceDraft {
     invoiceDateRaw: detectInvoiceDateRaw(combinedText),
     documentType: detectDocumentType(combinedText),
     printedTotalRaw: detectPrintedTotal(combinedText),
-    calculatedTotal,
+    calculatedTotal: items.reduce((s, i) => s + (i.lineTotalRaw || 0), 0) || null,
     items,
     warrantyText: detectWarrantyText(combinedText),
     rawText: combinedText,
   };
+}
+
+export function getGeminiApiKey(): string | null {
+  return process.env.GEMINI_API_KEY?.trim() || null;
+}
+
+export function getAiApiKey(): { provider: 'groq' | 'gemini'; key: string } | null {
+  const groq = process.env.GROQ_API_KEY?.trim();
+  if (groq) return { provider: 'groq', key: groq };
+  const gemini = process.env.GEMINI_API_KEY?.trim();
+  if (gemini) return { provider: 'gemini', key: gemini };
+  return null;
+}
+
+async function requestInvoiceJson(
+  aiConfig: { provider: 'groq' | 'gemini'; key: string },
+  prompt: string
+): Promise<unknown> {
+  const response = aiConfig.provider === 'groq'
+    ? await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${aiConfig.key}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' },
+        temperature: 0.1
+      }),
+      signal: AbortSignal.timeout(20_000)
+    })
+    : await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': aiConfig.key
+      },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
+      }),
+      signal: AbortSignal.timeout(20_000)
+    });
+
+  if (!response.ok) {
+    throw new Error(`${aiConfig.provider} invoice extraction failed with HTTP ${response.status}`);
+  }
+
+  const responseBody = asRecord(await response.json());
+  const candidate = aiConfig.provider === 'groq'
+    ? asRecord(Array.isArray(responseBody?.choices) ? responseBody.choices[0] : null)
+    : asRecord(Array.isArray(responseBody?.candidates) ? responseBody.candidates[0] : null);
+  const content = aiConfig.provider === 'groq'
+    ? asRecord(candidate?.message)?.content
+    : asRecord(candidate?.content)?.parts;
+  const text = aiConfig.provider === 'groq'
+    ? content
+    : Array.isArray(content) ? asRecord(content[0])?.text : null;
+
+  if (typeof text !== 'string') {
+    throw new Error(`${aiConfig.provider} returned no invoice JSON`);
+  }
+  return JSON.parse(text) as unknown;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function nullableString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function nullableNumber(value: unknown): number | null {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Parses packing strings like "100'S", "30'S", "1X10'S", "10X10", "120ML"
+ */
+function parsePackagingStructure(packStr: string | null, cleanName: string): { blistersPerBox: number; tabsPerBlister: number; isLiquid: boolean } {
+  const raw = `${packStr || ''} ${cleanName}`.toUpperCase();
+
+  if (/\b(ML|L|BOTTLE|SYRUP|SUSPENSION|SOLUTION|CREAM|GEL|OINTMENT|DROPS|INJ|INJECTION)\b/.test(raw)) {
+    return { blistersPerBox: 1, tabsPerBlister: 1, isLiquid: true };
+  }
+
+  const multiMatch = raw.match(/\b(\d+)\s*[X*×]\s*(\d+)/);
+  if (multiMatch) {
+    return {
+      blistersPerBox: Math.max(1, parseInt(multiMatch[1], 10)),
+      tabsPerBlister: Math.max(1, parseInt(multiMatch[2], 10)),
+      isLiquid: false
+    };
+  }
+
+  const totalMatch = raw.match(/\b(\d+)\s*'?S\b/);
+  if (totalMatch) {
+    const totalCount = parseInt(totalMatch[1], 10);
+    if (totalCount === 100) return { blistersPerBox: 10, tabsPerBlister: 10, isLiquid: false };
+    if (totalCount === 30) return { blistersPerBox: 3, tabsPerBlister: 10, isLiquid: false };
+    if (totalCount === 20) return { blistersPerBox: 2, tabsPerBlister: 10, isLiquid: false };
+    if (totalCount === 50) return { blistersPerBox: 5, tabsPerBlister: 10, isLiquid: false };
+    if (totalCount === 10) return { blistersPerBox: 1, tabsPerBlister: 10, isLiquid: false };
+    if (totalCount === 14) return { blistersPerBox: 1, tabsPerBlister: 14, isLiquid: false };
+    if (totalCount === 28) return { blistersPerBox: 2, tabsPerBlister: 14, isLiquid: false };
+    return { blistersPerBox: Math.max(1, Math.round(totalCount / 10)), tabsPerBlister: 10, isLiquid: false };
+  }
+
+  return { blistersPerBox: 10, tabsPerBlister: 10, isLiquid: false };
+}
+
+/**
+ * Auto-Pilot Matching & Creation Engine
+ * Strips phone/tax/header lines and auto-matches or registers medicines in SQLite.
+ */
+function autoMatchAndRegisterCatalog(extracted: {
+  supplierName: string | null;
+  invoiceNumber: string | null;
+  purchaseDate: string | null;
+  warrantyText: string | null;
+  items: Array<any>;
+}) {
+  let matchedSupplierId: number | null = null;
+
+  // 1. Match or Auto-Create Supplier
+  const targetSupplierName = extracted.supplierName ? extracted.supplierName.trim() : 'Unknown Supplier';
+  const rawSup = targetSupplierName.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  const suppliers = db.prepare('SELECT id, name FROM suppliers WHERE is_active = 1').all() as any[];
+  const existingSup = suppliers.find(s => {
+    const dbSup = s.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return rawSup.includes(dbSup) || dbSup.includes(rawSup);
+  });
+
+  if (existingSup) {
+    matchedSupplierId = existingSup.id;
+  } else if (targetSupplierName && targetSupplierName !== 'Unknown Supplier') {
+    try {
+      const ins = db.prepare(`
+        INSERT INTO suppliers (name, contact_person, current_balance, is_active)
+        VALUES (?, 'Invoice Auto-Created', 0.0, 1)
+      `).run(targetSupplierName);
+      matchedSupplierId = Number(ins.lastInsertRowid);
+      console.log(`[AI Auto-Pilot] Created new supplier: "${targetSupplierName}" (ID: ${matchedSupplierId})`);
+    } catch (err) {
+      console.warn('[AI Auto-Pilot] Supplier auto-creation fallback:', err);
+    }
+  }
+
+  // 2. Strict Filter: Completely drop phone numbers, tax lines, address headers
+  const nonMedicineKeywords = [
+    'advance', 'tax', 's.tax', 'withholding', 'total', 'u/s', '236h', 'ntn',
+    'invoice id', 'tel ', 'phone', 'mobile', 'road', 'peco', 'lahore', 'karachi',
+    'out fall', 'cust id', 'brick', 'str no', 'po no'
+  ];
+
+  const validItems = extracted.items.filter(it => {
+    const name = (it.productName || '').toLowerCase().trim();
+    if (!name || name.length < 3) return false;
+    if (nonMedicineKeywords.some(bad => name.includes(bad))) return false;
+    // Don't treat bare phone numbers or postal addresses as medicines
+    if (/^\+?\d[\d\s-]{6,}\d$/.test(name)) return false;
+    return true;
+  });
+
+  const catalogMedicines = db.prepare('SELECT id, brand_name, strength, dosage_form, packaging_type, tablets_per_pack, pack_size FROM medicines WHERE is_active = 1').all() as any[];
+
+  const clarificationQuestions: AiClarificationQuestion[] = [];
+
+  const matchedItems = validItems.map((item, idx) => {
+    let cleanName = (item.productName || '').trim();
+    cleanName = cleanName.replace(/^\d{2,4}\s*[-–]\s*/, '').trim();
+
+    const strengthMatch = cleanName.match(/\b(\d+(?:\.\d+)?\s?(?:mg|mcg|g|ml|iu|%)(?:\s?\/\s?(?:ml|g|tab))?)\b/i);
+    const strength = item.strength || (strengthMatch ? strengthMatch[1].trim() : null);
+
+    const formMatch = cleanName.match(/\b(tablet|tablets|tab|tabs|capsule|capsules|cap|caps|syrup|suspension|injection|sachet|sachets|drops|cream|gel|lotion)\b/i);
+    const dosageForm = item.dosageForm || (formMatch ? formMatch[1] : 'Medicine');
+
+    const packParsed = parsePackagingStructure(item.packSize || item.pack, cleanName);
+    const blistersPerBox = item.blistersPerBox || (packParsed.isLiquid ? 1 : packParsed.blistersPerBox);
+    const tabsPerBlister = item.tabsPerBlister || (packParsed.isLiquid ? 1 : packParsed.tabsPerBlister);
+
+    let searchBrand = cleanName.replace(/\b\d+\s?(?:ml|mg|g|iu|tablets?|capsules?|sachets?|tabs?|caps?)\b/gi, '').trim();
+    if (!searchBrand) searchBrand = cleanName;
+
+    const searchTokens = searchBrand.toLowerCase().split(/[\s,/-]+/).filter((t: string) => t.length >= 3 && !/^\d+$/.test(t));
+    const matchedMed = catalogMedicines.find(m => {
+      const brand = m.brand_name.toLowerCase();
+      return searchTokens.some((tok: string) => brand.includes(tok) || tok.includes(brand));
+    });
+
+    let finalMedicineId: number;
+
+    if (matchedMed) {
+      finalMedicineId = matchedMed.id;
+    } else {
+      const packagingType = packParsed.isLiquid ? 'SIMPLE' : 'MULTI_TIER';
+      const ins = db.prepare(`
+        INSERT INTO medicines (brand_name, strength, dosage_form, packaging_type, pack_size, tablets_per_pack, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, 1)
+      `).run(cleanName, strength, dosageForm, packagingType, blistersPerBox, tabsPerBlister);
+      finalMedicineId = Number(ins.lastInsertRowid);
+      catalogMedicines.push({ id: finalMedicineId, brand_name: cleanName, strength, dosage_form: dosageForm });
+      console.log(`[AI Auto-Pilot] Created new medicine: "${cleanName}" (ID: ${finalMedicineId})`);
+    }
+
+    const boxes = nullableNumber(item.boxesReceived) ?? nullableNumber(item.quantity) ?? 1;
+    const cost = nullableNumber(item.purchasePrice) || 0;
+    const mrp = nullableNumber(item.mrp) || nullableNumber(item.salePrice) || Number((cost * 1.25).toFixed(2));
+    const totalUnits = Math.round(boxes * blistersPerBox * tabsPerBlister);
+    const lineTotal = nullableNumber(item.lineTotal) || Number((cost * boxes).toFixed(2));
+
+    // Clarification question for ambiguous 100's pack sizes
+    if (!packParsed.isLiquid && blistersPerBox * tabsPerBlister === 100) {
+      clarificationQuestions.push({
+        id: `q_pack_${idx}`,
+        itemIndex: idx,
+        question: `Confirm packing for "${cleanName}":`,
+        field: 'blistersPerBox',
+        options: [
+          { label: '10 Blisters × 10 Tabs (100 Tabs/Box)', value: { blistersPerBox: 10, tabsPerBlister: 10 } },
+          { label: '5 Blisters × 20 Tabs (100 Tabs/Box)', value: { blistersPerBox: 5, tabsPerBlister: 20 } }
+        ]
+      });
+    }
+
+    return {
+      productName: cleanName || 'Medicine',
+      matchedMedicineId: finalMedicineId,
+      batchNumber: nullableString(item.batchNumber) || `BN-${Date.now().toString().slice(-4)}`,
+      expiryDate: nullableString(item.expiryDate) || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      mfgDate: nullableString(item.mfgDate),
+      boxes,
+      blistersPerBox,
+      tabsPerBlister,
+      totalUnits,
+      purchasePrice: cost,
+      mrp,
+      costBasis: 'BOX',
+      mrpBasis: 'BOX',
+      bonusQuantity: nullableNumber(item.bonusQuantity) || 0,
+      lineTotal
+    };
+  });
+
+  return {
+    supplierName: targetSupplierName,
+    matchedSupplierId,
+    invoiceNumber: extracted.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`,
+    purchaseDate: extracted.purchaseDate || new Date().toISOString().split('T')[0],
+    rawNotes: extracted.warrantyText,
+    clarificationQuestions: clarificationQuestions.slice(0, 3),
+    items: matchedItems
+  };
+}
+
+export async function quickAiExtractInvoice(
+  files: Array<{ buffer: Buffer; mimeType: string }>
+): Promise<{
+  supplierName: string | null;
+  matchedSupplierId: number | null;
+  invoiceNumber: string | null;
+  purchaseDate: string | null;
+  rawNotes: string | null;
+  clarificationQuestions?: AiClarificationQuestion[];
+  items: Array<{
+    productName: string | null;
+    matchedMedicineId: number | null;
+    batchNumber: string | null;
+    expiryDate: string | null;
+    mfgDate: string | null;
+    boxes: number;
+    blistersPerBox: number;
+    tabsPerBlister: number;
+    totalUnits: number;
+    purchasePrice: number | null;
+    mrp: number | null;
+    costBasis?: string;
+    mrpBasis?: string;
+    bonusQuantity: number | null;
+    lineTotal: number | null;
+  }>;
+}> {
+  if (files.length === 0) throw new Error('Please select an invoice image or PDF');
+
+  let extractedText = '';
+  const file = files[0];
+
+  if (file.mimeType === 'application/pdf') {
+    const pdfPages = await extractPdfPages(file.buffer);
+    extractedText = pdfPages.map(p => p.embeddedText || '').join('\n');
+    if (!extractedText.trim()) {
+      const pageImages = pdfPages.filter(p => p.renderedImage);
+      if (pageImages.length > 0) {
+        extractedText = await ocrImageBuffer(pageImages[0].renderedImage!);
+      }
+    }
+  } else {
+    extractedText = await ocrImageBuffer(file.buffer, file.mimeType);
+  }
+
+  if (!extractedText || extractedText.trim().length < 5) {
+    throw new Error('Could not read text from this image. Please ensure the invoice is well-lit and in focus.');
+  }
+
+  const aiConfig = getAiApiKey();
+
+  if (aiConfig?.provider === 'gemini') {
+    try {
+      const prompt = `Extract the medicines and invoice details from this OCR text.
+Ignore phone numbers, addresses, tax/header lines (including Advance I.T and NTN), and totals as medicine rows.
+Return JSON only with supplierName, invoiceNumber, purchaseDate, and items. Each item must include
+productName, packSize, batchNumber, expiryDate, mfgDate, boxesReceived, purchasePrice, mrp,
+bonusQuantity, and lineTotal. Normalize dates to YYYY-MM-DD.
+
+Invoice text:
+${extractedText.slice(0, 8000)}`;
+      const parsed = asRecord(await requestInvoiceJson(aiConfig, prompt));
+      const rawItems = Array.isArray(parsed?.items) ? parsed.items : [];
+      if (rawItems.length > 0) {
+        return autoMatchAndRegisterCatalog({
+          supplierName: nullableString(parsed?.supplierName),
+          invoiceNumber: nullableString(parsed?.invoiceNumber),
+          purchaseDate: nullableString(parsed?.purchaseDate),
+          warrantyText: null,
+          items: rawItems
+        });
+      }
+    } catch (aiError) {
+      console.warn('[Gemini invoice extraction failed]:', aiError);
+    }
+  }
+
+  if (aiConfig?.key && aiConfig.provider === 'groq') {
+    try {
+      const prompt = `You are a clinical pharmacy invoicing AI.
+Extract pharmaceutical items from this invoice OCR text into JSON with 3 packaging tiers and MRP.
+CRITICAL RULES:
+1. ONLY extract medicines, tablets, syrups, drops, sachets, injections (e.g. Gaviscon, Disprin, High-C, Onset, Relaxin).
+2. NEVER extract telephone numbers, addresses, tax lines, or header numbers as medicines (e.g. ignore "Tel 35943213", "Advance I.T U/S 236", "NTN", "Total For Invoice").
+3. Clean distributor item codes from product names (e.g. change "260-GAVISCON LIQUID 120ML" to "Gaviscon Liquid 120ml").
+4. Packaging tiers:
+   - boxesReceived: number of boxes/packs received (e.g. 2, 3, 10).
+   - packSize: the printed pack specification (e.g. "100'S", "30'S", "1X10'S", "120ML").
+5. Pricing:
+   - purchasePrice: unit cost rate per box/pack.
+   - mrp: printed Maximum Retail Price / Retail price.
+6. Normalize expiry date to YYYY-MM-DD.
+
+Return JSON only:
+{
+  "supplierName": string,
+  "invoiceNumber": string,
+  "purchaseDate": "YYYY-MM-DD",
+  "items": [
+    {
+      "productName": string,
+      "packSize": string,
+      "batchNumber": string,
+      "expiryDate": "YYYY-MM-DD",
+      "mfgDate": "YYYY-MM-DD" or null,
+      "boxesReceived": number,
+      "purchasePrice": number,
+      "mrp": number or null,
+      "bonusQuantity": number,
+      "lineTotal": number
+    }
+  ]
+}
+
+Invoice text to extract:
+${extractedText.slice(0, 8000)}`;
+
+      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${aiConfig.key}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' },
+          temperature: 0.1
+        }),
+        signal: AbortSignal.timeout(20_000)
+      });
+
+      if (groqRes.ok) {
+        const groqJson = (await groqRes.json()) as any;
+        const aiOutput = groqJson?.choices?.[0]?.message?.content;
+        if (aiOutput) {
+          const parsed = JSON.parse(aiOutput);
+          const rawItems = Array.isArray(parsed?.items) ? parsed.items : [];
+          if (rawItems.length > 0) {
+            return autoMatchAndRegisterCatalog({
+              supplierName: nullableString(parsed?.supplierName),
+              invoiceNumber: nullableString(parsed?.invoiceNumber),
+              purchaseDate: nullableString(parsed?.purchaseDate),
+              warrantyText: null,
+              items: rawItems
+            });
+          }
+        }
+      }
+    } catch (groqErr) {
+      console.warn('[Groq 70B extraction failed]:', groqErr);
+    }
+  }
+
+  // Local Parser Fallback
+  const localDraft = parseInvoiceText(extractedText);
+  return autoMatchAndRegisterCatalog({
+    supplierName: localDraft.supplierNameRaw,
+    invoiceNumber: localDraft.invoiceNumberRaw,
+    purchaseDate: localDraft.invoiceDateRaw,
+    warrantyText: localDraft.warrantyText,
+    items: localDraft.items.map(it => ({
+      productName: it.productNameRaw,
+      batchNumber: it.batchNumber,
+      expiryDate: it.expiryDate,
+      mfgDate: it.mfgDate,
+      boxesReceived: it.boxesReceived,
+      purchasePrice: it.supplierPurchaseRate,
+      mrp: null,
+      bonusQuantity: it.bonusQuantityRaw,
+      lineTotal: it.lineTotalRaw
+    }))
+  });
 }

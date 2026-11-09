@@ -7,7 +7,7 @@ import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requirePermission, AuthenticatedRequest } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
 import { triggerAutoSync } from '../services/gitSyncService.js';
-import { scanInvoiceFiles, ParsedInvoiceLineItem } from '../services/invoiceScanService.js';
+import { scanInvoiceFiles, quickAiExtractInvoice, ParsedInvoiceLineItem, getGeminiApiKey } from '../services/invoiceScanService.js';
 
 export const purchaseInvoiceScanRouter = Router();
 
@@ -43,8 +43,6 @@ function savePageFile(scanId: number, pageNumber: number, mimeType: string, buff
   return path.posix.join(String(scanId), filename);
 }
 
-// A line is only safe to auto-insert as a draft item when it names a product; anything else
-// (totals rows, headers) never reaches purchase_invoice_scan_items.
 function insertScanItems(scanId: number, items: ParsedInvoiceLineItem[]) {
   const stmt = db.prepare(`
     INSERT INTO purchase_invoice_scan_items (
@@ -79,8 +77,40 @@ function insertScanItems(scanId: number, items: ParsedInvoiceLineItem[]) {
   }
 }
 
-// Create a new invoice-scan draft from one or more uploaded pages/photos. Scanning only ever
-// creates a draft row - it never touches stock, batches, or the supplier ledger.
+// Quick AI Vision Status: Check if Gemini AI key is configured
+purchaseInvoiceScanRouter.get('/ai-status', authenticateToken, (_req: AuthenticatedRequest, res: Response) => {
+  const key = getGeminiApiKey();
+  res.json({
+    geminiEnabled: Boolean(key),
+    model: 'Gemini 2.5 Flash'
+  });
+});
+
+// Quick AI Inward Extraction: Upload 1 or more images/PDF, extracts straight to purchase items format
+purchaseInvoiceScanRouter.post('/ai-quick-extract', authenticateToken, requirePermission('create_purchases'), upload.array('files', 10), async (req: AuthenticatedRequest, res: Response) => {
+  const files = (req.files as Express.Multer.File[]) || [];
+  if (files.length === 0) {
+    res.status(400).json({ error: 'Please upload at least one image or PDF page' });
+    return;
+  }
+
+  try {
+    const result = await quickAiExtractInvoice(files.map(f => ({ buffer: f.buffer, mimeType: f.mimetype })));
+    logAudit({
+      userId: req.user?.id,
+      action: 'AI_QUICK_INVOICE_EXTRACT',
+      entity: 'PURCHASE_AI',
+      entityId: result.invoiceNumber || 'NEW',
+      newValues: { itemCount: result.items.length, supplierName: result.supplierName },
+      ipAddress: req.ip
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'AI extraction failed' });
+  }
+});
+
+// Create a new invoice-scan draft from one or more uploaded pages/photos.
 purchaseInvoiceScanRouter.post('/', authenticateToken, requirePermission('create_purchases'), upload.array('files', 30), async (req: AuthenticatedRequest, res: Response) => {
   const files = (req.files as Express.Multer.File[]) || [];
   if (files.length === 0) {
@@ -147,7 +177,7 @@ purchaseInvoiceScanRouter.post('/', authenticateToken, requirePermission('create
   }
 });
 
-// Append more pages to an existing (not yet committed) draft - supports pages uploaded out of order.
+// Append more pages to an existing draft
 purchaseInvoiceScanRouter.post('/:id/pages', authenticateToken, requirePermission('create_purchases'), upload.array('files', 30), async (req: AuthenticatedRequest, res: Response) => {
   const scanId = Number(req.params.id);
   const scan = db.prepare('SELECT * FROM purchase_invoice_scans WHERE id = ?').get(scanId) as any;
@@ -189,7 +219,7 @@ purchaseInvoiceScanRouter.post('/:id/pages', authenticateToken, requirePermissio
   }
 });
 
-// Searchable archive of scanned invoices, draft or committed.
+// Searchable archive of scanned invoices
 purchaseInvoiceScanRouter.get('/', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const { invoiceNumber, supplier, dateFrom, dateTo, product, batchNumber, schedule, status } = req.query as Record<string, string | undefined>;
 
@@ -225,7 +255,7 @@ purchaseInvoiceScanRouter.get('/', authenticateToken, (req: AuthenticatedRequest
   res.json({ scans });
 });
 
-// Full detail for one scan: header, pages, line items, and warranty attachments.
+// Full detail for one scan
 purchaseInvoiceScanRouter.get('/:id', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const scanId = Number(req.params.id);
   const scan = db.prepare(`
@@ -246,8 +276,7 @@ purchaseInvoiceScanRouter.get('/:id', authenticateToken, (req: AuthenticatedRequ
   res.json({ scan, pages, items, warranty });
 });
 
-// Update scan-level fields: supplier match, document-type confirmation, goods-received confirmation,
-// Schedule B/D invoice-level tags, notes.
+// Update scan-level fields
 purchaseInvoiceScanRouter.put('/:id', authenticateToken, requirePermission('create_purchases'), (req: AuthenticatedRequest, res: Response) => {
   const scanId = Number(req.params.id);
   const scan = db.prepare('SELECT * FROM purchase_invoice_scans WHERE id = ?').get(scanId) as any;
@@ -290,9 +319,7 @@ purchaseInvoiceScanRouter.put('/:id', authenticateToken, requirePermission('crea
   res.json({ message: 'Scan updated' });
 });
 
-// Update one line item: product match confirmation, manual packaging fields (printed MRP, strips
-// per box, units per strip, confirmed purchase cost and its basis), bonus confirmation, batch/expiry
-// correction, and item-level Schedule B/D classification.
+// Update one line item
 purchaseInvoiceScanRouter.put('/:id/items/:itemId', authenticateToken, requirePermission('create_purchases'), (req: AuthenticatedRequest, res: Response) => {
   const scanId = Number(req.params.id);
   const itemId = Number(req.params.itemId);
@@ -303,8 +330,6 @@ purchaseInvoiceScanRouter.put('/:id/items/:itemId', authenticateToken, requirePe
   if (!existing) { res.status(404).json({ error: 'Line item not found' }); return; }
 
   const b = req.body;
-  // A field present in the body (even as null/"") is an explicit edit, incl. clearing a wrong
-  // value; a field simply absent from the body leaves the stored value untouched.
   const pick = (key: string, column: string, convert: (v: any) => any = v => v) =>
     key in b ? convert(b[key]) : existing[column];
   const toNum = (v: any) => (v === null || v === '' || v === undefined) ? null : Number(v);
@@ -363,7 +388,7 @@ purchaseInvoiceScanRouter.put('/:id/items/:itemId', authenticateToken, requirePe
   res.json({ message: 'Line item updated' });
 });
 
-// Serve a stored page file (image/PDF) for side-by-side review against the editable form.
+// Serve stored page image/PDF
 purchaseInvoiceScanRouter.get('/:id/pages/:pageId/file', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const page = db.prepare('SELECT * FROM purchase_invoice_scan_pages WHERE id = ? AND scan_id = ?').get(Number(req.params.pageId), Number(req.params.id)) as any;
   if (!page) { res.status(404).json({ error: 'Page not found' }); return; }
@@ -375,7 +400,7 @@ purchaseInvoiceScanRouter.get('/:id/pages/:pageId/file', authenticateToken, (req
   fs.createReadStream(fullPath).pipe(res);
 });
 
-// Attach a warranty crop/region (manual upload) or link an existing page as the warranty section.
+// Save warranty attachment
 purchaseInvoiceScanRouter.post('/:id/warranty', authenticateToken, requirePermission('create_purchases'), upload.single('file'), (req: AuthenticatedRequest, res: Response) => {
   const scanId = Number(req.params.id);
   const scan = db.prepare('SELECT * FROM purchase_invoice_scans WHERE id = ?').get(scanId) as any;
@@ -412,7 +437,7 @@ purchaseInvoiceScanRouter.get('/:id/warranty/:warrantyId/file', authenticateToke
   fs.createReadStream(fullPath).pipe(res);
 });
 
-// Void a draft that was never committed (e.g. a duplicate/misfired upload).
+// Void a draft
 purchaseInvoiceScanRouter.delete('/:id', authenticateToken, requirePermission('create_purchases'), (req: AuthenticatedRequest, res: Response) => {
   const scan = db.prepare('SELECT * FROM purchase_invoice_scans WHERE id = ?').get(Number(req.params.id)) as any;
   if (!scan) { res.status(404).json({ error: 'Scan not found' }); return; }
@@ -427,11 +452,9 @@ function packagingUnitsPerBox(item: any): number | null {
     if (!item.strips_per_box || !item.units_per_strip) return null;
     return item.strips_per_box * item.units_per_strip;
   }
-  return 1; // bottles/tubes/sachets/loose: one sale unit per "box" (the sale pack itself)
+  return 1;
 }
 
-// Validates everything required by the workflow spec before a draft can become a real purchase.
-// Returns a list of human-readable blockers; an empty list means Commit may proceed.
 function findCommitBlockers(scan: any, items: any[]): string[] {
   const blockers: string[] = [];
   if (!scan.supplier_id) blockers.push('Supplier has not been matched/confirmed');
@@ -478,10 +501,7 @@ purchaseInvoiceScanRouter.get('/:id/commit-check', authenticateToken, (req: Auth
   res.json({ blockers: findCommitBlockers(scan, items) });
 });
 
-// Posts the reviewed draft as a real purchase: creates `purchases`/`purchase_items`, upserts
-// batches (weighted-average cost, mirroring the manual purchase flow), records stock movements,
-// updates the supplier ledger, and links the scan + its warranty attachments to the new purchase -
-// all inside one transaction, so stock and records never end up partially updated.
+// Commit reviewed draft into a real purchase and stock batches
 purchaseInvoiceScanRouter.post('/:id/commit', authenticateToken, requirePermission('create_purchases'), (req: AuthenticatedRequest, res: Response) => {
   const scanId = Number(req.params.id);
   const { requestKey, purchaseDate, paidAmount, paymentMethod, discount, tax } = req.body;
@@ -511,7 +531,6 @@ purchaseInvoiceScanRouter.post('/:id/commit', authenticateToken, requirePermissi
       if (!supplier) throw new Error('Supplier does not exist');
 
       let subtotal = 0;
-      const lineInserts: Array<() => void> = [];
       const preparedLines: Array<{ item: any; unitsPerBox: number; qty: number; bonus: number; costPrice: number; salePrice: number; lineTotal: number }> = [];
 
       for (const item of items) {
