@@ -128,7 +128,7 @@ The missing service implementations were added to `server/src/services/invoiceSc
 - The model label in `server/src/routes/purchaseInvoiceScanRoutes.ts` was aligned with the service's Gemini 2.5 Flash model.
 - The user-facing action label in `client/src/views/PurchasesView.tsx` was changed to avoid claiming a specific free tier/model behavior.
 
-The environment variable name is `GEMINI_API_KEY`; configure it in `server/.env` if AI extraction is wanted. Never copy, print, commit, or share the actual key. Invoice extraction is optional: ordinary server startup and local OCR should not require a Gemini key.
+Update (2026-11-11): the AI invoice reader now prefers `GROQ_API_KEY` and falls back to `GEMINI_API_KEY`; extraction returns a side-effect-free review draft (`server/src/services/invoiceReviewService.ts`) and the catalog/stock are only written by `POST /api/purchases`. See `docs/CHANGELOG.md` (2026-11-11). Configure the key in `server/.env` if AI extraction is wanted. Never copy, print, commit, or share the actual key. Invoice extraction is optional: ordinary server startup and local OCR should not require a Gemini key.
 
 #### Verification and working-tree caution
 

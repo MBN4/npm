@@ -7,7 +7,7 @@ import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requirePermission, AuthenticatedRequest } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
 import { triggerAutoSync } from '../services/gitSyncService.js';
-import { scanInvoiceFiles, quickAiExtractInvoice, ParsedInvoiceLineItem, getGeminiApiKey } from '../services/invoiceScanService.js';
+import { scanInvoiceFiles, quickAiExtractInvoice, ParsedInvoiceLineItem, getAiApiKey, getAiModels } from '../services/invoiceScanService.js';
 
 export const purchaseInvoiceScanRouter = Router();
 
@@ -77,12 +77,16 @@ function insertScanItems(scanId: number, items: ParsedInvoiceLineItem[]) {
   }
 }
 
-// Quick AI Vision Status: Check if Gemini AI key is configured
+// AI invoice reader status: which provider (if any) is configured on the server. Never returns the key.
 purchaseInvoiceScanRouter.get('/ai-status', authenticateToken, (_req: AuthenticatedRequest, res: Response) => {
-  const key = getGeminiApiKey();
+  const ai = getAiApiKey();
+  const models = ai ? getAiModels(ai.provider) : null;
   res.json({
-    geminiEnabled: Boolean(key),
-    model: 'Gemini 2.5 Flash'
+    aiEnabled: Boolean(ai),
+    provider: ai?.provider ?? null,
+    model: models ? models.vision : null,
+    // Kept for older clients that only know about Gemini.
+    geminiEnabled: Boolean(ai)
   });
 });
 
@@ -95,13 +99,21 @@ purchaseInvoiceScanRouter.post('/ai-quick-extract', authenticateToken, requirePe
   }
 
   try {
+    // Returns a review draft only - no supplier, medicine or stock is created until the purchase is saved.
     const result = await quickAiExtractInvoice(files.map(f => ({ buffer: f.buffer, mimeType: f.mimetype })));
     logAudit({
       userId: req.user?.id,
       action: 'AI_QUICK_INVOICE_EXTRACT',
       entity: 'PURCHASE_AI',
       entityId: result.invoiceNumber || 'NEW',
-      newValues: { itemCount: result.items.length, supplierName: result.supplierName },
+      newValues: {
+        method: result.extractionMethod,
+        provider: result.aiProvider,
+        itemCount: result.items.length,
+        ignoredLines: result.ignoredLines.length,
+        openQuestions: result.questions.length,
+        supplierName: result.supplierName
+      },
       ipAddress: req.ip
     });
     res.json(result);

@@ -3,11 +3,13 @@
 **System**: Naveed Medical Pharmacy (NMP)  
 **Version**: Current local `main` branch
 
-**Last Updated**: 2026-09-22
+**Last Updated**: 2026-11-11
 
-**Delivery**: Recent changes committed locally; GitHub push awaits HTTPS credentials
+**Delivery**: Changes are delivered through GitHub branches and pull requests on `MBN4/npm`
 
-Recent work added the PDF medicine catalog (without invented stock), editable inventory products and patient profiles, new patient registration within Rx, updated Udhaar entries, MedPrac POS printer routing, and downward category menus with consistent select arrows.
+Latest (2026-11-11): AI Stock Inward was reworked. The invoice photo is read by a vision model, nothing is written while reading, the admin answers questions for anything unclear, and the server enforces batch top-up vs new batch, duplicate-invoice and expiry rules. See `docs/CHANGELOG.md`.
+
+Earlier work added the PDF medicine catalog (without invented stock), editable inventory products and patient profiles, new patient registration within Rx, updated Udhaar entries, MedPrac POS printer routing, and downward category menus with consistent select arrows.
 
 ---
 

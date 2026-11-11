@@ -42,13 +42,30 @@ export interface PurchaseInvoice {
 export type PriceBasis = 'BOX' | 'BLISTER' | 'TAB';
 export type TotalMode = 'COST' | 'MRP';
 
+export type MatchStatus = 'MATCHED' | 'NEEDS_REVIEW' | 'NEW' | 'MANUAL';
+
+export interface NewMedicineDraft {
+  brandName: string;
+  strength: string;
+  dosageForm: string;
+  packagingType: 'MULTI_TIER' | 'SIMPLE';
+}
+
 export interface PurchaseItemRow {
   medicineId: string;
   medicineName?: string;
+  /** The line exactly as printed on the scanned invoice (empty for manual rows). */
+  invoiceName?: string;
+  matchStatus: MatchStatus;
+  candidates?: Array<{ medicineId: number; brandName: string; strength: string | null; score: number }>;
+  /** Admin confirmed this line should be added to the catalog as a new medicine. */
+  createNew: boolean;
+  newMedicine?: NewMedicineDraft;
   batchNumber: string;
   expiryDate: string;
   mfgDate: string;
   boxes: string;
+  bonusBoxes: string;
   blistersPerBox: string;
   tabsPerBlister: string;
   totalUnits: number;
@@ -56,17 +73,45 @@ export interface PurchaseItemRow {
   costBasis: PriceBasis; // Rate is for: Box, Blister, or Tab
   mrp: string;           // MRP entered
   mrpBasis: PriceBasis;  // MRP is for: Box, Blister, or Tab
+  mrpHint?: string;
   bonusQuantity: string;
   lineCostTotal: number;
   lineMrpTotal: number;
+  /** Problems the scanner noticed on this line (shown until the admin fixes the fields). */
+  scanIssues?: string[];
+  existingBatch?: { batchId: number; quantity: number; expiryDate: string; expiryConflict: boolean } | null;
+  overrideBatchExpiry?: boolean;
 }
 
-export interface AiQuestion {
+export interface ReviewQuestion {
   id: string;
+  type: string;
   itemIndex?: number;
   question: string;
-  field: string;
-  options: Array<{ label: string; value: any }>;
+  blocking: boolean;
+  options: Array<{ label: string; value: Record<string, any> }>;
+}
+
+interface ReviewInfo {
+  extractionMethod: 'AI_VISION' | 'AI_TEXT' | 'LOCAL_PARSER';
+  aiProvider: string | null;
+  supplierName: string | null;
+  warnings: string[];
+  ignoredLines: string[];
+  printedNetTotal: number | null;
+  duplicatePurchase: { purchaseId: number; supplierName: string; purchaseDate: string } | null;
+}
+
+interface CatalogMedicine {
+  id: number;
+  brand_name: string;
+  strength?: string;
+  dosage_form?: string;
+  packaging_type?: string;
+  pack_size?: number | null;
+  tablets_per_pack?: number | null;
+  current_sale_price?: number | null;
+  is_active?: number;
 }
 
 // The hosted site (Vercel) forwards /api/* to the Fly.io server. Large or slow requests such as
@@ -138,10 +183,94 @@ async function optimizeImageForAi(file: File): Promise<File> {
   });
 }
 
+const todayIso = () => new Date().toISOString().split('T')[0];
+
+const emptyRow = (): PurchaseItemRow => ({
+  medicineId: '',
+  matchStatus: 'MANUAL',
+  createNew: false,
+  batchNumber: '',
+  expiryDate: '',
+  mfgDate: '',
+  boxes: '1',
+  bonusBoxes: '0',
+  blistersPerBox: '',
+  tabsPerBlister: '',
+  totalUnits: 0,
+  purchasePrice: '',
+  costBasis: 'BOX',
+  mrp: '',
+  mrpBasis: 'BOX',
+  bonusQuantity: '0',
+  lineCostTotal: 0,
+  lineMrpTotal: 0
+});
+
+/** Box packing as stored in the catalog (pack_size = units per box, tablets_per_pack = units per strip). */
+function catalogPackingOf(med: CatalogMedicine | undefined): { blistersPerBox: number; tabsPerBlister: number } | null {
+  if (!med) return null;
+  const packSize = Number(med.pack_size) || 0;
+  const perPack = Number(med.tablets_per_pack) || 0;
+  if (med.packaging_type === 'SIMPLE') return packSize >= 1 ? { blistersPerBox: 1, tabsPerBlister: packSize } : null;
+  if (packSize > 1 && perPack >= 1 && packSize % perPack === 0) return { blistersPerBox: packSize / perPack, tabsPerBlister: perPack };
+  return null;
+}
+
+/** Everything that must be fixed on a line before it can go into stock. */
+function rowIssues(row: PurchaseItemRow): string[] {
+  const issues: string[] = [];
+  if (!row.medicineId && !row.createNew) {
+    issues.push(row.invoiceName ? 'Choose the matching medicine, or add it as a new medicine' : 'Select a medicine');
+  }
+  if (row.createNew && (!row.newMedicine || row.newMedicine.brandName.trim().length < 2)) issues.push('Enter a name for the new medicine');
+  if (!row.batchNumber.trim()) issues.push('Batch number is required');
+  if (!row.expiryDate) issues.push('Expiry date is required');
+  else if (row.expiryDate <= todayIso()) issues.push('Expiry date is already past - expired stock cannot be received');
+  const boxes = Number(row.boxes);
+  if (!(boxes > 0) || !Number.isInteger(boxes)) issues.push('Boxes must be a whole number above zero');
+  if (!(Number(row.blistersPerBox) >= 1) || !(Number(row.tabsPerBlister) >= 1)) issues.push('Enter the packing (strips per box and units per strip)');
+  if (!(Number(row.purchasePrice) > 0)) issues.push('Cost price is required');
+  if (!(Number(row.mrp) > 0)) issues.push('Retail MRP is required (it becomes the POS selling price)');
+  if (row.existingBatch?.expiryConflict && !row.overrideBatchExpiry && row.expiryDate !== row.existingBatch.expiryDate) {
+    issues.push(`Batch already in stock with expiry ${row.existingBatch.expiryDate} - answer the question above`);
+  }
+  return issues;
+}
+
+/** Cost and MRP of one box, whatever basis (box / blister / tab) they were typed in. */
+function boxPrices(row: PurchaseItemRow): { cost: number; mrp: number } {
+  const blisters = Math.max(1, Number(row.blistersPerBox) || 1);
+  const units = blisters * Math.max(1, Number(row.tabsPerBlister) || 1);
+  const scale = (basis: PriceBasis) => (basis === 'BLISTER' ? blisters : basis === 'TAB' ? units : 1);
+  return { cost: (Number(row.purchasePrice) || 0) * scale(row.costBasis), mrp: (Number(row.mrp) || 0) * scale(row.mrpBasis) };
+}
+
+/** Non-blocking warnings: shown on the line but do not stop the save. */
+function rowWarnings(row: PurchaseItemRow): string[] {
+  const { cost, mrp } = boxPrices(row);
+  return cost > 0 && mrp > 0 && mrp < cost ? [`Retail MRP (Rs. ${mrp.toFixed(2)}/box) is lower than cost (Rs. ${cost.toFixed(2)}/box) - check both prices`] : [];
+}
+
+/** Suggests a box MRP from the medicine's current per-unit selling price, if it is plausible. */
+function suggestedBoxMrp(row: PurchaseItemRow, med: CatalogMedicine | undefined): string | null {
+  if (!med || !(Number(med.current_sale_price) > 0)) return null;
+  const unitsPerBox = (Number(row.blistersPerBox) || 1) * (Number(row.tabsPerBlister) || 1);
+  const mrp = Number(med.current_sale_price) * unitsPerBox;
+  const { cost } = boxPrices(row);
+  // A suggestion below cost means the catalog price or packing is off - leave it for the admin.
+  return cost > 0 && mrp < cost ? null : mrp.toFixed(2);
+}
+
+const METHOD_LABEL: Record<ReviewInfo['extractionMethod'], string> = {
+  AI_VISION: 'AI read the invoice photo',
+  AI_TEXT: 'AI read the OCR text of the invoice',
+  LOCAL_PARSER: 'Basic local reader (no AI) - check every line'
+};
+
 interface MedicineDropdownProps {
   value: string;
   onChange: (id: string) => void;
-  medicines: Array<{ id: number; brand_name: string; strength?: string }>;
+  medicines: CatalogMedicine[];
   suggestedName?: string;
 }
 
@@ -313,7 +442,9 @@ export const PurchasesView: React.FC = () => {
   const { token, hasPermission } = useAuth();
   const [purchases, setPurchases] = useState<PurchaseInvoice[]>([]);
   const [suppliers, setSuppliers] = useState<{ id: number; name: string }[]>([]);
-  const [medicines, setMedicines] = useState<{ id: number; brand_name: string; strength?: string }[]>([]);
+  const [medicines, setMedicines] = useState<CatalogMedicine[]>([]);
+  const medicinesRef = useRef<CatalogMedicine[]>([]);
+  medicinesRef.current = medicines;
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -323,7 +454,14 @@ export const PurchasesView: React.FC = () => {
 
   // Fast AI Extraction Flow state
   const [isAiProcessing, setIsAiProcessing] = useState(false);
-  const [aiQuestions, setAiQuestions] = useState<AiQuestion[]>([]);
+  const [reviewQuestions, setReviewQuestions] = useState<ReviewQuestion[]>([]);
+  const [reviewInfo, setReviewInfo] = useState<ReviewInfo | null>(null);
+  const [showIgnoredLines, setShowIgnoredLines] = useState(false);
+  const [newSupplierName, setNewSupplierName] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  // One key per invoice entry: a double click or network retry cannot post the stock twice.
+  const requestKeyRef = useRef<string>('');
   const aiFileInputRef = useRef<HTMLInputElement>(null);
 
   // Dynamic Total Price Display Mode: 'COST' (Invoice payable) or 'MRP' (Customer retail value)
@@ -337,27 +475,35 @@ export const PurchasesView: React.FC = () => {
   const [paidAmount, setPaidAmount] = useState('0');
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [discount, setDiscount] = useState('0');
+  const [taxAmount, setTaxAmount] = useState('0');
   const [notes, setNotes] = useState('');
 
-  const [items, setItems] = useState<PurchaseItemRow[]>([
-    {
-      medicineId: '',
-      batchNumber: '',
-      expiryDate: '',
-      mfgDate: '',
-      boxes: '1',
-      blistersPerBox: '10',
-      tabsPerBlister: '10',
-      totalUnits: 100,
-      purchasePrice: '',
-      costBasis: 'BOX',
-      mrp: '',
-      mrpBasis: 'BOX',
-      bonusQuantity: '0',
-      lineCostTotal: 0,
-      lineMrpTotal: 0
-    }
-  ]);
+  const [items, setItems] = useState<PurchaseItemRow[]>([emptyRow()]);
+
+  const newRequestKey = () => `pur-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  const resetForm = () => {
+    setSupplierId('');
+    setNewSupplierName('');
+    setInvoiceNumber('');
+    setPurchaseDate(todayIso());
+    setPaidAmount('0');
+    setPaymentMethod('CASH');
+    setDiscount('0');
+    setTaxAmount('0');
+    setNotes('');
+    setItems([emptyRow()]);
+    setReviewQuestions([]);
+    setReviewInfo(null);
+    setShowIgnoredLines(false);
+    setFormError(null);
+    requestKeyRef.current = newRequestKey();
+  };
+
+  const openManualEntry = () => {
+    resetForm();
+    setShowAddModal(true);
+  };
 
   const fetchPurchases = async () => {
     setIsLoading(true);
@@ -426,56 +572,117 @@ export const PurchasesView: React.FC = () => {
   };
 
   const handleItemChange = (index: number, field: keyof PurchaseItemRow, value: string) => {
-    const updated = [...items];
-    updated[index] = { ...updated[index], [field]: value };
-    updated[index] = recalculateRow(updated[index]);
-    setItems(updated);
-  };
-
-  const applyAiAnswer = (questionId: string, itemIndex: number | undefined, optionValue: any) => {
-    if (itemIndex !== undefined && items[itemIndex]) {
-      const updated = [...items];
-      if (optionValue.blistersPerBox !== undefined) updated[itemIndex].blistersPerBox = String(optionValue.blistersPerBox);
-      if (optionValue.tabsPerBlister !== undefined) updated[itemIndex].tabsPerBlister = String(optionValue.tabsPerBlister);
-      updated[itemIndex] = recalculateRow(updated[itemIndex]);
-      setItems(updated);
-    }
-    setAiQuestions(prev => prev.filter(q => q.id !== questionId));
-  };
-
-  const addItemRow = () => {
-    setItems([
-      ...items,
-      {
-        medicineId: '',
-        batchNumber: '',
-        expiryDate: '',
-        mfgDate: '',
-        boxes: '1',
-        blistersPerBox: '10',
-        tabsPerBlister: '10',
-        totalUnits: 100,
-        purchasePrice: '',
-        costBasis: 'BOX',
-        mrp: '',
-        mrpBasis: 'BOX',
-        bonusQuantity: '0',
-        lineCostTotal: 0,
-        lineMrpTotal: 0
+    setItems(prev => {
+      const updated = [...prev];
+      let row: PurchaseItemRow = { ...updated[index], [field]: value };
+      if (field === 'medicineId') {
+        // Picking a catalog medicine: use its catalog packing and last selling price, and stop
+        // treating the line as a new medicine.
+        const med = medicines.find(m => String(m.id) === value);
+        row = { ...row, createNew: false, matchStatus: value ? 'MATCHED' : row.matchStatus, existingBatch: null, overrideBatchExpiry: false };
+        const packing = catalogPackingOf(med);
+        if (packing && !(med?.packaging_type === 'SIMPLE' && packing.tabsPerBlister > 1 && row.invoiceName)) {
+          row.blistersPerBox = String(packing.blistersPerBox);
+          row.tabsPerBlister = String(packing.tabsPerBlister);
+        }
+        const suggestion = !row.mrp ? suggestedBoxMrp(row, med) : null;
+        if (suggestion) {
+          row.mrp = suggestion;
+          row.mrpBasis = 'BOX';
+          row.mrpHint = 'from current stock price - check against the box';
+        }
+        setReviewQuestions(qs => qs.filter(q => !(q.itemIndex === index && q.type === 'MEDICINE_MATCH')));
       }
-    ]);
+      if (field === 'batchNumber') row = { ...row, existingBatch: null, overrideBatchExpiry: false };
+      if (field === 'mrp') row.mrpHint = undefined;
+      updated[index] = recalculateRow(row);
+      return updated;
+    });
+  };
+
+  const setNewMedicineField = (index: number, field: keyof NewMedicineDraft, value: string) => {
+    setItems(prev => {
+      const updated = [...prev];
+      const row = updated[index];
+      updated[index] = { ...row, newMedicine: { ...(row.newMedicine || { brandName: '', strength: '', dosageForm: 'Tablet', packagingType: 'MULTI_TIER' }), [field]: value } as NewMedicineDraft };
+      return updated;
+    });
+  };
+
+  const markAsNewMedicine = (index: number) => {
+    setItems(prev => {
+      const updated = [...prev];
+      const row = updated[index];
+      updated[index] = {
+        ...row,
+        medicineId: '',
+        createNew: true,
+        matchStatus: 'NEW',
+        existingBatch: null,
+        newMedicine: row.newMedicine || { brandName: row.medicineName || '', strength: '', dosageForm: 'Tablet', packagingType: 'MULTI_TIER' }
+      };
+      return updated;
+    });
+    setReviewQuestions(qs => qs.filter(q => !(q.itemIndex === index && q.type === 'MEDICINE_MATCH')));
   };
 
   const removeItemRow = (index: number) => {
-    if (items.length <= 1) return;
-    setItems(items.filter((_, i) => i !== index));
+    if (items.length <= 1) {
+      setItems([emptyRow()]);
+    } else {
+      setItems(items.filter((_, i) => i !== index));
+    }
+    // Questions point at line numbers: drop the removed line's questions and shift the rest.
+    setReviewQuestions(qs => qs
+      .filter(q => q.itemIndex !== index)
+      .map(q => (q.itemIndex !== undefined && q.itemIndex > index ? { ...q, itemIndex: q.itemIndex - 1 } : q)));
   };
+
+  const addItemRow = () => setItems(prev => [...prev, emptyRow()]);
+
+  /** Applies the admin's answer to one of the scanner's questions. */
+  const applyReviewAnswer = (question: ReviewQuestion, value: Record<string, any>) => {
+    setFormError(null);
+    const idx = question.itemIndex;
+    if (value.skip && idx !== undefined) {
+      removeItemRow(idx);
+      return;
+    }
+    if (question.type === 'SUPPLIER') {
+      if (value.supplierId) { setSupplierId(String(value.supplierId)); setNewSupplierName(''); }
+      if (value.newSupplierName) { setSupplierId(''); setNewSupplierName(String(value.newSupplierName)); }
+    }
+    if (value.createNew && idx !== undefined) {
+      markAsNewMedicine(idx);
+      return;
+    }
+    if (value.medicineId && idx !== undefined) {
+      handleItemChange(idx, 'medicineId', String(value.medicineId));
+      return;
+    }
+    if (idx !== undefined && items[idx]) {
+      setItems(prev => {
+        const updated = [...prev];
+        const row = { ...updated[idx] };
+        if (value.blistersPerBox !== undefined) row.blistersPerBox = String(value.blistersPerBox);
+        if (value.tabsPerBlister !== undefined) row.tabsPerBlister = String(value.tabsPerBlister);
+        if (value.expiryDate !== undefined) row.expiryDate = String(value.expiryDate);
+        if (value.overrideBatchExpiry) row.overrideBatchExpiry = true;
+        if (question.type === 'BATCH_EXPIRY_CONFLICT' && !value.overrideBatchExpiry) row.overrideBatchExpiry = false;
+        updated[idx] = recalculateRow(row);
+        return updated;
+      });
+    }
+    setReviewQuestions(prev => prev.filter(q => q.id !== question.id));
+  };
+
 
   // Financial Totals
   const totalCostSubtotal = items.reduce((acc, it) => acc + (it.lineCostTotal || 0), 0);
   const totalMrpRevenue = items.reduce((acc, it) => acc + (it.lineMrpTotal || 0), 0);
   const netDiscount = Number(discount) || 0;
-  const grandCostTotal = Math.max(0, totalCostSubtotal - netDiscount);
+  const netTax = Number(taxAmount) || 0;
+  const grandCostTotal = Math.max(0, totalCostSubtotal - netDiscount + netTax);
   const paid = Number(paidAmount) || 0;
   const remainingPayable = Math.max(0, grandCostTotal - paid);
   const projectedProfit = Math.max(0, totalMrpRevenue - grandCostTotal);
@@ -487,7 +694,7 @@ export const PurchasesView: React.FC = () => {
 
     setIsAiProcessing(true);
     setStatusMessage(null);
-    setAiQuestions([]);
+    setReviewQuestions([]);
 
     try {
       const optimizedFiles = await Promise.all(
@@ -525,58 +732,75 @@ export const PurchasesView: React.FC = () => {
       }
 
       await fetchMetadata();
+      resetForm();
 
-      if (data.matchedSupplierId) {
-        setSupplierId(String(data.matchedSupplierId));
-      }
-      if (data.invoiceNumber) {
-        setInvoiceNumber(data.invoiceNumber);
-      }
-      if (data.purchaseDate) {
-        setPurchaseDate(data.purchaseDate);
-      }
-      if (data.rawNotes) {
-        setNotes(data.rawNotes);
-      }
+      setReviewInfo({
+        extractionMethod: data.extractionMethod || 'LOCAL_PARSER',
+        aiProvider: data.aiProvider || null,
+        supplierName: data.supplierName || null,
+        warnings: Array.isArray(data.warnings) ? data.warnings : [],
+        ignoredLines: Array.isArray(data.ignoredLines) ? data.ignoredLines : [],
+        printedNetTotal: typeof data.printedNetTotal === 'number' ? data.printedNetTotal : null,
+        duplicatePurchase: data.duplicatePurchase || null
+      });
+      if (data.matchedSupplierId) setSupplierId(String(data.matchedSupplierId));
+      if (data.invoiceNumber) setInvoiceNumber(String(data.invoiceNumber));
+      if (data.purchaseDate) setPurchaseDate(data.purchaseDate);
+      if (data.rawNotes) setNotes(data.rawNotes);
+      setReviewQuestions(Array.isArray(data.questions) ? data.questions : []);
 
-      if (data.clarificationQuestions && Array.isArray(data.clarificationQuestions)) {
-        setAiQuestions(data.clarificationQuestions);
-      }
-
-      if (data.items && data.items.length > 0) {
+      if (Array.isArray(data.items) && data.items.length > 0) {
         const rows: PurchaseItemRow[] = data.items.map((it: any) => {
-          const boxes = it.boxes || 1;
-          const blisters = it.blistersPerBox || 10;
-          const tabs = it.tabsPerBlister || 10;
-          const cost = it.purchasePrice || 0;
-
           const row: PurchaseItemRow = {
+            ...emptyRow(),
             medicineId: it.matchedMedicineId ? String(it.matchedMedicineId) : '',
             medicineName: it.productName,
+            invoiceName: it.invoiceName,
+            matchStatus: it.matchStatus || 'NEEDS_REVIEW',
+            candidates: it.candidates || [],
+            createNew: false,
+            newMedicine: it.newMedicine
+              ? { brandName: it.newMedicine.brandName || '', strength: it.newMedicine.strength || '', dosageForm: it.newMedicine.dosageForm || 'Tablet', packagingType: it.newMedicine.packagingType === 'SIMPLE' ? 'SIMPLE' : 'MULTI_TIER' }
+              : undefined,
+            // Never pre-fill a batch/expiry the invoice did not show - the admin types it.
             batchNumber: it.batchNumber || '',
             expiryDate: it.expiryDate || '',
             mfgDate: it.mfgDate || '',
-            boxes: String(boxes),
-            blistersPerBox: String(blisters),
-            tabsPerBlister: String(tabs),
-            totalUnits: Math.round(boxes * blisters * tabs),
-            purchasePrice: String(cost || ''),
-            costBasis: (it.costBasis as PriceBasis) || 'BOX',
-            mrp: String(it.mrp || (cost ? (cost * 1.25).toFixed(2) : '')),
-            mrpBasis: (it.mrpBasis as PriceBasis) || 'BOX',
-            bonusQuantity: String(it.bonusQuantity || '0'),
-            lineCostTotal: Number((boxes * cost).toFixed(2)),
-            lineMrpTotal: Number((boxes * (Number(it.mrp) || cost * 1.25)).toFixed(2))
+            boxes: it.boxes ? String(it.boxes) : '',
+            bonusBoxes: String(it.bonusBoxes || 0),
+            blistersPerBox: it.blistersPerBox ? String(it.blistersPerBox) : '',
+            tabsPerBlister: it.tabsPerBlister ? String(it.tabsPerBlister) : '',
+            purchasePrice: it.purchasePrice ? String(it.purchasePrice) : '',
+            costBasis: 'BOX',
+            mrp: it.mrp ? String(it.mrp) : '',
+            mrpBasis: 'BOX',
+            scanIssues: Array.isArray(it.issues) ? it.issues : [],
+            existingBatch: it.existingBatch || null
           };
+          // Pre-fill MRP from the medicine's current selling price when the invoice has no MRP column.
+          if (!row.mrp && row.medicineId) {
+            const suggestion = suggestedBoxMrp(row, medicinesRef.current.find(m => String(m.id) === row.medicineId));
+            if (suggestion) {
+              row.mrp = suggestion;
+              row.mrpHint = 'from current stock price - check against the box';
+            }
+          }
           return recalculateRow(row);
         });
         setItems(rows);
+        // Distributor invoices add advance income tax (e.g. 0.5% u/s 236H) on top of the lines.
+        // Carry the small difference so the supplier balance matches the printed net total.
+        const linesTotal = rows.reduce((sum, r) => sum + r.lineCostTotal, 0);
+        const printed = Number(data.printedNetTotal) || 0;
+        const extra = Number((printed - linesTotal).toFixed(2));
+        if (printed > 0 && extra > 0 && extra <= printed * 0.03) setTaxAmount(String(extra));
       }
 
+      const needsAnswers = (data.questions || []).filter((q: ReviewQuestion) => q.blocking).length;
       setIsAiProcessing(false);
       setShowAddModal(true);
       setStatusMessage({
-        text: `Extracted ${data.items?.length || 0} items! Packaging tiers, MRP, and medicines are 100% matched.`,
+        text: `Read ${data.items?.length || 0} medicine line(s) from the invoice${needsAnswers ? ` - ${needsAnswers} question(s) need your answer before saving` : ''}. Please check every line against the paper invoice.`,
         type: 'success'
       });
     } catch (err: any) {
@@ -590,27 +814,31 @@ export const PurchasesView: React.FC = () => {
     }
   };
 
+  const blockingQuestions = reviewQuestions.filter(q => q.blocking);
+
   const handleSubmitPurchase = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatusMessage(null);
+    setFormError(null);
 
-    if (!supplierId || !invoiceNumber.trim()) {
-      setStatusMessage({ text: 'Please select a supplier and provide invoice number.', type: 'error' });
+    if (blockingQuestions.length > 0) {
+      setFormError(`Please answer the ${blockingQuestions.length} highlighted question(s) at the top first.`);
       return;
     }
-
+    if ((!supplierId && !newSupplierName.trim()) || !invoiceNumber.trim()) {
+      setFormError('Please select a supplier and enter the supplier invoice number.');
+      return;
+    }
     for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      if (!it.medicineId || !it.batchNumber.trim() || !it.expiryDate) {
-        setStatusMessage({ text: `Item #${i + 1} has missing medicine, batch number, or expiry date.`, type: 'error' });
-        return;
-      }
-      if (Number(it.boxes) <= 0 || Number(it.purchasePrice) <= 0) {
-        setStatusMessage({ text: `Item #${i + 1} must have box quantity and cost price greater than zero.`, type: 'error' });
+      const problems = rowIssues(items[i]);
+      if (problems.length > 0) {
+        setFormError(`Line ${i + 1}${items[i].medicineName ? ` (${items[i].medicineName})` : ''}: ${problems[0]}.`);
         return;
       }
     }
 
+    if (!requestKeyRef.current) requestKeyRef.current = newRequestKey();
+    setIsSaving(true);
     try {
       const res = await fetch('/api/purchases', {
         method: 'POST',
@@ -619,15 +847,18 @@ export const PurchasesView: React.FC = () => {
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
-          supplierId: Number(supplierId),
+          supplierId: supplierId ? Number(supplierId) : undefined,
+          newSupplier: !supplierId && newSupplierName.trim() ? { name: newSupplierName.trim() } : undefined,
           invoiceNumber: invoiceNumber.trim(),
           purchaseDate,
           subtotal: totalCostSubtotal,
           discount: netDiscount,
+          tax: netTax,
           totalAmount: grandCostTotal,
           paidAmount: paid,
           paymentMethod,
           notes,
+          requestKey: requestKeyRef.current,
           items: items.map(it => {
             const boxes = Number(it.boxes) || 1;
             const blisters = Number(it.blistersPerBox) || 1;
@@ -641,27 +872,32 @@ export const PurchasesView: React.FC = () => {
             else if (it.costBasis === 'TAB') boxCost = boxCost * unitsPerBox;
 
             // Normalize MRP to Box Price
-            let boxMrp = Number(it.mrp) || Number((boxCost * 1.25).toFixed(2));
+            let boxMrp = Number(it.mrp) || 0;
             if (it.mrpBasis === 'BLISTER') boxMrp = boxMrp * blisters;
             else if (it.mrpBasis === 'TAB') boxMrp = boxMrp * unitsPerBox;
 
             return {
-              medicineId: Number(it.medicineId),
+              medicineId: it.medicineId ? Number(it.medicineId) : undefined,
+              newMedicine: !it.medicineId && it.createNew && it.newMedicine
+                ? { ...it.newMedicine, brandName: it.newMedicine.brandName.trim(), strength: it.newMedicine.strength.trim() || null }
+                : undefined,
               batchNumber: it.batchNumber.trim(),
               expiryDate: it.expiryDate,
               mfgDate: it.mfgDate || null,
               boxesReceived: boxes,
               stripsPerBox: blisters,
               unitsPerStrip: tabs,
-              quantity: totalUnits, // Exact tablet units for POS counter
+              quantity: totalUnits, // Exact sellable units for the POS counter
               purchasePrice: boxCost,
               mrp: boxMrp,
               salePrice: boxMrp,
-              bonusQuantity: Number(it.bonusQuantity) || 0,
+              // Bonus is entered in boxes on the invoice; stock is kept in sellable units.
+              bonusQuantity: Math.round((Number(it.bonusBoxes) || 0) * unitsPerBox),
               lineTotal: it.lineCostTotal,
               confirmedPurchaseCostPerBox: boxCost,
               printedMrpPerBox: boxMrp,
-              rateBasis: 'PER_BOX'
+              rateBasis: 'PER_BOX',
+              overrideBatchExpiry: it.overrideBatchExpiry || undefined
             };
           })
         })
@@ -669,41 +905,30 @@ export const PurchasesView: React.FC = () => {
 
       const data = await readJsonResponse(res);
       if (data === null) {
-        setStatusMessage({ text: serverFailureMessage(res.status), type: 'error' });
+        setFormError(serverFailureMessage(res.status));
         return;
       }
       if (!res.ok) {
-        setStatusMessage({ text: data.error || 'Failed to record purchase', type: 'error' });
+        setFormError(data.error || 'Failed to record purchase');
         return;
       }
 
-      setStatusMessage({ text: `Purchase invoice #${invoiceNumber} committed to stock batches!`, type: 'success' });
+      const summary: Array<{ action: string }> = Array.isArray(data.stockSummary) ? data.stockSummary : [];
+      const toppedUp = summary.filter(s => s.action === 'ADDED_TO_EXISTING_BATCH').length;
+      const newBatches = summary.filter(s => s.action === 'NEW_BATCH').length;
+      const createdMeds = Array.isArray(data.createdMedicines) ? data.createdMedicines.length : 0;
+      setStatusMessage({
+        text: `Purchase invoice #${data.invoiceNumber || invoiceNumber} saved to inventory: ${newBatches} new batch(es)${toppedUp ? `, ${toppedUp} added to existing batch(es)` : ''}${createdMeds ? `, ${createdMeds} new medicine(s) added to the catalog` : ''}.`,
+        type: 'success'
+      });
       setShowAddModal(false);
-      setInvoiceNumber('');
-      setPaidAmount('0');
-      setDiscount('0');
-      setItems([
-        {
-          medicineId: '',
-          batchNumber: '',
-          expiryDate: '',
-          mfgDate: '',
-          boxes: '1',
-          blistersPerBox: '10',
-          tabsPerBlister: '10',
-          totalUnits: 100,
-          purchasePrice: '',
-          costBasis: 'BOX',
-          mrp: '',
-          mrpBasis: 'BOX',
-          bonusQuantity: '0',
-          lineCostTotal: 0,
-          lineMrpTotal: 0
-        }
-      ]);
+      resetForm();
       fetchPurchases();
+      fetchMetadata();
     } catch (err: any) {
-      setStatusMessage({ text: err.message || 'Network error', type: 'error' });
+      setFormError(`Could not reach the server: ${err.message || err}`);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -804,7 +1029,7 @@ export const PurchasesView: React.FC = () => {
           )}
 
           {hasPermission('create_purchases') && (
-            <button onClick={() => setShowAddModal(true)} className="btn btn-secondary btn-sm">
+            <button onClick={openManualEntry} className="btn btn-secondary btn-sm">
               <Plus size={16} />
               <span>Manual Invoice</span>
             </button>
@@ -1008,13 +1233,45 @@ export const PurchasesView: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSubmitPurchase} style={{ padding: '1.5rem 1.75rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', overflowY: 'auto' }}>
-              {/* INTERACTIVE AI CLARIFICATION QUESTIONS BANNER */}
-              {aiQuestions.length > 0 && (
+            <form onSubmit={handleSubmitPurchase} noValidate style={{ padding: '1.5rem 1.75rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', overflowY: 'auto' }}>
+              {formError && (
+                <div role="alert" style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.45)', color: '#fecaca', borderRadius: '10px', padding: '0.7rem 1rem', fontSize: '0.82rem', fontWeight: 600 }}>
+                  {formError}
+                </div>
+              )}
+
+              {/* What the scanner did, and anything it could not read */}
+              {reviewInfo && (
+                <div style={{ background: reviewInfo.extractionMethod === 'LOCAL_PARSER' ? 'rgba(251, 191, 36, 0.1)' : 'rgba(34, 197, 94, 0.08)', border: `1px solid ${reviewInfo.extractionMethod === 'LOCAL_PARSER' ? 'rgba(251, 191, 36, 0.4)' : 'rgba(34, 197, 94, 0.3)'}`, borderRadius: '12px', padding: '0.8rem 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.78rem', color: '#e2e8f0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700 }}>
+                    <Sparkles size={14} />
+                    <span>{METHOD_LABEL[reviewInfo.extractionMethod]}{reviewInfo.aiProvider ? ` (${reviewInfo.aiProvider === 'groq' ? 'Groq' : 'Gemini'})` : ''}. Nothing is added to stock until you press Save.</span>
+                  </div>
+                  {reviewInfo.supplierName && <span style={{ color: '#94a3b8' }}>Supplier on invoice: <strong style={{ color: '#e2e8f0' }}>{reviewInfo.supplierName}</strong>{reviewInfo.printedNetTotal ? ` · Invoice net total: Rs. ${reviewInfo.printedNetTotal.toFixed(2)}` : ''}</span>}
+                  {reviewInfo.warnings.map((w, i) => (
+                    <span key={i} style={{ color: '#fbbf24' }}>⚠ {w}</span>
+                  ))}
+                  {reviewInfo.ignoredLines.length > 0 && (
+                    <div>
+                      <button type="button" onClick={() => setShowIgnoredLines(v => !v)} style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', padding: 0, fontSize: '0.76rem' }}>
+                        {showIgnoredLines ? 'Hide' : 'Show'} {reviewInfo.ignoredLines.length} line(s) ignored as not medicines (headers, totals, addresses)
+                      </button>
+                      {showIgnoredLines && (
+                        <ul style={{ margin: '0.35rem 0 0 1.1rem', color: '#94a3b8' }}>
+                          {reviewInfo.ignoredLines.map((line, i) => <li key={i}>{line}</li>)}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Questions the scanner needs the admin to answer instead of guessing */}
+              {reviewQuestions.length > 0 && (
                 <div
                   style={{
                     background: 'rgba(30, 41, 59, 0.75)',
-                    border: '1px solid rgba(56, 189, 248, 0.35)',
+                    border: `1px solid ${blockingQuestions.length > 0 ? 'rgba(251, 191, 36, 0.55)' : 'rgba(56, 189, 248, 0.35)'}`,
                     borderRadius: '12px',
                     padding: '1rem 1.25rem',
                     display: 'flex',
@@ -1022,26 +1279,30 @@ export const PurchasesView: React.FC = () => {
                     gap: '0.75rem'
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#38bdf8', fontSize: '0.82rem', fontWeight: 700 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: blockingQuestions.length > 0 ? '#fbbf24' : '#38bdf8', fontSize: '0.82rem', fontWeight: 700 }}>
                     <HelpCircle size={16} />
-                    <span>AI Co-Pilot Verification (Click to auto-apply answers):</span>
+                    <span>
+                      Please confirm before saving{blockingQuestions.length > 0 ? ` - ${blockingQuestions.length} answer(s) required` : ''}:
+                    </span>
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                    {aiQuestions.map(q => (
-                      <div key={q.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(15, 23, 42, 0.6)', padding: '0.6rem 0.85rem', borderRadius: '8px', flexWrap: 'wrap', gap: '0.5rem' }}>
-                        <span style={{ fontSize: '0.8rem', color: '#f1f5f9' }}>{q.question}</span>
+                    {reviewQuestions.map(q => (
+                      <div key={q.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(15, 23, 42, 0.6)', padding: '0.6rem 0.85rem', borderRadius: '8px', flexWrap: 'wrap', gap: '0.5rem', borderLeft: q.blocking ? '3px solid #fbbf24' : '3px solid #38bdf8' }}>
+                        <span style={{ fontSize: '0.8rem', color: '#f1f5f9', flex: '1 1 320px' }}>
+                          {q.blocking && <strong style={{ color: '#fbbf24' }}>Required: </strong>}{q.question}
+                        </span>
                         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                           {q.options.map((opt, i) => (
                             <button
                               key={i}
                               type="button"
-                              onClick={() => applyAiAnswer(q.id, q.itemIndex, opt.value)}
+                              onClick={() => applyReviewAnswer(q, opt.value)}
                               className="btn btn-sm"
                               style={{
-                                background: 'rgba(56, 189, 248, 0.12)',
-                                border: '1px solid rgba(56, 189, 248, 0.3)',
-                                color: '#38bdf8',
+                                background: opt.value.skip ? 'rgba(239, 68, 68, 0.1)' : 'rgba(56, 189, 248, 0.12)',
+                                border: `1px solid ${opt.value.skip ? 'rgba(239, 68, 68, 0.35)' : 'rgba(56, 189, 248, 0.3)'}`,
+                                color: opt.value.skip ? '#fca5a5' : '#38bdf8',
                                 fontSize: '0.75rem',
                                 padding: '0.25rem 0.65rem'
                               }}
@@ -1063,15 +1324,20 @@ export const PurchasesView: React.FC = () => {
                   <select
                     className="ai-table-input"
                     value={supplierId}
-                    onChange={e => setSupplierId(e.target.value)}
-                    required
+                    onChange={e => { setSupplierId(e.target.value); if (e.target.value) setNewSupplierName(''); }}
+                    required={!newSupplierName}
                     style={{ cursor: 'pointer' }}
                   >
-                    <option value="">Select Supplier</option>
+                    <option value="">{newSupplierName ? `New supplier: ${newSupplierName}` : 'Select Supplier'}</option>
                     {suppliers.map(s => (
                       <option key={s.id} value={s.id}>{s.name}</option>
                     ))}
                   </select>
+                  {!supplierId && newSupplierName && (
+                    <span style={{ fontSize: '0.7rem', color: '#fbbf24', display: 'block', marginTop: '0.25rem' }}>
+                      "{newSupplierName}" will be added to Suppliers when you save.
+                    </span>
+                  )}
                 </div>
 
                 <div>
@@ -1157,9 +1423,10 @@ export const PurchasesView: React.FC = () => {
                           <th style={{ padding: '0.75rem 0.5rem', textAlign: 'center', minWidth: '95px' }}>Batch #</th>
                           <th style={{ padding: '0.75rem 0.5rem', textAlign: 'center', minWidth: '125px' }}>Expiry</th>
                           <th style={{ padding: '0.75rem 0.4rem', textAlign: 'center', minWidth: '65px' }} title="Boxes Received">Boxes</th>
+                          <th style={{ padding: '0.75rem 0.4rem', textAlign: 'center', minWidth: '60px' }} title="Free bonus boxes on the invoice">Bonus</th>
                           <th style={{ padding: '0.75rem 0.4rem', textAlign: 'center', minWidth: '70px' }} title="Blisters per Box">Blister/Box</th>
                           <th style={{ padding: '0.75rem 0.4rem', textAlign: 'center', minWidth: '70px' }} title="Tabs per Blister">Tabs/Blister</th>
-                          <th style={{ padding: '0.75rem 0.5rem', textAlign: 'center', minWidth: '85px' }} title="Total Tablet Units">Total Units</th>
+                          <th style={{ padding: '0.75rem 0.5rem', textAlign: 'center', minWidth: '85px' }} title="Total sellable units added to stock (excluding bonus)">Total Units</th>
                           <th style={{ padding: '0.75rem 0.6rem', textAlign: 'right', minWidth: '145px' }}>Cost Price</th>
                           <th style={{ padding: '0.75rem 0.6rem', textAlign: 'right', minWidth: '145px' }}>Retail MRP</th>
                           <th style={{ padding: '0.75rem 0.6rem', textAlign: 'right', minWidth: '110px' }}>
@@ -1198,22 +1465,94 @@ export const PurchasesView: React.FC = () => {
                           }
 
                           const displayedLineTotal = totalViewMode === 'COST' ? it.lineCostTotal : it.lineMrpTotal;
+                          // Live problems (cleared as the admin fixes fields) plus scanner notes that are still relevant.
+                          const liveProblems = rowIssues(it);
+                          const lineProblems = [
+                            ...liveProblems,
+                            ...rowWarnings(it),
+                            ...(it.scanIssues || []).filter(issue => !/batch|expiry|quantity|rate|packing/i.test(issue))
+                          ];
 
                           return (
-                            <tr key={idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)', verticalAlign: 'middle' }}>
+                            <React.Fragment key={idx}>
+                            <tr style={{ borderBottom: lineProblems.length ? 'none' : '1px solid rgba(255, 255, 255, 0.04)', verticalAlign: 'middle' }}>
                               {/* Searchable Combobox */}
                               <td style={{ padding: '0.55rem 0.75rem' }}>
-                                {it.medicineName && (
-                                  <div style={{ fontSize: '0.7rem', color: it.medicineId ? '#22c55e' : '#38bdf8', marginBottom: '0.25rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '255px' }}>
-                                    {it.medicineId ? '✓ Linked: ' : 'AI Extracted: '}<strong>{it.medicineName}</strong>
+                                {it.invoiceName && (
+                                  <div title={it.invoiceName} style={{ fontSize: '0.68rem', color: '#94a3b8', marginBottom: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '255px' }}>
+                                    Invoice: <span style={{ color: '#cbd5e1' }}>{it.invoiceName}</span>
                                   </div>
                                 )}
-                                <SearchableMedicineSelect
-                                  value={it.medicineId}
-                                  onChange={id => handleItemChange(idx, 'medicineId', id)}
-                                  medicines={medicines}
-                                  suggestedName={it.medicineName}
-                                />
+                                {it.invoiceName && (
+                                  <div style={{ fontSize: '0.7rem', fontWeight: 600, marginBottom: '0.25rem', color: it.medicineId ? '#22c55e' : it.createNew ? '#a78bfa' : '#fbbf24' }}>
+                                    {it.medicineId
+                                      ? (it.matchStatus === 'MATCHED' ? '✓ Linked to catalog - confirm it is the same product' : '✓ Selected')
+                                      : it.createNew
+                                        ? '➕ Will be added as a new medicine'
+                                        : it.matchStatus === 'NEEDS_REVIEW' ? '⚠ Choose the matching medicine' : '⚠ Not in catalog - choose one or add as new'}
+                                  </div>
+                                )}
+                                {it.createNew ? (
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px', gap: '0.3rem' }}>
+                                    <input
+                                      className="ai-table-input"
+                                      placeholder="New medicine name"
+                                      value={it.newMedicine?.brandName || ''}
+                                      onChange={e => setNewMedicineField(idx, 'brandName', e.target.value)}
+                                    />
+                                    <input
+                                      className="ai-table-input"
+                                      placeholder="Strength"
+                                      value={it.newMedicine?.strength || ''}
+                                      onChange={e => setNewMedicineField(idx, 'strength', e.target.value)}
+                                    />
+                                    <select
+                                      className="ai-table-input"
+                                      value={it.newMedicine?.packagingType || 'MULTI_TIER'}
+                                      onChange={e => setNewMedicineField(idx, 'packagingType', e.target.value)}
+                                      title="Tablets/capsules come in strips; creams, syrups, injections are single units"
+                                    >
+                                      <option value="MULTI_TIER">Strips (tablets / capsules)</option>
+                                      <option value="SIMPLE">Single units (cream, syrup, injection...)</option>
+                                    </select>
+                                    <input
+                                      className="ai-table-input"
+                                      placeholder="Form"
+                                      value={it.newMedicine?.dosageForm || ''}
+                                      onChange={e => setNewMedicineField(idx, 'dosageForm', e.target.value)}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => setItems(prev => prev.map((r, i) => i === idx ? { ...r, createNew: false, matchStatus: r.candidates?.length ? 'NEEDS_REVIEW' : 'NEW' } : r))}
+                                      style={{ gridColumn: '1 / -1', background: 'none', border: 'none', color: '#38bdf8', fontSize: '0.7rem', cursor: 'pointer', textAlign: 'left', padding: 0 }}
+                                    >
+                                      ← Pick an existing medicine instead
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <SearchableMedicineSelect
+                                      value={it.medicineId}
+                                      onChange={id => handleItemChange(idx, 'medicineId', id)}
+                                      medicines={medicines}
+                                      suggestedName={it.medicineName}
+                                    />
+                                    {!it.medicineId && (
+                                      <button
+                                        type="button"
+                                        onClick={() => markAsNewMedicine(idx)}
+                                        style={{ background: 'none', border: 'none', color: '#a78bfa', fontSize: '0.7rem', cursor: 'pointer', padding: '0.2rem 0 0', textAlign: 'left' }}
+                                      >
+                                        ➕ Not in the list? Add as a new medicine
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                                {it.existingBatch && !it.existingBatch.expiryConflict && (
+                                  <div style={{ fontSize: '0.66rem', color: '#38bdf8', marginTop: '0.2rem' }}>
+                                    Batch already in stock ({it.existingBatch.quantity} units) - this quantity will be added to it
+                                  </div>
+                                )}
                               </td>
 
                               <td style={{ padding: '0.55rem 0.5rem', textAlign: 'center' }}>
@@ -1248,6 +1587,18 @@ export const PurchasesView: React.FC = () => {
                                   value={it.boxes}
                                   onChange={e => handleItemChange(idx, 'boxes', e.target.value)}
                                   required
+                                />
+                              </td>
+
+                              <td style={{ padding: '0.55rem 0.35rem', textAlign: 'center' }}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  className="ai-table-input"
+                                  style={{ textAlign: 'center' }}
+                                  value={it.bonusBoxes}
+                                  onChange={e => handleItemChange(idx, 'bonusBoxes', e.target.value)}
+                                  title="Free boxes (Bonus column on the invoice)"
                                 />
                               </td>
 
@@ -1336,6 +1687,9 @@ export const PurchasesView: React.FC = () => {
                                     <option value="TAB">/ Tab</option>
                                   </select>
                                 </div>
+                                {it.mrpHint && (
+                                  <div style={{ fontSize: '0.64rem', color: '#fbbf24', marginTop: '2px' }}>{it.mrpHint}</div>
+                                )}
                                 {perTabMrp > 0 && (
                                   <div style={{ fontSize: '0.66rem', color: '#22c55e', marginTop: '2px' }}>
                                     Rs. {perTabMrp.toFixed(2)}/tab {boxMrp > 0 && `(Rs. ${boxMrp.toFixed(0)}/box)`}
@@ -1361,6 +1715,16 @@ export const PurchasesView: React.FC = () => {
                                 )}
                               </td>
                             </tr>
+                            {lineProblems.length > 0 && (
+                              <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
+                                <td colSpan={12} style={{ padding: '0 0.8rem 0.55rem' }}>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem 0.9rem', fontSize: '0.7rem', color: liveProblems.length ? '#fbbf24' : '#94a3b8' }}>
+                                    {lineProblems.map((p, i) => <span key={i}>⚠ {p}</span>)}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                            </React.Fragment>
                           );
                         })}
                       </tbody>
@@ -1378,6 +1742,17 @@ export const PurchasesView: React.FC = () => {
                     className="ai-table-input"
                     value={discount}
                     onChange={e => setDiscount(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '0.35rem' }} title="Advance income tax (e.g. WHT u/s 236H) or other charges added on the invoice">Advance Tax / Other Charges (Rs.)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="ai-table-input"
+                    value={taxAmount}
+                    onChange={e => setTaxAmount(e.target.value)}
                   />
                 </div>
 
@@ -1446,8 +1821,8 @@ export const PurchasesView: React.FC = () => {
                     <button type="button" onClick={() => setShowAddModal(false)} className="btn btn-secondary" style={{ padding: '0.55rem 1.25rem' }}>
                       Cancel
                     </button>
-                    <button type="submit" className="btn btn-primary" style={{ padding: '0.55rem 1.75rem', fontWeight: 600 }}>
-                      Commit Purchase Invoice & Stock
+                    <button type="submit" className="btn btn-primary" disabled={isSaving} style={{ padding: '0.55rem 1.75rem', fontWeight: 600 }}>
+                      {isSaving ? 'Saving...' : blockingQuestions.length > 0 ? `Answer ${blockingQuestions.length} question(s) to save` : 'Save Purchase & Add Stock'}
                     </button>
                   </div>
                 </div>

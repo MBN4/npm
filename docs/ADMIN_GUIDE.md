@@ -50,9 +50,29 @@ Navigate to **Users & Roles**:
 ### Inward Purchase Invoices
 1. Navigate to **Purchases > New Purchase Invoice**.
 2. Select the Supplier and enter the distributor's physical invoice number.
-3. Add line items: Medicine, Batch Number, Expiry Date, Pack Quantity, Purchase Rate per unit, and MRP.
-4. The system validates that the expiry date is strictly in the future.
-5. Save the invoice. The system atomically creates new batches, logs inward stock movements, and updates the supplier's balance in the accounts ledger.
+3. Add line items: Medicine, Batch Number, Expiry Date, Boxes, Bonus boxes, packing (strips per box × units per strip), Cost price, and Retail MRP.
+4. The system validates that the expiry date is after the purchase date and that the same supplier invoice number has not been saved before.
+5. Save the invoice. In one transaction the system adds the stock, logs inward stock movements, and updates the supplier's balance in the accounts ledger.
+
+**How stock is added**
+- Same medicine + **same batch number** → the quantity is added to that existing batch (no duplicate row). If the invoice expiry differs from the batch already in stock, saving is refused until you confirm which expiry is correct.
+- Same medicine + **different batch number** → a new, separate batch under the same medicine, so FEFO sells the earlier expiry first.
+- Expired stock, a line with no medicine, and a repeated invoice number are rejected by the server.
+
+### AI Stock Inward (scan an invoice photo)
+1. Click **AI Stock Inward** in Purchases and take/upload a clear, flat photo (or PDF) of the distributor invoice.
+2. The server reads it with the configured AI (Groq first, then Gemini; see below). A vision model reads the photo directly; if that fails, OCR text is sent to the AI; if no AI is available, a basic local reader is used and the screen says so.
+3. **Nothing is created while reading.** No supplier, medicine or batch is added until you press **Save Purchase & Add Stock**.
+4. Review the screen:
+   - Header lines (Sale Order #, DSS Id, Booking Man, address, NTN, totals...) are ignored and listed under *"line(s) ignored as not medicines"*.
+   - **Questions marked "Required"** must be answered before saving: which supplier / medicine an invoice line is, whether to add a new supplier or medicine, whether a quantity is boxes or single units, and which expiry is right when a batch already exists.
+   - A medicine is pre-linked only when the match is unambiguous (e.g. invoice `007/Clobevate Cream 1x20G` → catalog `CLOBEVATE 20g`). Otherwise pick it from the list, choose **Add as a new medicine** (name, strength, strips or single units), or remove the line.
+   - Batch numbers and expiry dates are copied from the invoice only; if one could not be read it is left empty for you to type. Nothing is made up.
+   - Retail MRP is required (it becomes the POS selling price). It is pre-filled from the current selling price only when that is not below cost. A warning appears if MRP is below cost.
+   - **Advance Tax / Other Charges** is pre-filled with the small difference between the line totals and the printed net total (e.g. WHT u/s 236H) so the supplier balance matches the invoice.
+5. Save. The result message says how many new batches were created, how many existing batches were topped up, and how many new medicines were added.
+
+**Configuring the AI key** (server side only, never in the browser): set `GROQ_API_KEY` (or `GEMINI_API_KEY`) in `server/.env`, or on the cloud server with `fly secrets set GROQ_API_KEY=... -a nmp-api`. Optional overrides: `GROQ_VISION_MODEL`, `GROQ_TEXT_MODEL`, `GEMINI_MODEL`. `GET /api/purchases/scans/ai-status` shows which provider is active (the key itself is never returned).
 
 ---
 

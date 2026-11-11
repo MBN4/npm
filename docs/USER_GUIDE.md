@@ -67,6 +67,17 @@ The POS module is the central billing counter designed for rapid barcode scannin
 - In **Inventory & Stock**, click **Edit** on a batch to correct the medicine name, generic, manufacturer, strength, barcode, category, product type, therapeutic class, packaging, stock thresholds, notes, batch number, expiry, prices, and rack. Product fields affect every batch of that medicine; batch fields affect the selected batch.
 - Use **Adjust** to change stock quantity so the movement is recorded in the audit trail. Main Category and Therapeutic Class menus open below their fields and scroll when needed.
 
+## 5a. Receiving Stock from a Distributor Invoice (AI Stock Inward)
+
+1. Open **Purchases** and click **AI Stock Inward**. Photograph the invoice flat, in good light, with the whole table visible.
+2. Wait for the review screen. Nothing has been added to stock yet.
+3. Answer every question marked **Required** (yellow): e.g. *"Supplier ... is not in your list - add it?"*, *"Which medicine is ...?"*, *"Is quantity 6 boxes of 10 or single units?"*.
+4. Check each line against the paper invoice: medicine, batch number, expiry, boxes, bonus, cost and **Retail MRP** (the price the POS will charge). Fill anything left empty. The scanner never guesses a batch or expiry.
+5. If a line is not a medicine, remove it with the bin icon. If a medicine is missing, use **Add Item Line**.
+6. Press **Save Purchase & Add Stock**. The message tells you whether each line became a new batch or was added to a batch already on the shelf.
+
+If the same invoice was already entered, the system refuses to save it again so stock is not doubled.
+
 ## 6. MedPrac Slips
 
 - Open a MedPrac receipt and click **Print on POS Printer**. On the Windows POS computer, it is sent to the same Speed-X printer path as POS receipts. If direct printing is unavailable, choose the POS printer in the thermal print dialog.

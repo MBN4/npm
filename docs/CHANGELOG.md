@@ -2,6 +2,44 @@
 
 All notable changes and architectural deliverables for **Naveed Medical Pharmacy (NMP)** are documented below.
 
+## 2026-11-11 — AI Stock Inward: reads correctly, asks instead of guessing
+
+A scanned Paaris Distributors invoice with one item (Clobevate Cream, batch AX2K) was entered as 9
+lines such as "Sale Order #1393635", "DSS Id : 0051722" and "EE sihid THR Plot No. 36 Street", with
+made-up batch numbers (`BN-9104`) and expiries (scan date + 1 year), and those lines were added to the
+medicine catalog as new products.
+
+- **Scanning no longer writes to the database.** The old reader created suppliers and medicines while
+  extracting, before anyone reviewed them. Extraction now returns a review draft only; new suppliers and
+  medicines are created when the admin saves, in the same transaction as the stock.
+- **Reads the photo with a vision model.** With `GROQ_API_KEY` set, the invoice image goes straight to
+  Groq's vision model (`meta-llama/llama-4-scout-17b-16e-instruct`, configurable) instead of noisy OCR
+  text. OCR + `llama-3.3-70b-versatile` remains the fallback, then the local parser. Gemini works the same way.
+  The screen shows which method was used.
+- **Prompt rewritten for Pakistani distributor invoices.** Items are only the product-table rows; header
+  fields (Invoice #, Sale Order #, DSS Id, Booking Man, Due Date, NTN, License...) and totals are excluded,
+  and unreadable values must be null.
+- **Header/footer filter + "ignored lines" list** as a second line of defence, visible to the admin.
+- **Catalog matching rewritten.** Item codes and pack tokens are stripped (`007/Clobevate Cream 1x20G 20gm`
+  → `Clobevate Cream`), names are scored on brand word, full-name coverage, strength and dosage form, with one-letter OCR
+  tolerance. A line is pre-linked only for a clear match; otherwise the admin picks from ranked candidates,
+  adds a new medicine, or removes the line. The old matcher linked any token overlap.
+- **Questions for the admin:** unknown supplier, unclear medicine, boxes vs single units for single-unit
+  products, strip split for `100'S`-style packs, batch already in stock with a different expiry, item-count
+  and total mismatches, and an invoice that was already entered. Required questions block saving.
+- **Never invents data:** no fake batch numbers, expiries, invoice numbers or 10×10 packing. Missing values
+  are shown as problems on the line until the admin fills them in.
+- **Saving into inventory is stricter (server-enforced):** same medicine + same batch adds to the existing
+  batch; a different batch creates a separate batch; the same batch with a different expiry is refused
+  unless confirmed; the same supplier invoice cannot be posted twice; expired stock is refused; a
+  `requestKey` prevents a double click posting twice. The response reports new vs topped-up batches.
+- **Purchase form:** new Bonus (boxes) column, Advance Tax / Other Charges field (pre-filled with the WHT
+  difference so the supplier balance matches the printed net total), errors shown inside the form, MRP
+  required, and a warning when MRP is below cost.
+- **New medicines get correct packing:** `pack_size` = units per box and `tablets_per_pack` = units per strip,
+  matching how POS reads them. The old auto-creation stored strips-per-box in `pack_size`.
+- `ai-status` now reports the active provider (Groq or Gemini).
+
 ## 2026-11-05 — Receipt Printing Overhaul
 
 A field report of garbled, misaligned thermal receipts on the live site traced back to several
