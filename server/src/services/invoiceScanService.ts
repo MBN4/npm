@@ -626,7 +626,8 @@ async function aiExtractFromImages(ai: { provider: AiProvider; key: string }, im
 
 async function aiExtractFromText(ai: { provider: AiProvider; key: string }, text: string): Promise<unknown> {
   const prompt = `${EXTRACTION_RULES}\n\nThe text below came from OCR of the invoice, so columns may be jumbled and
-characters misread (O/0, I/1, S/5). Only return values you can tie to a product row.\n\nInvoice OCR text:\n${text.slice(0, 12000)}`;
+characters misread (O/0, I/1, S/5). OCR may also glue words together: return productName with normal spacing
+(e.g. "260GAVISCONLIQUID 120ML" -> "260-GAVISCON LIQUID 120ML"). Only return values you can tie to a product row.\n\nInvoice OCR text:\n${text.slice(0, 12000)}`;
   if (ai.provider === 'groq') return callGroqWithFallback(ai.key, 'text', prompt);
   const { text: model } = getAiModels(ai.provider);
   return JSON.parse(stripJsonFences(await callGemini(ai.key, model, [{ text: prompt }])));
@@ -719,14 +720,20 @@ export async function quickAiExtractInvoice(files: Array<{ buffer: Buffer; mimeT
   if (ai) {
     // 1. Vision: the model sees the actual photo (columns intact, no OCR noise).
     if (images.length > 0 && embeddedTexts.length === 0) {
-      try {
-        const raw = normalizeAiInvoice(await aiExtractFromImages(ai, images));
-        if (raw.items.length > 0) {
-          return buildReviewDraft(raw, { extractionMethod: 'AI_VISION', aiProvider: ai.provider, warnings });
+      // Groq first; if this Groq key has no vision model and a Gemini key is also set, Gemini reads the photo.
+      const geminiKey = getGeminiApiKey();
+      const visionProviders: Array<{ provider: AiProvider; key: string }> = [ai];
+      if (ai.provider === 'groq' && geminiKey) visionProviders.push({ provider: 'gemini', key: geminiKey });
+      for (const visionAi of visionProviders) {
+        try {
+          const raw = normalizeAiInvoice(await aiExtractFromImages(visionAi, images));
+          if (raw.items.length > 0) {
+            return buildReviewDraft(raw, { extractionMethod: 'AI_VISION', aiProvider: visionAi.provider, warnings });
+          }
+        } catch (err) {
+          aiFailure = err;
+          console.warn(`[invoice-ai] ${visionAi.provider} vision extraction failed:`, (err as any)?.message || err);
         }
-      } catch (err) {
-        aiFailure = err;
-        console.warn('[invoice-ai] vision extraction failed, falling back to OCR text:', err);
       }
     }
 
