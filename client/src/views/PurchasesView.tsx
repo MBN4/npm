@@ -654,12 +654,18 @@ export const PurchasesView: React.FC = () => {
       if (value.supplierId) { setSupplierId(String(value.supplierId)); setNewSupplierName(''); }
       if (value.newSupplierName) { setSupplierId(''); setNewSupplierName(String(value.newSupplierName)); }
     }
-    if (value.createNew && idx !== undefined) {
-      markAsNewMedicine(idx);
-      return;
-    }
-    if (value.medicineId && idx !== undefined) {
-      handleItemChange(idx, 'medicineId', String(value.medicineId));
+    if ((value.createNew || value.medicineId) && idx !== undefined) {
+      // The same product often appears on several lines (different batches, or a bonus line).
+      // One answer applies to every still-unanswered line with the same product name.
+      const name = (items[idx]?.medicineName || '').trim().toLowerCase();
+      const pending = new Set(reviewQuestions.filter(q => q.type === 'MEDICINE_MATCH' && q.itemIndex !== undefined).map(q => q.itemIndex!));
+      const targets = items
+        .map((_, i) => i)
+        .filter(i => i === idx || (name && pending.has(i) && (items[i].medicineName || '').trim().toLowerCase() === name));
+      for (const i of targets) {
+        if (value.createNew) markAsNewMedicine(i);
+        else handleItemChange(i, 'medicineId', String(value.medicineId));
+      }
       return;
     }
     if (idx !== undefined && items[idx]) {

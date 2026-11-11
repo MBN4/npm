@@ -3,7 +3,7 @@ import request from 'supertest';
 import { app } from '../index.js';
 import { db } from '../db/index.js';
 import { seedDatabase } from '../db/seed.js';
-import { buildReviewDraft, normalizeAiInvoice, normalizeDate, nonMedicineReason, scoreMedicineMatch, cleanProductName } from '../services/invoiceReviewService.js';
+import { buildReviewDraft, normalizeAiInvoice, normalizeDate, nonMedicineReason, scoreMedicineMatch, cleanProductName, extractStrength } from '../services/invoiceReviewService.js';
 
 let adminToken: string;
 
@@ -68,6 +68,10 @@ describe('Invoice review helpers', () => {
   it('strips distributor item codes and pack tokens from product names', () => {
     expect(cleanProductName('007/Clobevate Cream 1x20G 20gm')).toBe('Clobevate Cream');
     expect(cleanProductName('260-GAVISCON LIQUID 120ML')).toBe('GAVISCON LIQUID');
+    // OCR output with words glued together, and no fake "260g" strength from the item code.
+    expect(cleanProductName('260GAVISCONLIQUID 120ML')).toBe('GAVISCON LIQUID');
+    expect(extractStrength('260GAVISCONLIQUID 120ML')).toBe('120ml');
+    expect(cleanProductName('ANGEL GEL')).toBe('ANGEL GEL');
   });
 
   it('rejects header/footer lines as medicines', () => {

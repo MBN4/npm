@@ -289,7 +289,7 @@ const SIMPLE_FORMS = new Set(['Syrup', 'Suspension', 'Injection', 'Cream', 'Oint
 const STOP_TOKENS = new Set([...Object.keys(FORM_WORDS), 'mg', 'ml', 'mcg', 'gm', 'g', 'iu', 'kg', 'ltr', 'the', 'and', 'new', 'pack', 'box']);
 
 export function extractStrength(text: string): string | null {
-  const m = text.match(/(\d+(?:\.\d+)?)\s?(mg|mcg|gm|g|ml|iu|%)(?:\s?\/\s?(\d+(?:\.\d+)?)?\s?(ml|g|tab))?/i);
+  const m = text.match(/(\d+(?:\.\d+)?)\s?(mg|mcg|gm|g|ml|iu|%)(?![a-z])(?:\s?\/\s?(\d+(?:\.\d+)?)?\s?(ml|g|tab)(?![a-z]))?/i);
   if (!m) return null;
   const unit = m[2].toLowerCase() === 'gm' ? 'g' : m[2].toLowerCase();
   return `${m[1]}${unit}${m[4] ? `/${m[3] || ''}${m[4].toLowerCase()}` : ''}`;
@@ -311,6 +311,10 @@ export function detectDosageForm(text: string): string | null {
 export function cleanProductName(raw: string): string {
   let name = raw.replace(/\s+/g, ' ').trim();
   name = name.replace(/^\s*(?:\d{1,5}\s*[\/\-–.)]\s*)+/, '');          // leading item codes 007/ 260- 1)
+  name = name.replace(/^\s*\d{2,5}(?=[A-Za-z]{3})/, '');                   // OCR-glued item code 260GAVISCON
+  // OCR often glues the dosage-form word onto the brand: GAVISCONLIQUID -> GAVISCON LIQUID
+  // Only for ALL-CAPS OCR tokens and unambiguous long form words, so real brands are never split.
+  name = name.replace(/\b([A-Z]{4,})(LIQUID|SYRUP|SUSPENSION|SACHETS|SACHET|TABLETS|CAPSULES|CREAM|OINTMENT|DROPS|INJECTION|SOLUTION)\b/g, '$1 $2');
   name = name.replace(/\b\d+\s*[x×*]\s*\d+(?:\.\d+)?\s*(?:'?s|g|gm|ml|mg)?\b/gi, ' '); // 1x20G 10x10
   name = name.replace(/\b\d+\s*'\s*s\b/gi, ' ');                          // 100's
   name = name.replace(/\b\d+(?:\.\d+)?\s?(?:mg|mcg|gm|g|ml|iu|%)\b/gi, ' '); // strengths (kept separately)

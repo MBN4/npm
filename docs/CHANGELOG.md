@@ -2,6 +2,19 @@
 
 All notable changes and architectural deliverables for **Naveed Medical Pharmacy (NMP)** are documented below.
 
+## 2026-11-11 (follow-up 2) — cleaner matching on OCR text, junk cleanup script
+
+- **OCR-glued names are split before matching:** `260GAVISCONLIQUID 120ML` → `GAVISCON LIQUID`, so it now links
+  to catalog `GAVISCON 120 mL` (only ALL-CAPS tokens with long dosage-form words are split, so brands
+  like "ANGEL GEL" are untouched). The item code is no longer read as a strength ("260G" → 260g).
+- **One answer for repeated products:** choosing the medicine for one line applies it to every other
+  unanswered line with the same product name (e.g. HIGH-C batch Y1975 and its bonus line Y1961).
+- **Gemini reads the photo when Groq can't:** if the Groq key has no vision model and `GEMINI_API_KEY` is
+  also set, Gemini reads the photo and Groq is still used for OCR text.
+- **`server/src/scripts/cleanupInvoiceJunk.ts`:** lists the suppliers and medicines that the old scanner
+  created automatically (dry run by default) and, with `--apply`, deactivates the ones with no stock or
+  history. Nothing is deleted. Records with stock/history are listed for manual review.
+
 ## 2026-11-11 (follow-up) — Groq model auto-selection, bonus-only lines
 
 - **Groq model names are no longer hard-coded.** A local test showed both default models returning
