@@ -227,9 +227,11 @@ function rowIssues(row: PurchaseItemRow): string[] {
   if (!row.expiryDate) issues.push('Expiry date is required');
   else if (row.expiryDate <= todayIso()) issues.push('Expiry date is already past - expired stock cannot be received');
   const boxes = Number(row.boxes);
-  if (!(boxes > 0) || !Number.isInteger(boxes)) issues.push('Boxes must be a whole number above zero');
+  const bonus = Number(row.bonusBoxes) || 0;
+  if (row.boxes === '' || !(boxes >= 0) || !Number.isInteger(boxes)) issues.push('Boxes must be a whole number (0 only for a bonus-only line)');
+  else if (boxes === 0 && !(bonus > 0)) issues.push('Enter boxes received or bonus boxes');
   if (!(Number(row.blistersPerBox) >= 1) || !(Number(row.tabsPerBlister) >= 1)) issues.push('Enter the packing (strips per box and units per strip)');
-  if (!(Number(row.purchasePrice) > 0)) issues.push('Cost price is required');
+  if (boxes > 0 && !(Number(row.purchasePrice) > 0)) issues.push('Cost price is required');
   if (!(Number(row.mrp) > 0)) issues.push('Retail MRP is required (it becomes the POS selling price)');
   if (row.existingBatch?.expiryConflict && !row.overrideBatchExpiry && row.expiryDate !== row.existingBatch.expiryDate) {
     issues.push(`Batch already in stock with expiry ${row.existingBatch.expiryDate} - answer the question above`);
@@ -766,7 +768,7 @@ export const PurchasesView: React.FC = () => {
             batchNumber: it.batchNumber || '',
             expiryDate: it.expiryDate || '',
             mfgDate: it.mfgDate || '',
-            boxes: it.boxes ? String(it.boxes) : '',
+            boxes: it.boxes !== null && it.boxes !== undefined ? String(it.boxes) : '',
             bonusBoxes: String(it.bonusBoxes || 0),
             blistersPerBox: it.blistersPerBox ? String(it.blistersPerBox) : '',
             tabsPerBlister: it.tabsPerBlister ? String(it.tabsPerBlister) : '',
@@ -860,7 +862,7 @@ export const PurchasesView: React.FC = () => {
           notes,
           requestKey: requestKeyRef.current,
           items: items.map(it => {
-            const boxes = Number(it.boxes) || 1;
+            const boxes = Number(it.boxes) || 0; // 0 = bonus-only line
             const blisters = Number(it.blistersPerBox) || 1;
             const tabs = Number(it.tabsPerBlister) || 1;
             const unitsPerBox = blisters * tabs;
@@ -1581,7 +1583,7 @@ export const PurchasesView: React.FC = () => {
                               <td style={{ padding: '0.55rem 0.35rem', textAlign: 'center' }}>
                                 <input
                                   type="number"
-                                  min="1"
+                                  min="0"
                                   className="ai-table-input"
                                   style={{ textAlign: 'center', fontWeight: 600 }}
                                   value={it.boxes}

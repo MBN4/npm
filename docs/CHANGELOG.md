@@ -2,6 +2,18 @@
 
 All notable changes and architectural deliverables for **Naveed Medical Pharmacy (NMP)** are documented below.
 
+## 2026-11-11 (follow-up) — Groq model auto-selection, bonus-only lines
+
+- **Groq model names are no longer hard-coded.** A local test showed both default models returning
+  `404 model_not_found` for the configured key, so every scan fell back to the basic reader. The server now
+  asks Groq (`GET /openai/v1/models`) which models the key can use, prefers a vision model for photos and a
+  strong text model for OCR text, and tries the next one if a model is missing. `GROQ_VISION_MODEL` /
+  `GROQ_TEXT_MODEL` still take priority when they are available. The available list is logged once per 30 minutes.
+- **The review banner now says why the AI was not used** (key rejected, usage limit reached, no usable model, timeout).
+- **Bonus-only invoice lines** (e.g. Babar Medicine: HIGH-C batch Y1961, Qty blank, Bonus 1) are kept as 0 paid
+  boxes + bonus boxes, instead of being treated as missing quantity. Previously a 0-box line also defaulted to 1 paid box on save.
+- **Sachet/single-unit packs printed as `1X10'S`** are read as 10 units per box.
+
 ## 2026-11-11 — AI Stock Inward: reads correctly, asks instead of guessing
 
 A scanned Paaris Distributors invoice with one item (Clobevate Cream, batch AX2K) was entered as 9

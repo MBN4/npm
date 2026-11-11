@@ -51,5 +51,6 @@
   Body: `{ supplierId | newSupplier: { name }, invoiceNumber, purchaseDate, subtotal, discount, tax, totalAmount, paidAmount, paymentMethod, notes, requestKey?, items[] }`.
   Item: `{ medicineId | newMedicine: { brandName, strength, dosageForm, packagingType }, batchNumber, expiryDate, mfgDate?, boxesReceived, stripsPerBox, unitsPerStrip, quantity (units), bonusQuantity (units), purchasePrice / confirmedPurchaseCostPerBox (per box), mrp / printedMrpPerBox (per box), lineTotal, overrideBatchExpiry? }`.
   Same medicine + same batch adds to the existing batch; a different batch creates a new batch row. Returns `201 { purchaseId, supplierId, createdMedicines[], stockSummary[{ action: 'NEW_BATCH' | 'ADDED_TO_EXISTING_BATCH', unitsAdded, batchQuantityAfter }] }`.
+  `boxesReceived: 0` with a positive `bonusQuantity` records a bonus-only (free goods) line.
   Errors: `409` same supplier + invoice number already saved; `400` expired stock, invalid date, missing medicine/batch, or same batch with a different expiry (unless `overrideBatchExpiry`). A repeated `requestKey` returns `200` with the original purchase instead of saving again.
 

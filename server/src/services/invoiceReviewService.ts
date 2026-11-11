@@ -264,7 +264,7 @@ export function nonMedicineReason(item: RawExtractedItem): string | null {
   const hit = NON_MEDICINE_PATTERNS.find(re => re.test(name));
   if (hit) return 'invoice header/footer text';
   // A real invoice row always carries a quantity, a rate or an amount.
-  if (item.quantity === null && item.rate === null && item.lineTotal === null) return 'no quantity, rate or amount on the line';
+  if (item.quantity === null && item.rate === null && item.lineTotal === null && item.bonusQuantity === null) return 'no quantity, rate or amount on the line';
   // "33 / GSK" style company group headings have no item data of their own.
   if (/^\d+\s*\/\s*[a-z&.\s]+$/i.test(name) && item.rate === null) return 'company group heading';
   return null;
@@ -404,6 +404,9 @@ export function invoicePacking(packText: string, form: string | null): { blister
   const text = packText.toUpperCase();
   const isSimple = form ? SIMPLE_FORMS.has(form) : /\b\d+(\.\d+)?\s?(ML|G|GM|L)\b/.test(text);
   if (isSimple) {
+    // "1X10'S" sachets = 10 sachets per box.
+    const counted = text.match(/\b(\d+)\s*[X×*]\s*(\d+)\s*'?\s*S\b/);
+    if (counted) return { blistersPerBox: 1, tabsPerBlister: Math.max(1, Number(counted[1]) * Number(counted[2])), certain: true };
     // "1x20G" = one 20g tube per pack; "120ML" = one bottle. A carton count like "12x1" is rare.
     const m = text.match(/\b(\d+)\s*[X×*]\s*\d+(?:\.\d+)?\s*(?:G|GM|ML|MG)\b/);
     const units = m ? Math.max(1, Number(m[1])) : 1;
@@ -678,11 +681,13 @@ export function buildReviewDraft(
     }
 
     // ---- Quantity / price sanity ----
-    const boxes = raw.quantity !== null && raw.quantity > 0 ? raw.quantity : null;
+    const bonusOnly = (raw.quantity === null || raw.quantity === 0) && (raw.bonusQuantity || 0) > 0;
+    // A bonus-only line (free goods, no paid quantity) is valid: 0 paid boxes + N bonus boxes.
+    const boxes = raw.quantity !== null && raw.quantity > 0 ? raw.quantity : bonusOnly ? 0 : null;
     if (boxes === null) issues.push('Quantity missing - enter boxes received');
     else if (!Number.isInteger(boxes)) issues.push(`Quantity ${boxes} is not a whole number - please check`);
     const rate = raw.rate !== null && raw.rate > 0 ? raw.rate : null;
-    if (rate === null) issues.push('Rate (cost price) missing');
+    if (rate === null && !bonusOnly) issues.push('Rate (cost price) missing');
     if (boxes && rate && raw.lineTotal) {
       const gross = boxes * rate;
       const discounted = gross * (1 - (raw.discountPercent || 0) / 100);

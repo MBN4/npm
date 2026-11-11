@@ -170,10 +170,63 @@ describe('AI Stock Inward review draft (no side effects)', () => {
     expect(res.body.items).toHaveLength(1);
     expect(counts()).toEqual(before);
 
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const chatCall = (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>).find(([u]) => String(u).includes('/chat/completions'))!;
+    const [url, init] = chatCall;
     expect(url).toContain('api.groq.com');
     const sent = JSON.parse(String(init.body));
     expect(sent.messages[0].content.some((c: any) => c.type === 'image_url')).toBe(true);
+  });
+
+  it('picks a model this Groq key can actually use when the default model is retired', async () => {
+    process.env.GROQ_API_KEY = 'test-key-discovery';
+    const chatModels: string[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/openai/v1/models')) {
+        return new Response(JSON.stringify({ data: [
+          { id: 'whisper-large-v3', active: true },
+          { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', active: true },
+          { id: 'openai/gpt-oss-120b', active: true }
+        ] }), { status: 200 });
+      }
+      const body = JSON.parse(String(init?.body));
+      chatModels.push(body.model);
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(paarisAiOutput) } }] }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { Jimp } = await import('jimp');
+    const png = await new Jimp({ width: 40, height: 40, color: 0xffffffff }).getBuffer('image/png');
+    const res = await request(app)
+      .post('/api/purchases/scans/ai-quick-extract')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('files', Buffer.from(png), { filename: 'invoice.png', contentType: 'image/png' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.extractionMethod).toBe('AI_VISION');
+    expect(chatModels).toEqual(['meta-llama/llama-4-maverick-17b-128e-instruct']);
+  });
+
+  it('reads the Babar Medicine invoice: subtotal rows dropped, bonus-only line kept, sachet packing', () => {
+    const babar = {
+      supplierName: 'Babar Medicine Company', invoiceNumber: '01-499028', invoiceDate: '22/04/2026', printedNetTotal: 3558,
+      items: [
+        { productName: '260-GAVISCON LIQUID 120ML', packSize: '120ML', batchNumber: '6183', expiryDate: '01/01/28', quantity: 3, rate: 212.5, lineTotal: 637.5 },
+        { productName: '265-DISPRIN 100\'S', packSize: "100'S", batchNumber: '6054', expiryDate: '01/02/29', quantity: 2, rate: 265.31, lineTotal: 530.62 },
+        { productName: null, quantity: null, rate: null, lineTotal: 1168.12 },
+        { productName: '843-HIGH-C 1000 SACHETS', packSize: "1X10'S", batchNumber: 'Y1975', expiryDate: '01/03/27', quantity: 10, rate: 170, lineTotal: 1700 },
+        { productName: '843-HIGH-C 1000 SACHETS', packSize: "1X10'S", batchNumber: 'Y1961', expiryDate: '01/03/27', quantity: null, bonusQuantity: 1, rate: 170, lineTotal: 0 },
+        { productName: 'Total For Invoice Id : 4990282526', quantity: null, rate: null, lineTotal: 3540.47 }
+      ]
+    };
+    const draft = buildReviewDraft(normalizeAiInvoice(babar), { extractionMethod: 'AI_VISION', aiProvider: 'groq', today: '2026-04-23' });
+    expect(draft.items.map(i => i.batchNumber)).toEqual(['6183', '6054', 'Y1975', 'Y1961']);
+    expect(draft.items[0].expiryDate).toBe('2028-01-01');
+    const bonusLine = draft.items[3];
+    expect(bonusLine.boxes).toBe(0);
+    expect(bonusLine.bonusBoxes).toBe(1);
+    expect(bonusLine.issues.some(i => /quantity missing|rate/i.test(i))).toBe(false);
+    const sachets = draft.items[2];
+    if (sachets.packingSource === 'INVOICE') expect((sachets.blistersPerBox || 0) * (sachets.tabsPerBlister || 0)).toBe(10);
   });
 
   it('GET /api/purchases/scans/ai-status reports Groq without exposing the key', async () => {
@@ -269,6 +322,14 @@ describe('Saving reviewed stock into inventory', () => {
     const noMed = await post({ supplierId, invoiceNumber: `T-${suffix}-6`, purchaseDate: '2026-11-11', totalAmount: 10, items: [creamLine('NM1', '2029-01-31', 1)] });
     expect(noMed.status).toBe(400);
     expect(noMed.body.error).toMatch(/select a medicine/);
+  });
+
+  it('saves a bonus-only line (0 paid boxes, free boxes only) without inventing a paid box', async () => {
+    const res = await post({ supplierId, invoiceNumber: `T-${suffix}-B`, purchaseDate: '2026-11-11', totalAmount: 0, items: [{ medicineId, ...creamLine('BON1', '2029-02-28', 0), quantity: 0, lineTotal: 0, bonusQuantity: 2 }] });
+    expect(res.status).toBe(201);
+    expect((db.prepare(`SELECT quantity, bonus_quantity FROM batches WHERE medicine_id = ? AND batch_number = 'BON1'`).get(medicineId) as any)).toEqual({ quantity: 2, bonus_quantity: 2 });
+    const empty = await post({ supplierId, invoiceNumber: `T-${suffix}-E`, purchaseDate: '2026-11-11', totalAmount: 0, items: [{ medicineId, ...creamLine('EMP1', '2029-02-28', 0), quantity: 0, lineTotal: 0 }] });
+    expect(empty.status).toBe(400);
   });
 
   it('treats a repeated save with the same requestKey as one purchase', async () => {
