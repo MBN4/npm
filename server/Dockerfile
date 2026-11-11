@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 COPY package*.json ./
 RUN npm ci --omit=dev && apt-get purge -y python3 make g++ && apt-get autoremove -y
 COPY --from=builder /app/dist ./dist
+# Medicine catalog for src/scripts/importCatalog.ts (catalog only - no stock or sales).
+COPY --from=builder /app/catalog ./catalog
 
 ENV NODE_ENV=production
 EXPOSE 5000

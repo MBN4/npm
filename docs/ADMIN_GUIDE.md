@@ -72,6 +72,8 @@ Navigate to **Users & Roles**:
    - **Advance Tax / Other Charges** is pre-filled with the small difference between the line totals and the printed net total (e.g. WHT u/s 236H) so the supplier balance matches the invoice.
 5. Save. The result message says how many new batches were created, how many existing batches were topped up, and how many new medicines were added.
 
+**Medicine catalog on a new/empty server:** invoice lines can only be linked to medicines that exist in the catalog. To load the standard catalog (no stock) into the live server, run `fly ssh console -a nmp-api -C "node dist/scripts/importCatalog.js"` to preview, then add `--apply`. A backup `nmp-before-catalog-import-<time>.sqlite` is written in `/app/data` first. Existing medicines are never changed.
+
 **Configuring the AI key** (server side only, never in the browser): set `GROQ_API_KEY` (or `GEMINI_API_KEY`) in `server/.env`, or on the cloud server with `fly secrets set GROQ_API_KEY=... -a nmp-api`. The server picks the best Groq model your key can use automatically (the list is printed in the server log as `[invoice-ai] Groq models available to this key: ...`). Optional overrides: `GROQ_VISION_MODEL`, `GROQ_TEXT_MODEL`, `GEMINI_MODEL`. If your Groq key has no vision model, also setting `GEMINI_API_KEY` lets Gemini read the photo while Groq handles OCR text. If the banner shows "Basic local reader", it also shows the reason (key rejected, usage limit, no usable model). `GET /api/purchases/scans/ai-status` shows which provider is active (the key itself is never returned).
 
 ---

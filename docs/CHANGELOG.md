@@ -2,6 +2,20 @@
 
 All notable changes and architectural deliverables for **Naveed Medical Pharmacy (NMP)** are documented below.
 
+## 2026-11-11 (follow-up 3) — copy the medicine catalog to the live server
+
+- The live server had almost no medicines (only a few seeded rows), so invoice lines could not be matched.
+  `server/data/` (with `sync_data.json`) is excluded from the Docker image, so the catalog never reached it.
+- Added `server/catalog/medicine_catalog.json`: the catalog part of `sync_data.json` (exported 2026-10-29), with
+  1,734 active medicines, 344 generics, 153 manufacturers, 46 categories and clinical monographs. Automated-test entries
+  (`TestScheduleBMed-…`, `AutoSync Med #…`, "testical") were removed. **No stock, batches, suppliers, customers,
+  purchases or sales are included.**
+- Added `server/src/scripts/importCatalog.ts`: dry run by default. With `--apply` it writes a full SQLite
+  backup next to the database first, then imports in one transaction. It never overwrites an existing row
+  (same name + strength is skipped), and new rows get fresh IDs so they cannot collide with live IDs. Running it
+  again adds nothing.
+- The Dockerfile now copies `catalog/` into the runtime image.
+
 ## 2026-11-11 (follow-up 2) — cleaner matching on OCR text, junk cleanup script
 
 - **OCR-glued names are split before matching:** `260GAVISCONLIQUID 120ML` → `GAVISCON LIQUID`, so it now links
