@@ -23,7 +23,7 @@ A modern, comprehensive pharmacy management platform built specifically for **Na
 | **2. POS / Counter** | Barcode camera scanner & USB wedge input, automatic FEFO batch allocation, held bills queue, credit checkout, and WhatsApp digital receipts. |
 | **3. Medicines Master** | Formularies, dosage forms, strengths, pack sizes, shelf/rack coordinates, and custom barcodes. |
 | **4. Inventory & Stock** | Batch-wise stock ledger, valuation, audited quantity adjustments, manual stock entry, and editing for existing medicine names, product details, classification, and batch fields. |
-| **5. Purchases (GRN)** | Multi-line inward distributor invoices, automated batch creation, bonus quantities, and purchase returns. |
+| **5. Purchases (GRN)** | Multi-line inward distributor invoices, AI Stock Inward (scan an invoice photo → review screen with questions → stock), batch top-up vs new batch, bonus quantities, duplicate-invoice guard, and purchase returns. |
 | **6. Suppliers** | Distributor directory, payment vouchers (Cash/Cheque/Bank Transfer), and payables ledger. |
 | **7. Barcode Center** | Scanner Hub (live camera feed & hardware diagnostics) + Multi-column printable Code-128/QR sticker sheets. |
 | **8. Pharma Dictionary 📚** | Clinical drug reference monographs, generic active molecules, adult/pediatric doses, FDA pregnancy categories (A/B/C/D/X), and food administration timings. |
@@ -64,6 +64,9 @@ npm --prefix client install
 ```bash
 npm run seed
 ```
+
+### Optional: AI invoice reader
+Purchases → **AI Stock Inward** uses an AI key on the server. Add `GROQ_API_KEY=...` (or `GEMINI_API_KEY=...`) to `server/.env`; for the live Fly.io server run `fly secrets set GROQ_API_KEY=... -a nmp-api`. Never commit the key. See `docs/ADMIN_GUIDE.md` → *AI Stock Inward*.
 
 ### 4. Start Development Application
 ```bash

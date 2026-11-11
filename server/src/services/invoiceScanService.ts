@@ -1,11 +1,12 @@
-// OCR + text-parsing + Groq Llama 3.3 70B AI for purchase invoices.
-// Bulletproof architecture: Local OCR extracts text, Groq 70B structures items,
-// auto-filters phone/header lines, and auto-matches catalog in SQLite.
+// OCR + text parsing + AI extraction for purchase invoices.
+// Pipeline: AI vision reads the photo directly (Groq or Gemini) -> if that fails, local OCR text is
+// structured by the AI text model -> if no AI is configured or it fails, the local parser runs.
+// Extraction never writes to the database; see invoiceReviewService.ts for matching/questions.
 import { createRequire } from 'module';
 import path from 'path';
 import fs from 'fs';
 import Tesseract from 'tesseract.js';
-import { db } from '../db/index.js';
+import { buildReviewDraft, normalizeAiInvoice, RawExtractedInvoice, ReviewDraft } from './invoiceReviewService.js';
 
 const require = createRequire(import.meta.url);
 
@@ -411,11 +412,18 @@ export function parseInvoiceText(combinedText: string): ParsedInvoiceDraft {
   };
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// AI extraction (Groq or Gemini). Keys are read from the server environment only.
+// ---------------------------------------------------------------------------------------------
+
+export type AiProvider = 'groq' | 'gemini';
+
 export function getGeminiApiKey(): string | null {
   return process.env.GEMINI_API_KEY?.trim() || null;
 }
 
-export function getAiApiKey(): { provider: 'groq' | 'gemini'; key: string } | null {
+export function getAiApiKey(): { provider: AiProvider; key: string } | null {
   const groq = process.env.GROQ_API_KEY?.trim();
   if (groq) return { provider: 'groq', key: groq };
   const gemini = process.env.GEMINI_API_KEY?.trim();
@@ -423,447 +431,259 @@ export function getAiApiKey(): { provider: 'groq' | 'gemini'; key: string } | nu
   return null;
 }
 
-async function requestInvoiceJson(
-  aiConfig: { provider: 'groq' | 'gemini'; key: string },
-  prompt: string
-): Promise<unknown> {
-  const response = aiConfig.provider === 'groq'
-    ? await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${aiConfig.key}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' },
-        temperature: 0.1
-      }),
-      signal: AbortSignal.timeout(20_000)
-    })
-    : await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': aiConfig.key
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
-      }),
-      signal: AbortSignal.timeout(20_000)
-    });
-
-  if (!response.ok) {
-    throw new Error(`${aiConfig.provider} invoice extraction failed with HTTP ${response.status}`);
-  }
-
-  const responseBody = asRecord(await response.json());
-  const candidate = aiConfig.provider === 'groq'
-    ? asRecord(Array.isArray(responseBody?.choices) ? responseBody.choices[0] : null)
-    : asRecord(Array.isArray(responseBody?.candidates) ? responseBody.candidates[0] : null);
-  const content = aiConfig.provider === 'groq'
-    ? asRecord(candidate?.message)?.content
-    : asRecord(candidate?.content)?.parts;
-  const text = aiConfig.provider === 'groq'
-    ? content
-    : Array.isArray(content) ? asRecord(content[0])?.text : null;
-
-  if (typeof text !== 'string') {
-    throw new Error(`${aiConfig.provider} returned no invoice JSON`);
-  }
-  return JSON.parse(text) as unknown;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-function nullableString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed || null;
-}
-
-function nullableNumber(value: unknown): number | null {
-  if (typeof value !== 'number' && typeof value !== 'string') return null;
-  if (typeof value === 'string' && !value.trim()) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-/**
- * Parses packing strings like "100'S", "30'S", "1X10'S", "10X10", "120ML"
- */
-function parsePackagingStructure(packStr: string | null, cleanName: string): { blistersPerBox: number; tabsPerBlister: number; isLiquid: boolean } {
-  const raw = `${packStr || ''} ${cleanName}`.toUpperCase();
-
-  if (/\b(ML|L|BOTTLE|SYRUP|SUSPENSION|SOLUTION|CREAM|GEL|OINTMENT|DROPS|INJ|INJECTION)\b/.test(raw)) {
-    return { blistersPerBox: 1, tabsPerBlister: 1, isLiquid: true };
-  }
-
-  const multiMatch = raw.match(/\b(\d+)\s*[X*×]\s*(\d+)/);
-  if (multiMatch) {
+// Model names are configurable because providers retire models; the defaults are current ones.
+export function getAiModels(provider: AiProvider): { vision: string; text: string } {
+  if (provider === 'groq') {
     return {
-      blistersPerBox: Math.max(1, parseInt(multiMatch[1], 10)),
-      tabsPerBlister: Math.max(1, parseInt(multiMatch[2], 10)),
-      isLiquid: false
+      vision: process.env.GROQ_VISION_MODEL?.trim() || 'meta-llama/llama-4-scout-17b-16e-instruct',
+      text: process.env.GROQ_TEXT_MODEL?.trim() || 'llama-3.3-70b-versatile'
     };
   }
-
-  const totalMatch = raw.match(/\b(\d+)\s*'?S\b/);
-  if (totalMatch) {
-    const totalCount = parseInt(totalMatch[1], 10);
-    if (totalCount === 100) return { blistersPerBox: 10, tabsPerBlister: 10, isLiquid: false };
-    if (totalCount === 30) return { blistersPerBox: 3, tabsPerBlister: 10, isLiquid: false };
-    if (totalCount === 20) return { blistersPerBox: 2, tabsPerBlister: 10, isLiquid: false };
-    if (totalCount === 50) return { blistersPerBox: 5, tabsPerBlister: 10, isLiquid: false };
-    if (totalCount === 10) return { blistersPerBox: 1, tabsPerBlister: 10, isLiquid: false };
-    if (totalCount === 14) return { blistersPerBox: 1, tabsPerBlister: 14, isLiquid: false };
-    if (totalCount === 28) return { blistersPerBox: 2, tabsPerBlister: 14, isLiquid: false };
-    return { blistersPerBox: Math.max(1, Math.round(totalCount / 10)), tabsPerBlister: 10, isLiquid: false };
-  }
-
-  return { blistersPerBox: 10, tabsPerBlister: 10, isLiquid: false };
+  const model = process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash';
+  return { vision: model, text: model };
 }
 
-/**
- * Auto-Pilot Matching & Creation Engine
- * Strips phone/tax/header lines and auto-matches or registers medicines in SQLite.
- */
-// The purchase form's date input only accepts YYYY-MM-DD; invoices print DD/MM/YYYY, DD-MM-YY etc.
-function normalizeInvoiceDate(raw: string | null): string | null {
-  if (!raw) return null;
-  const text = raw.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
-  const m = text.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
-  if (!m) return null;
-  const day = Number(m[1]);
-  const month = Number(m[2]);
-  const year = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-}
-
-function autoMatchAndRegisterCatalog(extracted: {
-  supplierName: string | null;
-  invoiceNumber: string | null;
-  purchaseDate: string | null;
-  warrantyText: string | null;
-  items: Array<any>;
-}) {
-  let matchedSupplierId: number | null = null;
-
-  // 1. Match or Auto-Create Supplier
-  const targetSupplierName = extracted.supplierName ? extracted.supplierName.trim() : 'Unknown Supplier';
-  const rawSup = targetSupplierName.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-  const suppliers = db.prepare('SELECT id, name FROM suppliers WHERE is_active = 1').all() as any[];
-  const existingSup = suppliers.find(s => {
-    const dbSup = s.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-    return rawSup.includes(dbSup) || dbSup.includes(rawSup);
-  });
-
-  if (existingSup) {
-    matchedSupplierId = existingSup.id;
-  } else if (targetSupplierName && targetSupplierName !== 'Unknown Supplier') {
-    try {
-      const ins = db.prepare(`
-        INSERT INTO suppliers (name, contact_person, current_balance, is_active)
-        VALUES (?, 'Invoice Auto-Created', 0.0, 1)
-      `).run(targetSupplierName);
-      matchedSupplierId = Number(ins.lastInsertRowid);
-      console.log(`[AI Auto-Pilot] Created new supplier: "${targetSupplierName}" (ID: ${matchedSupplierId})`);
-    } catch (err) {
-      console.warn('[AI Auto-Pilot] Supplier auto-creation fallback:', err);
-    }
-  }
-
-  // 2. Strict Filter: Completely drop phone numbers, tax lines, address headers
-  const nonMedicineKeywords = [
-    'advance', 'tax', 's.tax', 'withholding', 'total', 'u/s', '236h', 'ntn',
-    'invoice id', 'tel ', 'phone', 'mobile', 'road', 'peco', 'lahore', 'karachi',
-    'out fall', 'cust id', 'brick', 'str no', 'po no'
-  ];
-
-  const validItems = extracted.items.filter(it => {
-    const name = (it.productName || '').toLowerCase().trim();
-    if (!name || name.length < 3) return false;
-    if (nonMedicineKeywords.some(bad => name.includes(bad))) return false;
-    // Don't treat bare phone numbers or postal addresses as medicines
-    if (/^\+?\d[\d\s-]{6,}\d$/.test(name)) return false;
-    // Header/label lines ("Date:", "Invoice No:", "Customer", "Page 1") are not medicines -
-    // without this they were auto-registered into the catalog as fake products.
-    if (/^(date|dated|invoice|inv\b|bill|customer|cust\b|page|s\.?\s?no|sr\b|qty|description|product|item|grand|net\b|gross|discount|gst|balance|received|signature|cash)\b/.test(name)) return false;
-    if (/:$/.test(name) || /^[^a-z]*$/.test(name)) return false;
-    return true;
-  });
-
-  const catalogMedicines = db.prepare('SELECT id, brand_name, strength, dosage_form, packaging_type, tablets_per_pack, pack_size FROM medicines WHERE is_active = 1').all() as any[];
-
-  const clarificationQuestions: AiClarificationQuestion[] = [];
-
-  const matchedItems = validItems.map((item, idx) => {
-    let cleanName = (item.productName || '').trim();
-    cleanName = cleanName.replace(/^\d{2,4}\s*[-–]\s*/, '').trim();
-
-    const strengthMatch = cleanName.match(/\b(\d+(?:\.\d+)?\s?(?:mg|mcg|g|ml|iu|%)(?:\s?\/\s?(?:ml|g|tab))?)\b/i);
-    const strength = item.strength || (strengthMatch ? strengthMatch[1].trim() : null);
-
-    const formMatch = cleanName.match(/\b(tablet|tablets|tab|tabs|capsule|capsules|cap|caps|syrup|suspension|injection|sachet|sachets|drops|cream|gel|lotion)\b/i);
-    const dosageForm = item.dosageForm || (formMatch ? formMatch[1] : 'Medicine');
-
-    const packParsed = parsePackagingStructure(item.packSize || item.pack, cleanName);
-    const blistersPerBox = item.blistersPerBox || (packParsed.isLiquid ? 1 : packParsed.blistersPerBox);
-    const tabsPerBlister = item.tabsPerBlister || (packParsed.isLiquid ? 1 : packParsed.tabsPerBlister);
-
-    let searchBrand = cleanName.replace(/\b\d+\s?(?:ml|mg|g|iu|tablets?|capsules?|sachets?|tabs?|caps?)\b/gi, '').trim();
-    if (!searchBrand) searchBrand = cleanName;
-
-    const searchTokens = searchBrand.toLowerCase().split(/[\s,/-]+/).filter((t: string) => t.length >= 3 && !/^\d+$/.test(t));
-    const matchedMed = catalogMedicines.find(m => {
-      const brand = m.brand_name.toLowerCase();
-      return searchTokens.some((tok: string) => brand.includes(tok) || tok.includes(brand));
-    });
-
-    let finalMedicineId: number;
-
-    if (matchedMed) {
-      finalMedicineId = matchedMed.id;
-    } else {
-      const packagingType = packParsed.isLiquid ? 'SIMPLE' : 'MULTI_TIER';
-      const ins = db.prepare(`
-        INSERT INTO medicines (brand_name, strength, dosage_form, packaging_type, pack_size, tablets_per_pack, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, 1)
-      `).run(cleanName, strength, dosageForm, packagingType, blistersPerBox, tabsPerBlister);
-      finalMedicineId = Number(ins.lastInsertRowid);
-      catalogMedicines.push({ id: finalMedicineId, brand_name: cleanName, strength, dosage_form: dosageForm });
-      console.log(`[AI Auto-Pilot] Created new medicine: "${cleanName}" (ID: ${finalMedicineId})`);
-    }
-
-    const boxes = nullableNumber(item.boxesReceived) ?? nullableNumber(item.quantity) ?? 1;
-    const cost = nullableNumber(item.purchasePrice) || 0;
-    const mrp = nullableNumber(item.mrp) || nullableNumber(item.salePrice) || Number((cost * 1.25).toFixed(2));
-    const totalUnits = Math.round(boxes * blistersPerBox * tabsPerBlister);
-    const lineTotal = nullableNumber(item.lineTotal) || Number((cost * boxes).toFixed(2));
-
-    // Clarification question for ambiguous 100's pack sizes
-    if (!packParsed.isLiquid && blistersPerBox * tabsPerBlister === 100) {
-      clarificationQuestions.push({
-        id: `q_pack_${idx}`,
-        itemIndex: idx,
-        question: `Confirm packing for "${cleanName}":`,
-        field: 'blistersPerBox',
-        options: [
-          { label: '10 Blisters × 10 Tabs (100 Tabs/Box)', value: { blistersPerBox: 10, tabsPerBlister: 10 } },
-          { label: '5 Blisters × 20 Tabs (100 Tabs/Box)', value: { blistersPerBox: 5, tabsPerBlister: 20 } }
-        ]
-      });
-    }
-
-    return {
-      productName: cleanName || 'Medicine',
-      matchedMedicineId: finalMedicineId,
-      batchNumber: nullableString(item.batchNumber) || `BN-${Date.now().toString().slice(-4)}`,
-      expiryDate: nullableString(item.expiryDate) || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      mfgDate: nullableString(item.mfgDate),
-      boxes,
-      blistersPerBox,
-      tabsPerBlister,
-      totalUnits,
-      purchasePrice: cost,
-      mrp,
-      costBasis: 'BOX',
-      mrpBasis: 'BOX',
-      bonusQuantity: nullableNumber(item.bonusQuantity) || 0,
-      lineTotal
-    };
-  });
-
-  return {
-    supplierName: targetSupplierName,
-    matchedSupplierId,
-    invoiceNumber: extracted.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`,
-    purchaseDate: normalizeInvoiceDate(extracted.purchaseDate) || new Date().toISOString().split('T')[0],
-    rawNotes: extracted.warrantyText,
-    clarificationQuestions: clarificationQuestions.slice(0, 3),
-    items: matchedItems
-  };
-}
-
-export async function quickAiExtractInvoice(
-  files: Array<{ buffer: Buffer; mimeType: string }>
-): Promise<{
-  supplierName: string | null;
-  matchedSupplierId: number | null;
-  invoiceNumber: string | null;
-  purchaseDate: string | null;
-  rawNotes: string | null;
-  clarificationQuestions?: AiClarificationQuestion[];
-  items: Array<{
-    productName: string | null;
-    matchedMedicineId: number | null;
-    batchNumber: string | null;
-    expiryDate: string | null;
-    mfgDate: string | null;
-    boxes: number;
-    blistersPerBox: number;
-    tabsPerBlister: number;
-    totalUnits: number;
-    purchasePrice: number | null;
-    mrp: number | null;
-    costBasis?: string;
-    mrpBasis?: string;
-    bonusQuantity: number | null;
-    lineTotal: number | null;
-  }>;
-}> {
-  if (files.length === 0) throw new Error('Please select an invoice image or PDF');
-
-  let extractedText = '';
-  const file = files[0];
-
-  if (file.mimeType === 'application/pdf') {
-    const pdfPages = await extractPdfPages(file.buffer);
-    extractedText = pdfPages.map(p => p.embeddedText || '').join('\n');
-    if (!extractedText.trim()) {
-      const pageImages = pdfPages.filter(p => p.renderedImage);
-      if (pageImages.length > 0) {
-        extractedText = await ocrImageBuffer(pageImages[0].renderedImage!);
-      }
-    }
-  } else {
-    extractedText = await ocrImageBuffer(file.buffer, file.mimeType);
-  }
-
-  if (!extractedText || extractedText.trim().length < 5) {
-    throw new Error('Could not read text from this image. Please ensure the invoice is well-lit and in focus.');
-  }
-
-  const aiConfig = getAiApiKey();
-
-  if (aiConfig?.provider === 'gemini') {
-    try {
-      const prompt = `Extract the medicines and invoice details from this OCR text.
-Ignore phone numbers, addresses, tax/header lines (including Advance I.T and NTN), and totals as medicine rows.
-Return JSON only with supplierName, invoiceNumber, purchaseDate, and items. Each item must include
-productName, packSize, batchNumber, expiryDate, mfgDate, boxesReceived, purchasePrice, mrp,
-bonusQuantity, and lineTotal. Normalize dates to YYYY-MM-DD.
-
-Invoice text:
-${extractedText.slice(0, 8000)}`;
-      const parsed = asRecord(await requestInvoiceJson(aiConfig, prompt));
-      const rawItems = Array.isArray(parsed?.items) ? parsed.items : [];
-      if (rawItems.length > 0) {
-        return autoMatchAndRegisterCatalog({
-          supplierName: nullableString(parsed?.supplierName),
-          invoiceNumber: nullableString(parsed?.invoiceNumber),
-          purchaseDate: nullableString(parsed?.purchaseDate),
-          warrantyText: null,
-          items: rawItems
-        });
-      }
-    } catch (aiError) {
-      console.warn('[Gemini invoice extraction failed]:', aiError);
-    }
-  }
-
-  if (aiConfig?.key && aiConfig.provider === 'groq') {
-    try {
-      const prompt = `You are a clinical pharmacy invoicing AI.
-Extract pharmaceutical items from this invoice OCR text into JSON with 3 packaging tiers and MRP.
-CRITICAL RULES:
-1. ONLY extract medicines, tablets, syrups, drops, sachets, injections (e.g. Gaviscon, Disprin, High-C, Onset, Relaxin).
-2. NEVER extract telephone numbers, addresses, tax lines, or header numbers as medicines (e.g. ignore "Tel 35943213", "Advance I.T U/S 236", "NTN", "Total For Invoice").
-3. Clean distributor item codes from product names (e.g. change "260-GAVISCON LIQUID 120ML" to "Gaviscon Liquid 120ml").
-4. Packaging tiers:
-   - boxesReceived: number of boxes/packs received (e.g. 2, 3, 10).
-   - packSize: the printed pack specification (e.g. "100'S", "30'S", "1X10'S", "120ML").
-5. Pricing:
-   - purchasePrice: unit cost rate per box/pack.
-   - mrp: printed Maximum Retail Price / Retail price.
-6. Normalize expiry date to YYYY-MM-DD.
-
-Return JSON only:
-{
-  "supplierName": string,
-  "invoiceNumber": string,
-  "purchaseDate": "YYYY-MM-DD",
+const INVOICE_JSON_SHAPE = `{
+  "supplierName": string | null,        // the distributor that issued the invoice (top of the page)
+  "invoiceNumber": string | null,       // the value after "Invoice #" / "Invoice No" ONLY (not Sale Order, not DSS Id)
+  "invoiceDate": string | null,         // invoice date exactly as printed, e.g. "09/11/2026"
+  "printedNetTotal": number | null,     // "Net Total" / "Grand Total" amount
+  "printedItemCount": number | null,    // "Total Items : N" if printed
   "items": [
     {
-      "productName": string,
-      "packSize": string,
-      "batchNumber": string,
-      "expiryDate": "YYYY-MM-DD",
-      "mfgDate": "YYYY-MM-DD" or null,
-      "boxesReceived": number,
-      "purchasePrice": number,
-      "mrp": number or null,
-      "bonusQuantity": number,
-      "lineTotal": number
+      "productName": string,            // item name exactly as printed, e.g. "007/Clobevate Cream 1x20G 20gm"
+      "packSize": string | null,        // pack text if printed separately, e.g. "1x10'S", "100'S", "120ML"
+      "manufacturer": string | null,    // company group heading above the item, e.g. "GSK"
+      "batchNumber": string | null,     // Batch No. column
+      "expiryDate": string | null,      // Expiry column exactly as printed, e.g. "31/07/2028" or "07/2028"
+      "mfgDate": string | null,
+      "quantity": number | null,        // Qty column (number of packs/boxes invoiced)
+      "bonusQuantity": number | null,   // Bonus column (free packs), null if "-" or blank
+      "rate": number | null,            // Rate / trade price per pack
+      "discountPercent": number | null, // Disc % column
+      "lineTotal": number | null,       // Net Amount of that line
+      "mrp": number | null,             // retail price / MRP ONLY if a separate column prints it
+      "confidence": number              // 0..1, how sure you are that this row was read correctly
     }
   ]
+}`;
+
+const EXTRACTION_RULES = `You read Pakistani pharmaceutical distributor sale invoices (e.g. "Sale Invoice" printed by
+distribution software) for a pharmacy's stock receiving screen. Accuracy matters more than completeness:
+the pharmacy admin will review every value, so NEVER guess.
+
+Rules:
+1. Items are ONLY the rows of the product table, between the column header row
+   (Sr. / Item Name / Batch No. / Expiry Date / Qty / Bonus / Rate / Gross / Disc / Net Amount) and the
+   "Total For Invoice" line. Everything else is NOT an item.
+2. NEVER return these as items: Invoice #, Sale Order #, DSS Id, Booking Man, Delivery Man, Due Date,
+   Reference No, Customer, Region, Phone, Address, Plot/Street, License, NTN, GST, CNIC, Filer, MOP, SPO,
+   Ship To, Remarks, company group headings like "33 / GSK", "Total For ...", Gross Amount, Discount Amount,
+   Advance WHTax, Sub Total, Net Total, warranty text, "Printed By", software footer.
+3. Copy batch numbers and dates character-for-character. If a value is unreadable, blurred or absent,
+   return null for it. Do not invent batch numbers, expiry dates, quantities or prices.
+4. Numbers must be plain numbers (no commas, no "Rs").
+5. If the page has no product rows you can read, return "items": [].
+Return ONLY a JSON object with this shape:
+${INVOICE_JSON_SHAPE}`;
+
+function stripJsonFences(text: string): string {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const body = fenced ? fenced[1] : text;
+  const start = body.indexOf('{');
+  const end = body.lastIndexOf('}');
+  return start >= 0 && end > start ? body.slice(start, end + 1) : body;
 }
 
-Invoice text to extract:
-${extractedText.slice(0, 8000)}`;
+type AiImage = { base64: string; mimeType: string };
 
-      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${aiConfig.key}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [{ role: 'user', content: prompt }],
-          response_format: { type: 'json_object' },
-          temperature: 0.1
-        }),
-        signal: AbortSignal.timeout(20_000)
-      });
+async function callGroq(key: string, model: string, content: unknown, jsonMode: boolean): Promise<string> {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content }],
+      ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+      temperature: 0,
+      max_completion_tokens: 4096
+    }),
+    signal: AbortSignal.timeout(45_000)
+  });
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => '')).slice(0, 200);
+    throw Object.assign(new Error(`Groq ${model} failed with HTTP ${res.status}${detail ? `: ${detail}` : ''}`), { status: res.status });
+  }
+  const body = (await res.json()) as any;
+  const text = body?.choices?.[0]?.message?.content;
+  if (typeof text !== 'string' || !text.trim()) throw new Error(`Groq ${model} returned an empty answer`);
+  return text;
+}
 
-      if (groqRes.ok) {
-        const groqJson = (await groqRes.json()) as any;
-        const aiOutput = groqJson?.choices?.[0]?.message?.content;
-        if (aiOutput) {
-          const parsed = JSON.parse(aiOutput);
-          const rawItems = Array.isArray(parsed?.items) ? parsed.items : [];
-          if (rawItems.length > 0) {
-            return autoMatchAndRegisterCatalog({
-              supplierName: nullableString(parsed?.supplierName),
-              invoiceNumber: nullableString(parsed?.invoiceNumber),
-              purchaseDate: nullableString(parsed?.purchaseDate),
-              warrantyText: null,
-              items: rawItems
-            });
-          }
-        }
-      }
-    } catch (groqErr) {
-      console.warn('[Groq 70B extraction failed]:', groqErr);
+async function callGemini(key: string, model: string, parts: unknown[]): Promise<string> {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+    body: JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: { responseMimeType: 'application/json', temperature: 0 }
+    }),
+    signal: AbortSignal.timeout(45_000)
+  });
+  if (!res.ok) throw new Error(`Gemini ${model} failed with HTTP ${res.status}`);
+  const body = (await res.json()) as any;
+  const text = (body?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || '').join('');
+  if (!text.trim()) throw new Error(`Gemini ${model} returned an empty answer`);
+  return text;
+}
+
+/** Sends the invoice photo(s) straight to a vision model - far more accurate than OCR on phone photos. */
+async function aiExtractFromImages(ai: { provider: AiProvider; key: string }, images: AiImage[]): Promise<unknown> {
+  const { vision } = getAiModels(ai.provider);
+  const prompt = `${EXTRACTION_RULES}\n\nThe invoice photo(s) follow. Read the printed table carefully, row by row.`;
+  if (ai.provider === 'groq') {
+    const content = [
+      { type: 'text', text: prompt },
+      ...images.slice(0, 5).map(img => ({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.base64}` } }))
+    ];
+    try {
+      return JSON.parse(stripJsonFences(await callGroq(ai.key, vision, content, true)));
+    } catch (err: any) {
+      // Some vision models reject JSON mode together with images; retry once in plain mode.
+      if (err?.status !== 400) throw err;
+      return JSON.parse(stripJsonFences(await callGroq(ai.key, vision, content, false)));
     }
   }
+  const parts = [{ text: prompt }, ...images.slice(0, 5).map(img => ({ inline_data: { mime_type: img.mimeType, data: img.base64 } }))];
+  return JSON.parse(stripJsonFences(await callGemini(ai.key, vision, parts)));
+}
 
-  // Local Parser Fallback
-  const localDraft = parseInvoiceText(extractedText);
-  return autoMatchAndRegisterCatalog({
-    supplierName: localDraft.supplierNameRaw,
-    invoiceNumber: localDraft.invoiceNumberRaw,
-    purchaseDate: localDraft.invoiceDateRaw,
-    warrantyText: localDraft.warrantyText,
-    items: localDraft.items.map(it => ({
+async function aiExtractFromText(ai: { provider: AiProvider; key: string }, text: string): Promise<unknown> {
+  const { text: model } = getAiModels(ai.provider);
+  const prompt = `${EXTRACTION_RULES}\n\nThe text below came from OCR of the invoice, so columns may be jumbled and
+characters misread (O/0, I/1, S/5). Only return values you can tie to a product row.\n\nInvoice OCR text:\n${text.slice(0, 12000)}`;
+  const answer = ai.provider === 'groq'
+    ? await callGroq(ai.key, model, prompt, true)
+    : await callGemini(ai.key, model, [{ text: prompt }]);
+  return JSON.parse(stripJsonFences(answer));
+}
+
+/** Shrinks phone photos so they fit provider limits (Groq: 4MB base64) and upload quickly. */
+async function prepareImageForAi(buffer: Buffer, mimeType: string): Promise<AiImage> {
+  try {
+    const { Jimp } = await import('jimp');
+    const img = await Jimp.read(buffer);
+    const MAX = 2000;
+    if (img.bitmap.width > MAX || img.bitmap.height > MAX) img.scaleToFit({ w: MAX, h: MAX });
+    const jpeg = await img.getBuffer('image/jpeg', { quality: 85 });
+    return { base64: Buffer.from(jpeg).toString('base64'), mimeType: 'image/jpeg' };
+  } catch {
+    return { base64: buffer.toString('base64'), mimeType: mimeType || 'image/jpeg' };
+  }
+}
+
+function localDraftToRaw(draft: ParsedInvoiceDraft): RawExtractedInvoice {
+  return {
+    supplierName: draft.supplierNameRaw,
+    invoiceNumber: draft.invoiceNumberRaw,
+    invoiceDate: draft.invoiceDateRaw,
+    printedNetTotal: draft.printedTotalRaw,
+    printedItemCount: null,
+    items: draft.items.map(it => ({
       productName: it.productNameRaw,
+      packSize: null,
+      manufacturer: null,
       batchNumber: it.batchNumber,
       expiryDate: it.expiryDate,
       mfgDate: it.mfgDate,
-      boxesReceived: it.boxesReceived,
-      purchasePrice: it.supplierPurchaseRate,
-      mrp: null,
+      quantity: it.boxesReceived,
       bonusQuantity: it.bonusQuantityRaw,
-      lineTotal: it.lineTotalRaw
+      rate: it.supplierPurchaseRate || null,
+      discountPercent: it.lineDiscountRaw,
+      lineTotal: it.lineTotalRaw,
+      mrp: null,
+      // The local parser is a rough line splitter; every line it produces needs a human check.
+      confidence: 0.3
     }))
+  };
+}
+
+/**
+ * Reads an invoice (photos and/or PDF pages) and returns a REVIEW DRAFT for the admin.
+ * Nothing is written to the database here.
+ */
+export async function quickAiExtractInvoice(files: Array<{ buffer: Buffer; mimeType: string }>): Promise<ReviewDraft> {
+  if (files.length === 0) throw new Error('Please select an invoice image or PDF');
+
+  const images: AiImage[] = [];
+  const embeddedTexts: string[] = [];
+  const rawImageBuffers: Buffer[] = [];
+
+  for (const file of files.slice(0, 10)) {
+    if (file.mimeType === 'application/pdf') {
+      const pages = await extractPdfPages(file.buffer);
+      for (const page of pages) {
+        if (page.embeddedText) embeddedTexts.push(page.embeddedText);
+        else if (page.renderedImage) {
+          rawImageBuffers.push(page.renderedImage);
+          images.push(await prepareImageForAi(page.renderedImage, 'image/png'));
+        }
+      }
+    } else if (file.mimeType.startsWith('image/')) {
+      rawImageBuffers.push(file.buffer);
+      images.push(await prepareImageForAi(file.buffer, file.mimeType));
+    } else {
+      throw new Error(`Unsupported file type ${file.mimeType}. Upload a photo (JPG/PNG) or a PDF.`);
+    }
+  }
+
+  const ai = getAiApiKey();
+  const warnings: string[] = [];
+
+  if (ai) {
+    // 1. Vision: the model sees the actual photo (columns intact, no OCR noise).
+    if (images.length > 0 && embeddedTexts.length === 0) {
+      try {
+        const raw = normalizeAiInvoice(await aiExtractFromImages(ai, images));
+        if (raw.items.length > 0) {
+          return buildReviewDraft(raw, { extractionMethod: 'AI_VISION', aiProvider: ai.provider, warnings });
+        }
+      } catch (err) {
+        console.warn('[invoice-ai] vision extraction failed, falling back to OCR text:', err);
+      }
+    }
+
+    // 2. Text: OCR (or embedded PDF text) structured by the text model.
+    try {
+      const ocrTexts: string[] = [];
+      for (const buf of rawImageBuffers) ocrTexts.push(await ocrImageBuffer(buf));
+      const text = [...embeddedTexts, ...ocrTexts].join('\n\n');
+      if (text.trim().length >= 5) {
+        const raw = normalizeAiInvoice(await aiExtractFromText(ai, text));
+        if (raw.items.length > 0) {
+          return buildReviewDraft(raw, { extractionMethod: 'AI_TEXT', aiProvider: ai.provider, warnings });
+        }
+      }
+    } catch (err) {
+      console.warn('[invoice-ai] text extraction failed, falling back to local parser:', err);
+    }
+    warnings.push(`The ${ai.provider === 'groq' ? 'Groq' : 'Gemini'} AI could not read this invoice (check the API key/quota in the server logs). A basic local reader was used instead - check every line carefully.`);
+  } else {
+    warnings.push('No AI key is configured on the server (GROQ_API_KEY or GEMINI_API_KEY), so a basic local reader was used. Check every line carefully.');
+  }
+
+  // 3. Local fallback: Tesseract OCR + line parser.
+  const ocrTexts: string[] = [];
+  for (const buf of rawImageBuffers) ocrTexts.push(await ocrImageBuffer(buf));
+  const combined = [...embeddedTexts, ...ocrTexts].join('\n\n');
+  if (combined.trim().length < 5) {
+    throw new Error('Could not read text from this image. Please ensure the invoice is flat, well-lit and in focus.');
+  }
+  const localDraft = parseInvoiceText(combined);
+  return buildReviewDraft(localDraftToRaw(localDraft), {
+    extractionMethod: 'LOCAL_PARSER',
+    aiProvider: null,
+    warnings,
+    rawNotes: localDraft.warrantyText
   });
 }

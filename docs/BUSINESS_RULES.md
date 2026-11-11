@@ -28,3 +28,12 @@
   - Cash sales automatically post to `cashbook_entries` with category `SALE`.
   - Credit sales automatically post to `customer_ledgers` as a `DEBIT` to the customer's balance.
   - Supplier purchases on credit post to `supplier_ledgers` as a `CREDIT` payable.
+
+## 4. Purchases & Inward Stock
+- **One batch row per medicine + batch number**: receiving a batch that is already in stock adds to it; a different batch number creates a separate batch so FEFO stays correct.
+- **Batch expiry conflicts are never silently overwritten**: the same batch with a different expiry is refused unless the admin explicitly confirms the correction.
+- **No duplicate invoices**: the same supplier invoice number cannot be posted twice.
+- **No expired receipts**: expiry must be after the purchase date.
+- **Scanner is read-only**: invoice scanning/AI never creates suppliers, medicines or batches. They are created only when the admin saves the reviewed purchase, inside the same transaction.
+- **Never invent data**: batch numbers, expiry dates and invoice numbers that cannot be read are left empty for the admin to enter.
+

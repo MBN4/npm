@@ -1,6 +1,12 @@
 # NMP Known Issues & Limitations
 
-## Current limitations — 2026-11-05
+## Current limitations — 2026-11-11
+
+- **AI Stock Inward needs a server-side key:** set `GROQ_API_KEY` (or `GEMINI_API_KEY`) on the server (Fly secret for the live site). Without it, or when the AI call fails, a basic local reader is used and the review screen says so in yellow. The AI vision model can still misread a blurred or folded photo, which is why every line is shown for review and batch/expiry are never invented.
+- **Junk records from the old scanner:** before 2026-11-11 the scanner added suppliers and medicines automatically while reading an invoice (e.g. medicines named "Sale Order #…", "DSS Id : …", "EE sihid THR Plot No. 36 Street" and a supplier like "fe) - A ARIS Paaris Distributors - Lahore"). The new code no longer does this, but rows already created on the live database remain. Deactivate them in Medicines Master / Suppliers. If any stock was saved against them, adjust it from Inventory first.
+- **Catalog packing for single-unit products:** many imported creams/syrups have `pack_size = 10` (a carton), while distributors invoice single tubes/bottles. The review screen asks "boxes of 10, or single units?" for these lines; correcting the product's packing in Medicines Master removes the question.
+
+## Earlier limitations — 2026-11-05
 
 - **Direct hardware printing requires a running print bridge:** the live/cloud site cannot reach
   a USB printer by itself. The PC the printer is physically attached to must run

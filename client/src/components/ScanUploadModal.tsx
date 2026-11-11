@@ -20,7 +20,7 @@ export const ScanUploadModal: React.FC<ScanUploadModalProps> = ({ title, scanId,
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isGeminiActive, setIsGeminiActive] = useState(false);
+  const [aiProvider, setAiProvider] = useState<string | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -29,8 +29,8 @@ export const ScanUploadModal: React.FC<ScanUploadModalProps> = ({ title, scanId,
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(res => res.json())
-      .then(data => setIsGeminiActive(Boolean(data.geminiEnabled)))
-      .catch(() => setIsGeminiActive(false));
+      .then(data => setAiProvider(data.aiEnabled || data.geminiEnabled ? (data.provider || 'gemini') : null))
+      .catch(() => setAiProvider(null));
   }, [token]);
 
   const addFiles = (list: FileList | null) => {
@@ -94,10 +94,10 @@ export const ScanUploadModal: React.FC<ScanUploadModalProps> = ({ title, scanId,
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Camera size={20} style={{ color: 'var(--primary)' }} />
             <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{title || 'Scan Invoice'}</h3>
-            {isGeminiActive && (
+            {aiProvider && (
               <span className="badge badge-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.7rem' }}>
                 <Sparkles size={11} />
-                <span>Gemini API configured</span>
+                <span>AI reader configured ({aiProvider === 'groq' ? 'Groq' : 'Gemini'})</span>
               </span>
             )}
           </div>

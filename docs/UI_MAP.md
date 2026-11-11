@@ -7,7 +7,7 @@
   - `POS` (`/pos`) -> Fast cashier counter, camera & hardware barcode search, FEFO, held bills, returns, WhatsApp receipt
   - `Medicines` (`/medicines`) -> Catalog master, generics, categories, manufacturers, rack locations
   - `Inventory` (`/inventory`) -> Batch tracker, stock movements, audited adjustments, valuation, medicine/product and batch editing
-  - `Purchases` (`/purchases`) -> Inward orders, batch entry, purchase returns, supplier price comparison
+  - `Purchases` (`/purchases`) -> Inward orders, batch entry, AI Stock Inward (invoice photo → review questions → stock), purchase returns, supplier price comparison
   - `Suppliers` (`/suppliers`) -> Profiles, ledgers, payables, payment terms
   - `Barcode` (`/barcode`) -> Dedicated Barcode Center (Scanner Hub, Camera stream, Barcode & QR Label Generator, Printable sheets)
   - `Pharma Dictionary` (`/dictionary`) -> Searchable drug monographs, indications, adult/pediatric doses, precautions, food timing
