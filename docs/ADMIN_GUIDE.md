@@ -72,7 +72,7 @@ Navigate to **Users & Roles**:
    - **Advance Tax / Other Charges** is pre-filled with the small difference between the line totals and the printed net total (e.g. WHT u/s 236H) so the supplier balance matches the invoice.
 5. Save. The result message says how many new batches were created, how many existing batches were topped up, and how many new medicines were added.
 
-**Configuring the AI key** (server side only, never in the browser): set `GROQ_API_KEY` (or `GEMINI_API_KEY`) in `server/.env`, or on the cloud server with `fly secrets set GROQ_API_KEY=... -a nmp-api`. Optional overrides: `GROQ_VISION_MODEL`, `GROQ_TEXT_MODEL`, `GEMINI_MODEL`. `GET /api/purchases/scans/ai-status` shows which provider is active (the key itself is never returned).
+**Configuring the AI key** (server side only, never in the browser): set `GROQ_API_KEY` (or `GEMINI_API_KEY`) in `server/.env`, or on the cloud server with `fly secrets set GROQ_API_KEY=... -a nmp-api`. The server picks the best Groq model your key can use automatically (the list is printed in the server log as `[invoice-ai] Groq models available to this key: ...`). Optional overrides: `GROQ_VISION_MODEL`, `GROQ_TEXT_MODEL`, `GEMINI_MODEL`. If the banner shows "Basic local reader", it also shows the reason (key rejected, usage limit, no usable model). `GET /api/purchases/scans/ai-status` shows which provider is active (the key itself is never returned).
 
 ---
 

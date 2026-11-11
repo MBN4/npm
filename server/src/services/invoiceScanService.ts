@@ -537,35 +537,110 @@ async function callGemini(key: string, model: string, parts: unknown[]): Promise
   return text;
 }
 
+// ---- Groq model discovery -------------------------------------------------------------------
+// Groq retires model names regularly, and not every key can use every model. Instead of trusting a
+// fixed name, ask Groq which models this key can use and pick the best match from that list.
+const GROQ_VISION_PREFERENCE = [/llama-4-scout/i, /llama-4-maverick/i, /vision/i, /(^|[-/])vl($|[-/])/i, /qwen.*vl/i, /gemma-?3/i, /pixtral/i];
+const GROQ_TEXT_PREFERENCE = [/llama-3\.3-70b/i, /gpt-oss-120b/i, /llama-4-maverick/i, /kimi-k2/i, /qwen3?-?32b/i, /llama-4-scout/i, /gpt-oss-20b/i, /70b/i, /llama/i];
+const GROQ_NOT_CHAT = /whisper|tts|playai|guard|distil|embed|orpheus|compound|safeguard/i;
+
+let groqModelCache: { key: string; at: number; ids: string[] } | null = null;
+
+async function listGroqModels(key: string): Promise<string[]> {
+  if (groqModelCache && groqModelCache.key === key && Date.now() - groqModelCache.at < 30 * 60 * 1000) return groqModelCache.ids;
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/models', {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(10_000)
+    });
+    if (!res.ok) {
+      console.warn(`[invoice-ai] could not list Groq models (HTTP ${res.status}) - check that GROQ_API_KEY is a valid Groq key`);
+      return [];
+    }
+    const body = (await res.json()) as any;
+    const ids: string[] = (Array.isArray(body?.data) ? body.data : [])
+      .filter((m: any) => m && typeof m.id === 'string' && m.active !== false && !GROQ_NOT_CHAT.test(m.id))
+      .map((m: any) => m.id);
+    groqModelCache = { key, at: Date.now(), ids };
+    console.log(`[invoice-ai] Groq models available to this key: ${ids.join(', ') || '(none)'}`);
+    return ids;
+  } catch (err) {
+    console.warn('[invoice-ai] could not list Groq models:', err);
+    return [];
+  }
+}
+
+/** Ordered model names to try: the configured/default name first, then the best available matches. */
+async function groqCandidates(key: string, kind: 'vision' | 'text'): Promise<string[]> {
+  const configured = getAiModels('groq')[kind];
+  const available = await listGroqModels(key);
+  if (available.length === 0) return [configured];
+  const ordered: string[] = [];
+  if (available.includes(configured)) ordered.push(configured);
+  for (const pattern of kind === 'vision' ? GROQ_VISION_PREFERENCE : GROQ_TEXT_PREFERENCE) {
+    for (const id of available) if (pattern.test(id) && !ordered.includes(id)) ordered.push(id);
+  }
+  return ordered.slice(0, 3);
+}
+
+/** Tries each candidate model; moves on when a model is missing/retired (404) or rejects the request (400). */
+async function callGroqWithFallback(key: string, kind: 'vision' | 'text', content: unknown): Promise<unknown> {
+  const candidates = await groqCandidates(key, kind);
+  if (candidates.length === 0) throw new Error(`No Groq ${kind} model is available to this API key`);
+  let lastError: unknown = null;
+  for (const model of candidates) {
+    try {
+      return JSON.parse(stripJsonFences(await callGroq(key, model, content, true)));
+    } catch (err: any) {
+      lastError = err;
+      if (err?.status === 400) {
+        // Some models reject JSON mode (especially together with images); retry once in plain mode.
+        try {
+          return JSON.parse(stripJsonFences(await callGroq(key, model, content, false)));
+        } catch (retryErr) {
+          lastError = retryErr;
+        }
+      }
+      // Wrong key / out of quota will fail the same way on every model - stop early.
+      if (err?.status === 401 || err?.status === 403 || err?.status === 429) break;
+      console.warn(`[invoice-ai] Groq model ${model} failed, trying next:`, err?.message || err);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 /** Sends the invoice photo(s) straight to a vision model - far more accurate than OCR on phone photos. */
 async function aiExtractFromImages(ai: { provider: AiProvider; key: string }, images: AiImage[]): Promise<unknown> {
-  const { vision } = getAiModels(ai.provider);
   const prompt = `${EXTRACTION_RULES}\n\nThe invoice photo(s) follow. Read the printed table carefully, row by row.`;
   if (ai.provider === 'groq') {
     const content = [
       { type: 'text', text: prompt },
       ...images.slice(0, 5).map(img => ({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.base64}` } }))
     ];
-    try {
-      return JSON.parse(stripJsonFences(await callGroq(ai.key, vision, content, true)));
-    } catch (err: any) {
-      // Some vision models reject JSON mode together with images; retry once in plain mode.
-      if (err?.status !== 400) throw err;
-      return JSON.parse(stripJsonFences(await callGroq(ai.key, vision, content, false)));
-    }
+    return callGroqWithFallback(ai.key, 'vision', content);
   }
+  const { vision } = getAiModels(ai.provider);
   const parts = [{ text: prompt }, ...images.slice(0, 5).map(img => ({ inline_data: { mime_type: img.mimeType, data: img.base64 } }))];
   return JSON.parse(stripJsonFences(await callGemini(ai.key, vision, parts)));
 }
 
 async function aiExtractFromText(ai: { provider: AiProvider; key: string }, text: string): Promise<unknown> {
-  const { text: model } = getAiModels(ai.provider);
   const prompt = `${EXTRACTION_RULES}\n\nThe text below came from OCR of the invoice, so columns may be jumbled and
 characters misread (O/0, I/1, S/5). Only return values you can tie to a product row.\n\nInvoice OCR text:\n${text.slice(0, 12000)}`;
-  const answer = ai.provider === 'groq'
-    ? await callGroq(ai.key, model, prompt, true)
-    : await callGemini(ai.key, model, [{ text: prompt }]);
-  return JSON.parse(stripJsonFences(answer));
+  if (ai.provider === 'groq') return callGroqWithFallback(ai.key, 'text', prompt);
+  const { text: model } = getAiModels(ai.provider);
+  return JSON.parse(stripJsonFences(await callGemini(ai.key, model, [{ text: prompt }])));
+}
+
+/** Short, key-free reason for the admin when the AI could not be used. */
+function describeAiFailure(err: unknown): string {
+  const status = (err as any)?.status;
+  const message = String((err as any)?.message || err || '');
+  if (status === 401 || status === 403) return 'the API key was rejected - check GROQ_API_KEY / GEMINI_API_KEY';
+  if (status === 429) return 'the AI usage limit was reached - try again later';
+  if (status === 404 || /model_not_found|does not exist/i.test(message)) return 'no usable AI model is available to this key';
+  if (/timeout|aborted/i.test(message)) return 'the AI took too long to answer';
+  return 'the AI answer could not be used';
 }
 
 /** Shrinks phone photos so they fit provider limits (Groq: 4MB base64) and upload quickly. */
@@ -639,6 +714,7 @@ export async function quickAiExtractInvoice(files: Array<{ buffer: Buffer; mimeT
 
   const ai = getAiApiKey();
   const warnings: string[] = [];
+  let aiFailure: unknown = null;
 
   if (ai) {
     // 1. Vision: the model sees the actual photo (columns intact, no OCR noise).
@@ -649,6 +725,7 @@ export async function quickAiExtractInvoice(files: Array<{ buffer: Buffer; mimeT
           return buildReviewDraft(raw, { extractionMethod: 'AI_VISION', aiProvider: ai.provider, warnings });
         }
       } catch (err) {
+        aiFailure = err;
         console.warn('[invoice-ai] vision extraction failed, falling back to OCR text:', err);
       }
     }
@@ -665,9 +742,10 @@ export async function quickAiExtractInvoice(files: Array<{ buffer: Buffer; mimeT
         }
       }
     } catch (err) {
+      aiFailure = err;
       console.warn('[invoice-ai] text extraction failed, falling back to local parser:', err);
     }
-    warnings.push(`The ${ai.provider === 'groq' ? 'Groq' : 'Gemini'} AI could not read this invoice (check the API key/quota in the server logs). A basic local reader was used instead - check every line carefully.`);
+    warnings.push(`The ${ai.provider === 'groq' ? 'Groq' : 'Gemini'} AI could not read this invoice (${aiFailure ? describeAiFailure(aiFailure) : 'it found no medicine lines'}). A basic local reader was used instead - check every line carefully.`);
   } else {
     warnings.push('No AI key is configured on the server (GROQ_API_KEY or GEMINI_API_KEY), so a basic local reader was used. Check every line carefully.');
   }

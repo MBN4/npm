@@ -225,7 +225,12 @@ purchaseRouter.post('/', authenticateToken, requirePermission('create_purchases'
 
       items.forEach((item: any, index: number) => {
         const lineLabel = `Item #${index + 1}`;
-        const boxesReceived = Number(item.boxesReceived) || Number(item.boxes) || 1;
+        // 0 paid boxes is valid for a bonus-only (free goods) line; older callers that send no box
+        // count at all keep the previous default of 1 box with an explicit unit quantity.
+        const explicitBoxes = item.boxesReceived ?? item.boxes;
+        const boxesReceived = explicitBoxes !== undefined && explicitBoxes !== null && explicitBoxes !== '' && Number.isFinite(Number(explicitBoxes))
+          ? Math.max(0, Number(explicitBoxes))
+          : 1;
         const stripsPerBox = Math.max(1, Math.round(Number(item.stripsPerBox) || Number(item.blistersPerBox) || 1));
         const unitsPerStrip = Math.max(1, Math.round(Number(item.unitsPerStrip) || Number(item.tabsPerBlister) || 1));
         const unitsPerBox = stripsPerBox * unitsPerStrip;
@@ -289,7 +294,9 @@ purchaseRouter.post('/', authenticateToken, requirePermission('create_purchases'
           ? Math.round(quantityUnits)
           : Math.round(boxesReceived * unitsPerBox);
         const bonusUnits = Math.max(0, Math.round(Number(item.bonusQuantity) || 0));
-        if (totalSellableUnits <= 0) throw new PurchaseValidationError(`${medLabel}: quantity must be greater than zero`);
+        if (totalSellableUnits < 0 || totalSellableUnits + bonusUnits <= 0) {
+          throw new PurchaseValidationError(`${medLabel}: quantity (or bonus) must be greater than zero`);
+        }
 
         const boxCost = Number(item.confirmedPurchaseCostPerBox) || Number(item.purchasePrice) || 0;
         const boxMrp = Number(item.printedMrpPerBox) || Number(item.mrp) || Number(item.salePrice) || Number((boxCost * 1.25).toFixed(2));
