@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import { app } from '../index.js';
 import { db } from '../db/index.js';
@@ -63,6 +63,11 @@ describe('Invoice review helpers', () => {
     expect(normalizeDate('JUL-28')).toBe('2028-07-31');
     expect(normalizeDate('2028-02-30')).toBeNull();
     expect(normalizeDate('garbage')).toBeNull();
+    // Separators lost by the PDF's OCR text layer (seen on a real Babar Medicine invoice).
+    expect(normalizeDate('010128')).toBe('2028-01-01');
+    expect(normalizeDate('01012028')).toBe('2028-01-01');
+    expect(normalizeDate('311328')).toBeNull();
+    expect(normalizeDate('12345')).toBeNull();
   });
 
   it('strips distributor item codes and pack tokens from product names', () => {
@@ -411,4 +416,72 @@ describe('Manual spelling correction (re-match a corrected name)', () => {
     expect(unknown.body.supplierCandidates).toEqual([]);
     expect(counts()).toEqual(before);
   });
+});
+
+describe('Scanned Invoice Archive uses the AI reader (not just the regex parser)', () => {
+  const createdScanIds: number[] = [];
+  afterAll(async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    for (const id of createdScanIds) {
+      db.prepare('DELETE FROM purchase_invoice_warranty_attachments WHERE scan_id = ?').run(id);
+      db.prepare('DELETE FROM purchase_invoice_scans WHERE id = ?').run(id);
+      fs.rmSync(path.resolve(process.cwd(), 'data/attachments/purchase-scans', String(id)), { recursive: true, force: true });
+    }
+  });
+
+  async function whitePng() {
+    const { Jimp } = await import('jimp');
+    return Buffer.from(await new Jimp({ width: 40, height: 40, color: 0xffffffff }).getBuffer('image/png'));
+  }
+
+  it('turns the AI reading into clean draft lines: no header junk, medicine suggested, supplier read', async () => {
+    process.env.GROQ_API_KEY = 'test-key-archive';
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).endsWith('/openai/v1/models')) return new Response(JSON.stringify({ data: [{ id: 'meta-llama/llama-4-scout-17b-16e-instruct', active: true }] }), { status: 200 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(paarisAiOutput) } }] }), { status: 200 });
+    }));
+
+    const res = await request(app).post('/api/purchases/scans').set('Authorization', `Bearer ${adminToken}`)
+      .attach('files', await whitePng(), { filename: 'invoice.png', contentType: 'image/png' });
+    expect(res.status).toBe(201);
+    expect(res.body.extractionMethod).toBe('AI_VISION');
+    createdScanIds.push(res.body.scanId);
+
+    const detail = await request(app).get(`/api/purchases/scans/${res.body.scanId}`).set('Authorization', `Bearer ${adminToken}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.scan.invoice_number_raw).toBe('1448129');
+    expect(detail.body.scan.supplier_name_raw).toBe('Paaris Distributors - Lahore');
+    expect(detail.body.scan.invoice_date_raw).toBe('2026-11-09');
+    expect(detail.body.scan.printed_total_raw).toBe(1116);
+    expect(detail.body.items).toHaveLength(1);
+    const item = detail.body.items[0];
+    expect(item).toMatchObject({
+      product_name_raw: '007/Clobevate Cream 1x20G 20gm',
+      batch_number: 'AX2K', expiry_date: '2028-07-31', boxes_received: 6,
+      supplier_purchase_rate: 185.05, line_total_raw: 1115.85, match_status: 'SUGGESTED'
+    });
+    expect(item.matched_brand_name).toBe('CLOBEVATE');
+    // Nothing the admin has not confirmed: packing / MRP / sale price stay blank (commit still blocks on them).
+    expect(item.printed_mrp_per_box).toBeNull();
+    expect(item.strips_per_box).toBeNull();
+    const check = await request(app).get(`/api/purchases/scans/${res.body.scanId}/commit-check`).set('Authorization', `Bearer ${adminToken}`);
+    expect(check.body.blockers.some((b: string) => /MRP/i.test(b))).toBe(true);
+    // An AI-suggested catalog match must be confirmed by the admin before it can be posted to stock.
+    expect(check.body.blockers.some((b: string) => /confirm the catalog match suggested by the AI/i.test(b))).toBe(true);
+    const confirm = await request(app).put(`/api/purchases/scans/${res.body.scanId}/items/${item.id}`).set('Authorization', `Bearer ${adminToken}`).send({ medicineId: item.medicine_id, matchStatus: 'CONFIRMED' });
+    expect(confirm.status).toBe(200);
+    const after = await request(app).get(`/api/purchases/scans/${res.body.scanId}/commit-check`).set('Authorization', `Bearer ${adminToken}`);
+    expect(after.body.blockers.some((b: string) => /confirm the catalog match suggested by the AI/i.test(b))).toBe(false);
+  });
+
+  it('still creates the draft with the local reader when the AI call fails', async () => {
+    process.env.GROQ_API_KEY = 'test-key-archive-fail';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 401 })));
+    const res = await request(app).post('/api/purchases/scans').set('Authorization', `Bearer ${adminToken}`)
+      .attach('files', await whitePng(), { filename: 'invoice.png', contentType: 'image/png' });
+    expect(res.status).toBe(201);
+    expect(res.body.extractionMethod).toBe('LOCAL_PARSER');
+    createdScanIds.push(res.body.scanId);
+  }, 60_000);
 });

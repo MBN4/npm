@@ -8,7 +8,7 @@ import { authenticateToken, requirePermission, AuthenticatedRequest } from '../m
 import { logAudit } from '../services/auditService.js';
 import { triggerAutoSync } from '../services/gitSyncService.js';
 import { rematchInvoiceLine, rematchSupplier } from '../services/invoiceReviewService.js';
-import { scanInvoiceFiles, quickAiExtractInvoice, ParsedInvoiceLineItem, getAiApiKey, getAiModels } from '../services/invoiceScanService.js';
+import { scanInvoiceFilesWithAi, quickAiExtractInvoice, ParsedInvoiceLineItem, getAiApiKey, getAiModels } from '../services/invoiceScanService.js';
 
 export const purchaseInvoiceScanRouter = Router();
 
@@ -50,8 +50,8 @@ function insertScanItems(scanId: number, items: ParsedInvoiceLineItem[]) {
       scan_id, line_number, product_name_raw, strength_raw, dosage_form_raw,
       batch_number, expiry_date, mfg_date, boxes_received, supplier_purchase_rate,
       rate_basis, line_discount_raw, line_tax_raw, line_total_raw, bonus_quantity_raw,
-      flagged_unclear, flag_reason, handwritten_flag
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      flagged_unclear, flag_reason, handwritten_flag, medicine_id, match_status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const item of items) {
     if (!item.productNameRaw) continue;
@@ -73,7 +73,9 @@ function insertScanItems(scanId: number, items: ParsedInvoiceLineItem[]) {
       item.bonusQuantityRaw,
       item.flaggedUnclear ? 1 : 0,
       item.flagReason,
-      item.handwrittenFlag ? 1 : 0
+      item.handwrittenFlag ? 1 : 0,
+      item.medicineId ?? null,
+      item.matchStatus ?? 'UNMATCHED'
     );
   }
 }
@@ -155,7 +157,7 @@ purchaseInvoiceScanRouter.post('/', authenticateToken, requirePermission('create
       insertPage.run(scanId, idx + 1, relativePath, file.mimetype);
     });
 
-    const { rawTextPerPage, parsed } = await scanInvoiceFiles(files.map(f => ({ buffer: f.buffer, mimeType: f.mimetype })));
+    const { rawTextPerPage, parsed, extractionMethod } = await scanInvoiceFilesWithAi(files.map(f => ({ buffer: f.buffer, mimeType: f.mimetype })));
 
     const updatePages = db.prepare(`UPDATE purchase_invoice_scan_pages SET ocr_text = ? WHERE scan_id = ? AND page_number = ?`);
     rawTextPerPage.forEach((text: string, idx: number) => updatePages.run(text, scanId, idx + 1));
@@ -171,7 +173,7 @@ purchaseInvoiceScanRouter.post('/', authenticateToken, requirePermission('create
       UPDATE purchase_invoice_scans SET
         supplier_name_raw = ?, invoice_number_raw = ?, invoice_date_raw = ?, document_type = ?,
         calculated_total = ?, printed_total_raw = ?, total_mismatch_flag = ?, raw_ocr_text = ?,
-        duplicate_of_scan_id = ?
+        duplicate_of_scan_id = ?, supplier_id = COALESCE(?, supplier_id)
       WHERE id = ?
     `).run(
       parsed.supplierNameRaw,
@@ -183,6 +185,7 @@ purchaseInvoiceScanRouter.post('/', authenticateToken, requirePermission('create
       (parsed.printedTotalRaw != null && parsed.calculatedTotal != null && Math.abs(parsed.printedTotalRaw - parsed.calculatedTotal) > 0.5) ? 1 : 0,
       parsed.rawText,
       existingInvoice?.id ?? null,
+      parsed.supplierId ?? null,
       scanId
     );
 
@@ -194,9 +197,9 @@ purchaseInvoiceScanRouter.post('/', authenticateToken, requirePermission('create
       `).run(scanId, parsed.warrantyText);
     }
 
-    logAudit({ userId: req.user?.id, action: 'CREATE_PURCHASE_SCAN', entity: 'PURCHASE_INVOICE_SCANS', entityId: scanId, newValues: { pageCount: files.length }, ipAddress: req.ip });
+    logAudit({ userId: req.user?.id, action: 'CREATE_PURCHASE_SCAN', entity: 'PURCHASE_INVOICE_SCANS', entityId: scanId, newValues: { pageCount: files.length, method: extractionMethod, itemCount: parsed.items.length }, ipAddress: req.ip });
 
-    res.status(201).json({ message: 'Invoice scanned. Review and confirm before committing.', scanId });
+    res.status(201).json({ message: 'Invoice scanned. Review and confirm before committing.', scanId, extractionMethod });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to process invoice scan' });
   }
@@ -225,9 +228,9 @@ purchaseInvoiceScanRouter.post('/:id/pages', authenticateToken, requirePermissio
       newPageNumbers.push(pageNumber);
     });
 
-    const { rawTextPerPage, parsed } = await scanInvoiceFiles(files.map(f => ({ buffer: f.buffer, mimeType: f.mimetype })));
+    const { rawTextPerPage, parsed } = await scanInvoiceFilesWithAi(files.map(f => ({ buffer: f.buffer, mimeType: f.mimetype })));
     const updatePages = db.prepare(`UPDATE purchase_invoice_scan_pages SET ocr_text = ? WHERE scan_id = ? AND page_number = ?`);
-    rawTextPerPage.forEach((text: string, idx: number) => updatePages.run(text, scanId, newPageNumbers[idx]));
+    rawTextPerPage.forEach((text: string, idx: number) => { if (newPageNumbers[idx] !== undefined) updatePages.run(text, scanId, newPageNumbers[idx]); });
 
     const { maxLine } = db.prepare('SELECT COALESCE(MAX(line_number), 0) as maxLine FROM purchase_invoice_scan_items WHERE scan_id = ?').get(scanId) as any;
     insertScanItems(scanId, parsed.items.map((item: ParsedInvoiceLineItem) => ({ ...item, lineNumber: maxLine + item.lineNumber })));
@@ -492,6 +495,7 @@ function findCommitBlockers(scan: any, items: any[]): string[] {
   for (const item of items) {
     const label = item.product_name_raw || `Line ${item.line_number}`;
     if (!item.medicine_id) { blockers.push(`${label}: product not matched to the catalog`); continue; }
+    if (item.match_status === 'SUGGESTED') { blockers.push(`${label}: confirm the catalog match suggested by the AI`); }
     if (item.flagged_unclear) blockers.push(`${label}: unresolved extraction issue - ${item.flag_reason || 'needs review'}`);
     if (!item.boxes_received || item.boxes_received <= 0) blockers.push(`${label}: boxes/packs received must be a positive quantity`);
     if (item.printed_mrp_per_box === null) blockers.push(`${label}: Enter printed MRP from the physical box.`);

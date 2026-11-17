@@ -6,7 +6,7 @@ import { createRequire } from 'module';
 import path from 'path';
 import fs from 'fs';
 import Tesseract from 'tesseract.js';
-import { buildReviewDraft, normalizeAiInvoice, RawExtractedInvoice, ReviewDraft } from './invoiceReviewService.js';
+import { buildReviewDraft, normalizeAiInvoice, normalizeDate, nonMedicineReason, rematchInvoiceLine, rematchSupplier, RawExtractedInvoice, ReviewDraft } from './invoiceReviewService.js';
 
 const require = createRequire(import.meta.url);
 
@@ -71,6 +71,9 @@ export interface ParsedInvoiceLineItem {
   flaggedUnclear: boolean;
   flagReason: string | null;
   handwrittenFlag: boolean;
+  /** Set by the AI reader when the catalog match is unambiguous (still shown for the admin to confirm). */
+  medicineId?: number | null;
+  matchStatus?: 'SUGGESTED' | null;
 }
 
 export interface ParsedInvoiceDraft {
@@ -83,6 +86,8 @@ export interface ParsedInvoiceDraft {
   items: ParsedInvoiceLineItem[];
   warrantyText: string | null;
   rawText: string;
+  /** Set by the AI reader when the supplier matched an existing one unambiguously. */
+  supplierId?: number | null;
 }
 
 export interface AiClarificationQuestion {
@@ -684,13 +689,13 @@ function localDraftToRaw(draft: ParsedInvoiceDraft): RawExtractedInvoice {
   };
 }
 
-/**
- * Reads an invoice (photos and/or PDF pages) and returns a REVIEW DRAFT for the admin.
- * Nothing is written to the database here.
- */
-export async function quickAiExtractInvoice(files: Array<{ buffer: Buffer; mimeType: string }>): Promise<ReviewDraft> {
-  if (files.length === 0) throw new Error('Please select an invoice image or PDF');
+interface PreparedInvoiceInputs {
+  images: AiImage[];
+  embeddedTexts: string[];
+  rawImageBuffers: Buffer[];
+}
 
+async function prepareInvoiceInputs(files: Array<{ buffer: Buffer; mimeType: string }>): Promise<PreparedInvoiceInputs> {
   const images: AiImage[] = [];
   const embeddedTexts: string[] = [];
   const rawImageBuffers: Buffer[] = [];
@@ -712,47 +717,69 @@ export async function quickAiExtractInvoice(files: Array<{ buffer: Buffer; mimeT
       throw new Error(`Unsupported file type ${file.mimeType}. Upload a photo (JPG/PNG) or a PDF.`);
     }
   }
+  return { images, embeddedTexts, rawImageBuffers };
+}
 
+type AiReadResult =
+  | { ok: true; raw: RawExtractedInvoice; method: 'AI_VISION' | 'AI_TEXT'; provider: AiProvider }
+  | { ok: false; failure: unknown };
+
+/** Tries the vision model, then the text model. Never throws; `ok: false` carries the last error (if any). */
+async function runAiExtraction(ai: { provider: AiProvider; key: string }, inputs: PreparedInvoiceInputs): Promise<AiReadResult> {
+  const { images, embeddedTexts, rawImageBuffers } = inputs;
+  let failure: unknown = null;
+
+  // 1. Vision: the model sees the actual photo (columns intact, no OCR noise).
+  if (images.length > 0 && embeddedTexts.length === 0) {
+    // Groq first; if this Groq key has no vision model and a Gemini key is also set, Gemini reads the photo.
+    const geminiKey = getGeminiApiKey();
+    const visionProviders: Array<{ provider: AiProvider; key: string }> = [ai];
+    if (ai.provider === 'groq' && geminiKey) visionProviders.push({ provider: 'gemini', key: geminiKey });
+    for (const visionAi of visionProviders) {
+      try {
+        const raw = normalizeAiInvoice(await aiExtractFromImages(visionAi, images));
+        if (raw.items.length > 0) return { ok: true, raw, method: 'AI_VISION', provider: visionAi.provider };
+      } catch (err) {
+        failure = err;
+        console.warn(`[invoice-ai] ${visionAi.provider} vision extraction failed:`, (err as any)?.message || err);
+      }
+    }
+  }
+
+  // 2. Text: OCR (or embedded PDF text) structured by the text model.
+  try {
+    const ocrTexts: string[] = [];
+    for (const buf of rawImageBuffers) ocrTexts.push(await ocrImageBuffer(buf));
+    const text = [...embeddedTexts, ...ocrTexts].join('\n\n');
+    if (text.trim().length >= 5) {
+      const raw = normalizeAiInvoice(await aiExtractFromText(ai, text));
+      if (raw.items.length > 0) return { ok: true, raw, method: 'AI_TEXT', provider: ai.provider };
+    }
+  } catch (err) {
+    failure = err;
+    console.warn('[invoice-ai] text extraction failed, falling back to local parser:', err);
+  }
+  return { ok: false, failure };
+}
+
+/**
+ * Reads an invoice (photos and/or PDF pages) and returns a REVIEW DRAFT for the admin.
+ * Nothing is written to the database here.
+ */
+export async function quickAiExtractInvoice(files: Array<{ buffer: Buffer; mimeType: string }>): Promise<ReviewDraft> {
+  if (files.length === 0) throw new Error('Please select an invoice image or PDF');
+
+  const inputs = await prepareInvoiceInputs(files);
+  const { embeddedTexts, rawImageBuffers } = inputs;
   const ai = getAiApiKey();
   const warnings: string[] = [];
-  let aiFailure: unknown = null;
 
   if (ai) {
-    // 1. Vision: the model sees the actual photo (columns intact, no OCR noise).
-    if (images.length > 0 && embeddedTexts.length === 0) {
-      // Groq first; if this Groq key has no vision model and a Gemini key is also set, Gemini reads the photo.
-      const geminiKey = getGeminiApiKey();
-      const visionProviders: Array<{ provider: AiProvider; key: string }> = [ai];
-      if (ai.provider === 'groq' && geminiKey) visionProviders.push({ provider: 'gemini', key: geminiKey });
-      for (const visionAi of visionProviders) {
-        try {
-          const raw = normalizeAiInvoice(await aiExtractFromImages(visionAi, images));
-          if (raw.items.length > 0) {
-            return buildReviewDraft(raw, { extractionMethod: 'AI_VISION', aiProvider: visionAi.provider, warnings });
-          }
-        } catch (err) {
-          aiFailure = err;
-          console.warn(`[invoice-ai] ${visionAi.provider} vision extraction failed:`, (err as any)?.message || err);
-        }
-      }
+    const result = await runAiExtraction(ai, inputs);
+    if (result.ok) {
+      return buildReviewDraft(result.raw, { extractionMethod: result.method, aiProvider: result.provider, warnings });
     }
-
-    // 2. Text: OCR (or embedded PDF text) structured by the text model.
-    try {
-      const ocrTexts: string[] = [];
-      for (const buf of rawImageBuffers) ocrTexts.push(await ocrImageBuffer(buf));
-      const text = [...embeddedTexts, ...ocrTexts].join('\n\n');
-      if (text.trim().length >= 5) {
-        const raw = normalizeAiInvoice(await aiExtractFromText(ai, text));
-        if (raw.items.length > 0) {
-          return buildReviewDraft(raw, { extractionMethod: 'AI_TEXT', aiProvider: ai.provider, warnings });
-        }
-      }
-    } catch (err) {
-      aiFailure = err;
-      console.warn('[invoice-ai] text extraction failed, falling back to local parser:', err);
-    }
-    warnings.push(`The ${ai.provider === 'groq' ? 'Groq' : 'Gemini'} AI could not read this invoice (${aiFailure ? describeAiFailure(aiFailure) : 'it found no medicine lines'}). A basic local reader was used instead - check every line carefully.`);
+    warnings.push(`The ${ai.provider === 'groq' ? 'Groq' : 'Gemini'} AI could not read this invoice (${result.failure ? describeAiFailure(result.failure) : 'it found no medicine lines'}). A basic local reader was used instead - check every line carefully.`);
   } else {
     warnings.push('No AI key is configured on the server (GROQ_API_KEY or GEMINI_API_KEY), so a basic local reader was used. Check every line carefully.');
   }
@@ -771,4 +798,74 @@ export async function quickAiExtractInvoice(files: Array<{ buffer: Buffer; mimeT
     warnings,
     rawNotes: localDraft.warrantyText
   });
+}
+
+/**
+ * Reads files for the "Scanned Invoice Archive" flow. Uses the AI reader when a key is configured
+ * (the old regex parser cannot cope with real distributor invoices), and falls back to the local
+ * OCR + parser when the AI is unavailable or finds nothing.
+ */
+export async function scanInvoiceFilesWithAi(files: Array<{ buffer: Buffer; mimeType: string }>): Promise<{
+  rawTextPerPage: string[];
+  parsed: ParsedInvoiceDraft;
+  extractionMethod: 'AI_VISION' | 'AI_TEXT' | 'LOCAL_PARSER';
+}> {
+  const ai = getAiApiKey();
+  if (ai) {
+    const inputs = await prepareInvoiceInputs(files);
+    const result = await runAiExtraction(ai, inputs);
+    if (result.ok) {
+      const parsed = rawInvoiceToParsedDraft(result.raw, inputs.embeddedTexts.join('\n\n'));
+      if (parsed.items.length > 0) {
+        return { rawTextPerPage: inputs.embeddedTexts, parsed, extractionMethod: result.method };
+      }
+    }
+  }
+  const local = await scanInvoiceFiles(files);
+  return { ...local, extractionMethod: 'LOCAL_PARSER' };
+}
+
+/** Maps the AI's invoice reading onto the archive flow's draft shape (header/footer rows are dropped). */
+export function rawInvoiceToParsedDraft(raw: RawExtractedInvoice, rawText: string): ParsedInvoiceDraft {
+  const supplierMatch = raw.supplierName ? rematchSupplier(raw.supplierName) : null;
+  const items: ParsedInvoiceLineItem[] = [];
+  for (const it of raw.items) {
+    if (nonMedicineReason(it)) continue;
+    const name = it.productName!;
+    const match = rematchInvoiceLine(name);
+    const unsure = it.confidence !== null && it.confidence < 0.6;
+    items.push({
+      lineNumber: items.length + 1,
+      productNameRaw: name,
+      strengthRaw: match.strength,
+      dosageFormRaw: match.dosageForm,
+      batchNumber: it.batchNumber ? it.batchNumber.replace(/\s+/g, '') : null,
+      expiryDate: normalizeDate(it.expiryDate),
+      mfgDate: normalizeDate(it.mfgDate),
+      boxesReceived: it.quantity !== null && it.quantity > 0 ? it.quantity : ((it.bonusQuantity || 0) > 0 ? 0 : null),
+      supplierPurchaseRate: it.rate !== null && it.rate > 0 ? it.rate : null,
+      rateBasis: 'PER_BOX',
+      lineDiscountRaw: it.discountPercent,
+      lineTaxRaw: null,
+      lineTotalRaw: it.lineTotal,
+      bonusQuantityRaw: it.bonusQuantity !== null && it.bonusQuantity > 0 ? it.bonusQuantity : null,
+      flaggedUnclear: unsure,
+      flagReason: unsure ? 'The AI was unsure about this line - compare it with the paper invoice' : null,
+      handwrittenFlag: false,
+      medicineId: match.matchedMedicineId,
+      matchStatus: match.matchedMedicineId ? 'SUGGESTED' : null
+    });
+  }
+  return {
+    supplierNameRaw: raw.supplierName,
+    invoiceNumberRaw: raw.invoiceNumber ? raw.invoiceNumber.replace(/^#/, '').trim() : null,
+    invoiceDateRaw: normalizeDate(raw.invoiceDate) || raw.invoiceDate,
+    documentType: 'INVOICE',
+    printedTotalRaw: raw.printedNetTotal,
+    calculatedTotal: Number(items.reduce((sum, i) => sum + (i.lineTotalRaw ?? 0), 0).toFixed(2)) || null,
+    items,
+    warrantyText: null,
+    rawText,
+    supplierId: supplierMatch?.matchedSupplierId ?? null
+  };
 }

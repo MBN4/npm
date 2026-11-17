@@ -289,7 +289,21 @@ export const InvoiceScanItemCard: React.FC<Props> = ({ item, readOnly, onSaved }
             <button type="button" className="btn btn-secondary btn-sm" onClick={markNewProduct}>No match</button>
           )}
         </div>
-        {local.match_status !== 'CONFIRMED' && (
+        {local.match_status === 'SUGGESTED' && local.medicine_id ? (
+          <div style={{ fontSize: '0.74rem', color: 'var(--warning, #fbbf24)', marginTop: '0.25rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span>AI suggests: <strong>{local.matched_brand_name || `medicine #${local.medicine_id}`}{local.matched_strength ? ` ${local.matched_strength}` : ''}</strong> - is this the same product?</span>
+            {!readOnly && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => { updateLocal('match_status', 'CONFIRMED'); persist({ medicineId: local.medicine_id, matchStatus: 'CONFIRMED' }); }}
+              >
+                Yes, confirm
+              </button>
+            )}
+            <span style={{ color: 'var(--text-muted)' }}>or search above to pick a different one.</span>
+          </div>
+        ) : local.match_status !== 'CONFIRMED' && (
           <div style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '0.2rem' }}>
             Not yet matched/confirmed against the catalog.
           </div>

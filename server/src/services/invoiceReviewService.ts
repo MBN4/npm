@@ -222,6 +222,12 @@ export function normalizeDate(raw: string | null): string | null {
     const year = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
     return iso(year, Number(m[2]), Number(m[1]));
   }
+  // OCR text layers often lose the separators: "010128" = 01/01/28, "01012028" = 01/01/2028.
+  m = text.match(/^(\d{2})(\d{2})(\d{2}|\d{4})$/);
+  if (m) {
+    const year = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+    return iso(year, Number(m[2]), Number(m[1]));
+  }
   m = text.match(/^(\d{1,2})[\/\-.](\d{2}|\d{4})$/);
   if (m) {
     const year = m[2].length === 2 ? 2000 + Number(m[2]) : Number(m[2]);

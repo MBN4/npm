@@ -301,7 +301,17 @@ export const InvoiceScanReviewView: React.FC<Props> = ({ scanId, onClose, onOpen
             ) : !pageBlobUrl ? (
               <Loader2 size={20} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
             ) : isPdf ? (
-              <iframe src={pageBlobUrl} title={`page-${currentPage.page_number}`} style={{ width: '100%', height: '480px', border: 'none' }} />
+              <div style={{ width: '100%', display: 'flex', flexDirection: 'column' }}>
+                <a
+                  href={pageBlobUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ fontSize: '0.75rem', color: '#38bdf8', padding: '0.4rem 0.6rem', textAlign: 'right' }}
+                >
+                  Preview blank? Open the PDF in a new tab
+                </a>
+                <iframe src={pageBlobUrl} title={`page-${currentPage.page_number}`} style={{ width: '100%', height: '460px', border: 'none' }} />
+              </div>
             ) : (
               <img src={pageBlobUrl} alt={`Invoice page ${currentPage.page_number}`} style={{ maxWidth: '100%', maxHeight: '480px', objectFit: 'contain' }} />
             )}
