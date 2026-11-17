@@ -7,6 +7,7 @@ import { db, runTransaction } from '../db/index.js';
 import { authenticateToken, requirePermission, AuthenticatedRequest } from '../middleware/auth.js';
 import { logAudit } from '../services/auditService.js';
 import { triggerAutoSync } from '../services/gitSyncService.js';
+import { rematchInvoiceLine, rematchSupplier } from '../services/invoiceReviewService.js';
 import { scanInvoiceFiles, quickAiExtractInvoice, ParsedInvoiceLineItem, getAiApiKey, getAiModels } from '../services/invoiceScanService.js';
 
 export const purchaseInvoiceScanRouter = Router();
@@ -120,6 +121,18 @@ purchaseInvoiceScanRouter.post('/ai-quick-extract', authenticateToken, requirePe
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'AI extraction failed' });
   }
+});
+
+// Manual spelling correction: the admin retyped a line (or supplier) name the AI misread, so
+// re-run catalog matching on the corrected text. Read-only - nothing is saved here.
+purchaseInvoiceScanRouter.post('/rematch', authenticateToken, requirePermission('create_purchases'), (req: AuthenticatedRequest, res: Response) => {
+  const { kind, name } = req.body || {};
+  const text = typeof name === 'string' ? name.trim() : '';
+  if (text.length < 2 || text.length > 200) {
+    res.status(400).json({ error: 'Enter at least 2 characters to match' });
+    return;
+  }
+  res.json(kind === 'supplier' ? rematchSupplier(text) : rematchInvoiceLine(text));
 });
 
 // Create a new invoice-scan draft from one or more uploaded pages/photos.

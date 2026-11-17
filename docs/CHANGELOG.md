@@ -2,6 +2,18 @@
 
 All notable changes and architectural deliverables for **Naveed Medical Pharmacy (NMP)** are documented below.
 
+## 2026-11-17 — manual spelling correction on AI-scanned invoices
+
+- The AI sometimes misreads names. On the AI Stock Inward review screen the invoice line name is now an editable box.
+  Fix the spelling and press Enter (or click away): the line is re-matched against the catalog with the same scoring
+  as the scanner. An unambiguous match links the medicine and applies its catalog packing; otherwise the line stays
+  unlinked and the admin picks one or adds it as a new medicine. For a line already marked "new medicine", the
+  corrected spelling becomes the name that is saved.
+- The supplier name read by the AI is also an editable box (shown when the supplier was not matched). A corrected
+  name that matches an existing supplier selects it; otherwise it becomes the new supplier added on save.
+- New read-only endpoint `POST /api/purchases/scans/rematch` (`create_purchases`): body `{ kind: 'line' | 'supplier', name }`.
+  Nothing is written until the purchase is saved. Covered by tests in `server/src/tests/invoiceInward.test.ts`.
+
 ## 2026-11-11 (follow-up 3) — copy the medicine catalog to the live server
 
 - The live server had almost no medicines (only a few seeded rows), so invoice lines could not be matched.

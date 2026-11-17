@@ -56,6 +56,10 @@ export interface PurchaseItemRow {
   medicineName?: string;
   /** The line exactly as printed on the scanned invoice (empty for manual rows). */
   invoiceName?: string;
+  /** Feedback after the admin corrected the name by hand (e.g. "Linked to Clobevate Cream"). */
+  nameNote?: string;
+  /** Last name text that was matched against the catalog (so an unchanged name is not re-checked). */
+  nameChecked?: string;
   matchStatus: MatchStatus;
   candidates?: Array<{ medicineId: number; brandName: string; strength: string | null; score: number }>;
   /** Admin confirmed this line should be added to the catalog as a new medicine. */
@@ -460,6 +464,8 @@ export const PurchasesView: React.FC = () => {
   const [reviewInfo, setReviewInfo] = useState<ReviewInfo | null>(null);
   const [showIgnoredLines, setShowIgnoredLines] = useState(false);
   const [newSupplierName, setNewSupplierName] = useState('');
+  // Text of the editable supplier-name box (starts as the name the AI read, even before it is confirmed as new).
+  const [supplierTyped, setSupplierTyped] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   // One key per invoice entry: a double click or network retry cannot post the stock twice.
@@ -487,6 +493,7 @@ export const PurchasesView: React.FC = () => {
   const resetForm = () => {
     setSupplierId('');
     setNewSupplierName('');
+    setSupplierTyped('');
     setInvoiceNumber('');
     setPurchaseDate(todayIso());
     setPaidAmount('0');
@@ -642,6 +649,83 @@ export const PurchasesView: React.FC = () => {
 
   const addItemRow = () => setItems(prev => [...prev, emptyRow()]);
 
+  /** The admin retyped a name the AI misspelled: keep the text as typed until they leave the field. */
+  const setInvoiceName = (index: number, value: string) => {
+    setItems(prev => prev.map((r, i) => (i === index ? { ...r, invoiceName: value, nameNote: undefined } : r)));
+  };
+
+  /** Re-runs catalog matching on the corrected name (same scoring as the scanner). */
+  const rematchLineName = async (index: number) => {
+    const row = items[index];
+    const name = (row?.invoiceName || '').trim();
+    if (!row || name.length < 2) return;
+    if (name === (row.nameChecked ?? '').trim()) return;
+    try {
+      const res = await fetch('/api/purchases/scans/rematch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ kind: 'line', name })
+      });
+      const data = await readJsonResponse(res);
+      if (!res.ok || !data) throw new Error(data?.error || 'Could not re-check this name');
+
+      const linkedId: string = data.matchedMedicineId ? String(data.matchedMedicineId) : '';
+      const linkedName = linkedId ? (medicinesRef.current.find(m => String(m.id) === linkedId)?.brand_name || data.candidates?.[0]?.brandName) : '';
+      setItems(prev => prev.map((r, i) => {
+        if (i !== index) return r;
+        const next: PurchaseItemRow = {
+          ...r,
+          invoiceName: name,
+          nameChecked: name,
+          medicineName: data.productName,
+          candidates: data.candidates || [],
+          nameNote: linkedId
+            ? `Re-checked: linked to ${linkedName}`
+            : data.candidates?.length ? 'Re-checked: pick the matching medicine below' : 'Re-checked: not in your catalog - add it as new if correct'
+        };
+        if (r.createNew) {
+          // Already a new medicine: carry the corrected spelling into the name that will be saved.
+          next.newMedicine = { ...(r.newMedicine || data.newMedicine), brandName: data.productName, strength: data.strength || r.newMedicine?.strength || '' } as NewMedicineDraft;
+        } else if (!linkedId) {
+          next.newMedicine = { brandName: data.newMedicine.brandName, strength: data.newMedicine.strength || '', dosageForm: data.newMedicine.dosageForm || 'Tablet', packagingType: data.newMedicine.packagingType === 'SIMPLE' ? 'SIMPLE' : 'MULTI_TIER' };
+          if (!r.medicineId) next.matchStatus = data.matchStatus;
+        }
+        return next;
+      }));
+      if (linkedId && linkedId !== row.medicineId) {
+        // Unambiguous match on the corrected spelling: link it (this also applies catalog packing).
+        handleItemChange(index, 'medicineId', linkedId);
+      }
+    } catch (err: any) {
+      setItems(prev => prev.map((r, i) => (i === index ? { ...r, nameNote: err.message || 'Could not re-check this name' } : r)));
+    }
+  };
+
+  /** Re-matches a hand-corrected new-supplier name against the supplier list. */
+  const rematchSupplierName = async () => {
+    const name = supplierTyped.trim();
+    if (name.length < 2) return;
+    try {
+      const res = await fetch('/api/purchases/scans/rematch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ kind: 'supplier', name })
+      });
+      const data = await readJsonResponse(res);
+      if (!res.ok || !data) return;
+      if (data.matchedSupplierId) {
+        setSupplierId(String(data.matchedSupplierId));
+        setNewSupplierName('');
+      } else {
+        // No unambiguous match: the corrected name is the admin's answer - add it as a new supplier.
+        setNewSupplierName(name);
+      }
+      setReviewQuestions(qs => qs.filter(q => q.type !== 'SUPPLIER'));
+    } catch {
+      /* the admin can still pick a supplier from the list */
+    }
+  };
+
   /** Applies the admin's answer to one of the scanner's questions. */
   const applyReviewAnswer = (question: ReviewQuestion, value: Record<string, any>) => {
     setFormError(null);
@@ -652,7 +736,7 @@ export const PurchasesView: React.FC = () => {
     }
     if (question.type === 'SUPPLIER') {
       if (value.supplierId) { setSupplierId(String(value.supplierId)); setNewSupplierName(''); }
-      if (value.newSupplierName) { setSupplierId(''); setNewSupplierName(String(value.newSupplierName)); }
+      if (value.newSupplierName) { setSupplierId(''); setNewSupplierName(String(value.newSupplierName)); setSupplierTyped(String(value.newSupplierName)); }
     }
     if ((value.createNew || value.medicineId) && idx !== undefined) {
       // The same product often appears on several lines (different batches, or a bonus line).
@@ -752,6 +836,7 @@ export const PurchasesView: React.FC = () => {
         duplicatePurchase: data.duplicatePurchase || null
       });
       if (data.matchedSupplierId) setSupplierId(String(data.matchedSupplierId));
+      else if (data.supplierName) setSupplierTyped(String(data.supplierName));
       if (data.invoiceNumber) setInvoiceNumber(String(data.invoiceNumber));
       if (data.purchaseDate) setPurchaseDate(data.purchaseDate);
       if (data.rawNotes) setNotes(data.rawNotes);
@@ -764,6 +849,7 @@ export const PurchasesView: React.FC = () => {
             medicineId: it.matchedMedicineId ? String(it.matchedMedicineId) : '',
             medicineName: it.productName,
             invoiceName: it.invoiceName,
+            nameChecked: it.invoiceName,
             matchStatus: it.matchStatus || 'NEEDS_REVIEW',
             candidates: it.candidates || [],
             createNew: false,
@@ -1341,10 +1427,22 @@ export const PurchasesView: React.FC = () => {
                       <option key={s.id} value={s.id}>{s.name}</option>
                     ))}
                   </select>
-                  {!supplierId && newSupplierName && (
-                    <span style={{ fontSize: '0.7rem', color: '#fbbf24', display: 'block', marginTop: '0.25rem' }}>
-                      "{newSupplierName}" will be added to Suppliers when you save.
-                    </span>
+                  {!supplierId && (supplierTyped || newSupplierName || reviewInfo?.supplierName) && (
+                    <div style={{ marginTop: '0.3rem' }}>
+                      <input
+                        className="ai-table-input"
+                        aria-label="New supplier name"
+                        value={supplierTyped}
+                        onChange={e => { setSupplierTyped(e.target.value); setNewSupplierName(''); }}
+                        onBlur={rematchSupplierName}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                      />
+                      <span style={{ fontSize: '0.7rem', color: '#fbbf24', display: 'block', marginTop: '0.25rem' }}>
+                        {newSupplierName
+                          ? 'This name will be added to Suppliers when you save. Fix any spelling mistake above.'
+                          : 'Supplier not in your list yet. Correct the spelling above (it is re-checked), pick one from the list, or answer the question at the top.'}
+                      </span>
+                    </div>
                   )}
                 </div>
 
@@ -1486,9 +1584,21 @@ export const PurchasesView: React.FC = () => {
                             <tr style={{ borderBottom: lineProblems.length ? 'none' : '1px solid rgba(255, 255, 255, 0.04)', verticalAlign: 'middle' }}>
                               {/* Searchable Combobox */}
                               <td style={{ padding: '0.55rem 0.75rem' }}>
-                                {it.invoiceName && (
-                                  <div title={it.invoiceName} style={{ fontSize: '0.68rem', color: '#94a3b8', marginBottom: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '255px' }}>
-                                    Invoice: <span style={{ color: '#cbd5e1' }}>{it.invoiceName}</span>
+                                {it.invoiceName !== undefined && it.invoiceName !== '' && (
+                                  <div style={{ marginBottom: '0.25rem' }}>
+                                    <input
+                                      className="ai-table-input"
+                                      title="Name as read from the invoice - fix any spelling mistake and press Enter"
+                                      aria-label={`Invoice name for line ${idx + 1}`}
+                                      value={it.invoiceName}
+                                      onChange={e => setInvoiceName(idx, e.target.value)}
+                                      onBlur={() => rematchLineName(idx)}
+                                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                                      style={{ fontSize: '0.72rem', padding: '0.25rem 0.45rem' }}
+                                    />
+                                    <div style={{ fontSize: '0.64rem', color: it.nameNote ? '#38bdf8' : '#64748b', marginTop: '0.1rem' }}>
+                                      {it.nameNote || '✎ Misspelled? Correct it here - the match is re-checked'}
+                                    </div>
                                   </div>
                                 )}
                                 {it.invoiceName && (

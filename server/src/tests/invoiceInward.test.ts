@@ -359,3 +359,56 @@ describe('Saving reviewed stock into inventory', () => {
     expect(draft.items[0].existingBatch?.expiryConflict).toBe(false);
   });
 });
+
+describe('Manual spelling correction (re-match a corrected name)', () => {
+  const rematch = (body: any, token = adminToken) =>
+    request(app).post('/api/purchases/scans/rematch').set('Authorization', `Bearer ${token}`).send(body);
+
+  it('a misspelled AI name does not auto-link, and the corrected spelling does', async () => {
+    // AI misread "Clobevate" as "Clobcvale": must not silently link to the wrong/any medicine.
+    const wrong = await rematch({ kind: 'line', name: '007/Clobcvale Cream 1x20G 20gm' });
+    expect(wrong.status).toBe(200);
+    expect(wrong.body.matchStatus).not.toBe('MATCHED');
+    expect(wrong.body.matchedMedicineId).toBeNull();
+
+    const fixed = await rematch({ kind: 'line', name: '007/Clobevate Cream 1x20G 20gm' });
+    expect(fixed.status).toBe(200);
+    expect(fixed.body.matchStatus).toBe('MATCHED');
+    const linked = db.prepare('SELECT brand_name FROM medicines WHERE id = ?').get(fixed.body.matchedMedicineId) as any;
+    expect(linked.brand_name).toBe('CLOBEVATE');
+    expect(fixed.body.productName).toBe('Clobevate Cream');
+    expect(fixed.body.newMedicine.brandName).toBe('Clobevate Cream');
+    expect(fixed.body.candidates[0].packing).toBeDefined();
+  });
+
+  it('is read-only and reports an unknown corrected name as NEW with a clean new-medicine name', async () => {
+    const before = counts();
+    const res = await rematch({ kind: 'line', name: '  011/Zyntrolox   Cream 1x15G 15gm ' });
+    expect(res.status).toBe(200);
+    expect(res.body.matchStatus).toBe('NEW');
+    expect(res.body.invoiceName).toBe('011/Zyntrolox Cream 1x15G 15gm');
+    expect(res.body.newMedicine).toMatchObject({ brandName: 'Zyntrolox Cream', packagingType: 'SIMPLE' });
+    expect(counts()).toEqual(before);
+  });
+
+  it('rejects empty/oversized names and unauthenticated calls', async () => {
+    expect((await rematch({ kind: 'line', name: ' ' })).status).toBe(400);
+    expect((await rematch({ kind: 'line' })).status).toBe(400);
+    expect((await rematch({ kind: 'line', name: 'x'.repeat(201) })).status).toBe(400);
+    const anon = await request(app).post('/api/purchases/scans/rematch').send({ kind: 'line', name: 'Panadol' });
+    expect([401, 403]).toContain(anon.status);
+  });
+
+  it('re-matches a corrected supplier name to an existing supplier, and never creates one', async () => {
+    const sup = db.prepare('SELECT id, name FROM suppliers WHERE is_active = 1 LIMIT 1').get() as { id: number; name: string };
+    const before = counts();
+    const exact = await rematch({ kind: 'supplier', name: sup.name });
+    expect(exact.status).toBe(200);
+    expect(exact.body.matchedSupplierId).toBe(sup.id);
+
+    const unknown = await rematch({ kind: 'supplier', name: 'Qwertyuiop Zxcvbnm Traders' });
+    expect(unknown.body.matchedSupplierId).toBeNull();
+    expect(unknown.body.supplierCandidates).toEqual([]);
+    expect(counts()).toEqual(before);
+  });
+});

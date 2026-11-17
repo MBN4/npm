@@ -457,6 +457,84 @@ const AUTO_MATCH_SCORE = 0.88;
 const AUTO_MATCH_MARGIN = 0.1;
 const CANDIDATE_MIN_SCORE = 0.35;
 
+type CatalogRow = { id: number; brand_name: string; strength: string | null; dosage_form: string | null; packaging_type: string | null; pack_size: number | null; tablets_per_pack: number | null };
+
+/** Ranks catalog medicines against one invoice line and decides if it can be linked without asking. */
+function matchCatalog(
+  catalog: CatalogRow[],
+  invoiceName: string,
+  strength: string | null,
+  dosageForm: string | null
+): { candidates: MedicineCandidate[]; matchStatus: MatchStatus; matchedMedicineId: number | null } {
+  const scored = catalog
+    .map(m => ({ m, score: scoreMedicineMatch({ name: invoiceName, strength, form: dosageForm }, m) }))
+    .filter(x => x.score >= CANDIDATE_MIN_SCORE)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4);
+  const candidates: MedicineCandidate[] = scored.map(({ m, score }) => ({
+    medicineId: m.id,
+    brandName: m.brand_name,
+    strength: m.strength,
+    dosageForm: m.dosage_form,
+    score,
+    packing: catalogPacking(m)
+  }));
+  const [top, second] = candidates;
+  if (top && top.score >= AUTO_MATCH_SCORE && (!second || top.score - second.score >= AUTO_MATCH_MARGIN)) {
+    return { candidates, matchStatus: 'MATCHED', matchedMedicineId: top.medicineId };
+  }
+  return { candidates, matchStatus: top ? 'NEEDS_REVIEW' : 'NEW', matchedMedicineId: null };
+}
+
+function loadCatalog(): CatalogRow[] {
+  return db.prepare(`
+    SELECT id, brand_name, strength, dosage_form, packaging_type, pack_size, tablets_per_pack
+    FROM medicines WHERE is_active = 1
+  `).all() as CatalogRow[];
+}
+
+/**
+ * Re-runs catalog matching for a line whose name the admin corrected by hand (the AI misspelled it).
+ * Read-only, like the rest of this module.
+ */
+export function rematchInvoiceLine(rawName: string): {
+  invoiceName: string;
+  productName: string;
+  strength: string | null;
+  dosageForm: string | null;
+  matchStatus: MatchStatus;
+  matchedMedicineId: number | null;
+  candidates: MedicineCandidate[];
+  newMedicine: ReviewItem['newMedicine'];
+} {
+  const invoiceName = rawName.replace(/\s+/g, ' ').trim();
+  const productName = cleanProductName(invoiceName) || invoiceName;
+  const strength = extractStrength(invoiceName);
+  const dosageForm = detectDosageForm(invoiceName);
+  const match = matchCatalog(loadCatalog(), invoiceName, strength, dosageForm);
+  const packagingType: 'MULTI_TIER' | 'SIMPLE' = dosageForm && SIMPLE_FORMS.has(dosageForm) ? 'SIMPLE' : 'MULTI_TIER';
+  return {
+    invoiceName,
+    productName,
+    strength,
+    dosageForm,
+    ...match,
+    newMedicine: { brandName: productName, strength, dosageForm: dosageForm || 'Tablet', packagingType }
+  };
+}
+
+/** Re-matches a supplier name the admin corrected by hand against the active supplier list. */
+export function rematchSupplier(rawName: string): { matchedSupplierId: number | null; supplierCandidates: Array<{ id: number; name: string; score: number }> } {
+  const name = rawName.replace(/\s+/g, ' ').trim();
+  const suppliers = db.prepare('SELECT id, name FROM suppliers WHERE is_active = 1').all() as Array<{ id: number; name: string }>;
+  const supplierCandidates = name
+    ? suppliers.map(s => ({ id: s.id, name: s.name, score: scoreSupplier(name, s.name) })).filter(s => s.score >= 0.6).sort((a, b) => b.score - a.score).slice(0, 4)
+    : [];
+  const [top, second] = supplierCandidates;
+  const matchedSupplierId = top && top.score >= 0.85 && (!second || top.score - second.score >= 0.1) ? top.id : null;
+  return { matchedSupplierId, supplierCandidates };
+}
+
 export function buildReviewDraft(
   extracted: RawExtractedInvoice,
   meta: { extractionMethod: ExtractionMethod; aiProvider: string | null; warnings?: string[]; rawNotes?: string | null; today?: string }
@@ -525,10 +603,7 @@ export function buildReviewDraft(
   }
 
   // ---- Items ----
-  const catalog = db.prepare(`
-    SELECT id, brand_name, strength, dosage_form, packaging_type, pack_size, tablets_per_pack
-    FROM medicines WHERE is_active = 1
-  `).all() as Array<{ id: number; brand_name: string; strength: string | null; dosage_form: string | null; packaging_type: string | null; pack_size: number | null; tablets_per_pack: number | null }>;
+  const catalog = loadCatalog();
 
   const batchLookup = db.prepare('SELECT id, quantity, expiry_date FROM batches WHERE medicine_id = ? AND batch_number = ? COLLATE NOCASE');
 
@@ -547,31 +622,7 @@ export function buildReviewDraft(
     const index = items.length;
     const issues: string[] = [];
 
-    const scored = catalog
-      .map(m => ({ m, score: scoreMedicineMatch({ name: invoiceName, strength, form: dosageForm }, m) }))
-      .filter(x => x.score >= CANDIDATE_MIN_SCORE)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 4);
-    const candidates: MedicineCandidate[] = scored.map(({ m, score }) => ({
-      medicineId: m.id,
-      brandName: m.brand_name,
-      strength: m.strength,
-      dosageForm: m.dosage_form,
-      score,
-      packing: catalogPacking(m)
-    }));
-
-    let matchStatus: MatchStatus;
-    let matchedMedicineId: number | null = null;
-    const [top, second] = candidates;
-    if (top && top.score >= AUTO_MATCH_SCORE && (!second || top.score - second.score >= AUTO_MATCH_MARGIN)) {
-      matchStatus = 'MATCHED';
-      matchedMedicineId = top.medicineId;
-    } else if (top) {
-      matchStatus = 'NEEDS_REVIEW';
-    } else {
-      matchStatus = 'NEW';
-    }
+    const { candidates, matchStatus, matchedMedicineId } = matchCatalog(catalog, invoiceName, strength, dosageForm);
 
     const packagingType: 'MULTI_TIER' | 'SIMPLE' = dosageForm && SIMPLE_FORMS.has(dosageForm) ? 'SIMPLE' : (dosageForm ? 'MULTI_TIER' : 'MULTI_TIER');
     const newMedicine = {
