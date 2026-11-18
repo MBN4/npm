@@ -3,7 +3,7 @@ import request from 'supertest';
 import { app } from '../index.js';
 import { db } from '../db/index.js';
 import { seedDatabase } from '../db/seed.js';
-import { buildReviewDraft, normalizeAiInvoice, normalizeDate, nonMedicineReason, scoreMedicineMatch, cleanProductName, extractStrength } from '../services/invoiceReviewService.js';
+import { buildReviewDraft, normalizeAiInvoice, normalizeDate, nonMedicineReason, scoreMedicineMatch, cleanProductName, extractStrength, rematchInvoiceLine } from '../services/invoiceReviewService.js';
 
 let adminToken: string;
 
@@ -632,5 +632,53 @@ describe('Long invoices: every row is read (compact answers, continuation, plan 
     expect(res.body.extractionMethod).toBe('AI_VISION');
     expect(res.body.aiProvider).toBe('gemini');
     expect(res.body.items).toHaveLength(1);
+  });
+});
+
+describe('Estimate photo clean-up (names, dates, header)', () => {
+  it('drops batch / price scraps that OCR glued after the dosage form, keeping real names intact', () => {
+    expect(cleanProductName('GLUCOPHAGE 250MG TAB A92 5')).toBe('GLUCOPHAGE TAB');
+    expect(cleanProductName('CONCOR 5MG TAB 1861C 01')).toBe('CONCOR TAB');
+    expect(cleanProductName('LAXOBERON 120ML LIQUID A8/( 16:25')).toBe('LAXOBERON LIQUID');
+    expect(cleanProductName('PECADRON 1CC INJ AA')).toBe('PECADRON 1CC INJ');
+    expect(cleanProductName('LODOPIN V 5/80MG TAB 481')).toBe('LODOPIN V 5 TAB');
+    // Real names are untouched: nothing after the form word, or a word that is part of the name.
+    expect(cleanProductName('ACEFYL SYP (PLAIN) 125ML')).toBe('ACEFYL SYP PLAIN');
+    expect(cleanProductName('RISEK INSTA 40MG SACHETS')).toBe('RISEK INSTA SACHETS');
+    expect(cleanProductName('CALPOL SYRUP 100ML')).toBe('CALPOL SYRUP');
+    expect(cleanProductName('PANADOL EXTRA TAB')).toBe('PANADOL EXTRA TAB');
+    expect(cleanProductName('VITAMIN B12')).toBe('VITAMIN B12');
+  });
+
+  it('a name with trailing OCR scraps now matches the catalog like the clean name does', () => {
+    const clean = rematchInvoiceLine('CONCOR 5MG TAB');
+    const noisy = rematchInvoiceLine('CONCOR 5MG TAB 1861C 01');
+    expect(noisy.candidates[0]?.medicineId).toBe(clean.candidates[0]?.medicineId);
+    expect(noisy.newMedicine.brandName).toBe('CONCOR TAB');
+  });
+
+  it('reads dates that have a time after them', () => {
+    expect(normalizeDate('29/10/2026 11:03:00')).toBe('2026-10-29');
+    expect(normalizeDate('29/10/2026 11:03')).toBe('2026-10-29');
+    expect(normalizeDate('29/10/2026 11:03 PM')).toBe('2026-10-29');
+    expect(normalizeDate('2026-10-29T11:03:00')).toBe('2026-10-29');
+  });
+
+  it('fills a missing invoice number and date from the OCR text, but never invents a supplier', async () => {
+    const { fillHeaderFromOcr } = await import('../services/invoiceScanService.js');
+    const raw = normalizeAiInvoice({ rows: [['ORAMEL DROPS', null, 'OMD626', null, 4, null, 415.2, null, 1660.8, null, 0.9]] });
+    fillHeaderFromOcr(raw, 'QUOTATION/ESTIMATE\nDate: 29/10/2026 11:03:00\nInvoice No.: 42482\nUser: 6\nM/s : NAVEED MEDICAL STORE (1/59)');
+    expect(raw.invoiceNumber).toBe('42482');
+    expect(raw.invoiceDate).toBe('29/10/2026');
+    expect(raw.supplierName).toBeNull();
+    const draft = buildReviewDraft(raw, { extractionMethod: 'AI_VISION', aiProvider: 'groq', today: '2026-11-18' });
+    expect(draft.invoiceNumber).toBe('42482');
+    expect(draft.purchaseDate).toBe('2026-10-29');
+    expect(draft.warnings.some(w => /invoice number|invoice date/i.test(w))).toBe(false);
+    // Values the AI did read are never overwritten.
+    const kept = normalizeAiInvoice({ invoiceNumber: 'AI-1', invoiceDate: '01/02/2026', rows: [] });
+    fillHeaderFromOcr(kept, 'Invoice No.: 42482 Date: 29/10/2026');
+    expect(kept.invoiceNumber).toBe('AI-1');
+    expect(kept.invoiceDate).toBe('01/02/2026');
   });
 });

@@ -453,7 +453,7 @@ export function getAiModels(provider: AiProvider): { vision: string; text: strin
 const INVOICE_JSON_SHAPE = `{
   "supplierName": string | null,        // the distributor / shop that issued the document (top of the page)
   "invoiceNumber": string | null,       // the value after "Invoice #" / "Invoice No" ONLY (not Sale Order, not DSS Id)
-  "invoiceDate": string | null,         // date exactly as printed, e.g. "09/11/2026"
+  "invoiceDate": string | null,         // the DATE as printed, e.g. "09/11/2026" (leave out any time after it)
   "printedNetTotal": number | null,     // "Net Total" / "Grand Total" amount if printed
   "printedItemCount": number | null,    // "Total Items : N" if printed
   "rows": [                             // ONE array per product row, in page order, with exactly 11 values:
@@ -741,6 +741,14 @@ const rowKey = (it: { productName: string | null; batchNumber: string | null; li
  * Reads a whole page even when one answer cannot hold every row (plans cap output tokens): while the
  * answer is cut off, ask for the rows after the last one received.
  */
+/** The AI sometimes leaves the header empty; the OCR text of the same page usually still has it. */
+export function fillHeaderFromOcr(raw: RawExtractedInvoice, ocrText: string): void {
+  if (!ocrText.trim()) return;
+  if (!raw.invoiceNumber) raw.invoiceNumber = detectInvoiceNumber(ocrText);
+  if (!raw.invoiceDate) raw.invoiceDate = detectInvoiceDateRaw(ocrText);
+  // The supplier is deliberately not guessed from OCR: estimates are addressed to the pharmacy itself.
+}
+
 async function visionExtractAllRows(ai: { provider: AiProvider; key: string }, images: AiImage[], ocrHint: string, shouldStop: () => boolean = () => false): Promise<RawExtractedInvoice> {
   const MAX_ROUNDS = 5;
   let merged: RawExtractedInvoice | null = null;
@@ -771,7 +779,9 @@ async function visionExtractAllRows(ai: { provider: AiProvider; key: string }, i
     if (!continueAfter) break;
     console.warn(`[invoice-ai] page not finished after ${merged.items.length} row(s); continuing after "${continueAfter}"`);
   }
-  return merged ?? normalizeAiInvoice({});
+  const result = merged ?? normalizeAiInvoice({});
+  fillHeaderFromOcr(result, ocrHint);
+  return result;
 }
 
 async function aiExtractFromText(ai: { provider: AiProvider; key: string }, text: string): Promise<unknown> {

@@ -219,7 +219,8 @@ function iso(year: number, month: number, day: number): string | null {
  */
 export function normalizeDate(raw: string | null): string | null {
   if (!raw) return null;
-  const text = raw.trim();
+  // Estimates print the time after the date ("29/10/2026 11:03:00"); only the day matters here.
+  const text = raw.trim().replace(/[\sT]+\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?$/i, '');
   let m = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if (m) return iso(Number(m[1]), Number(m[2]), Number(m[3]));
   m = text.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
@@ -332,6 +333,15 @@ export function cleanProductName(raw: string): string {
   name = name.replace(/\b\d+\s*'\s*s\b/gi, ' ');                          // 100's
   name = name.replace(/\b\d+(?:\.\d+)?\s?(?:mg|mcg|gm|g|ml|iu|%)\b/gi, ' '); // strengths (kept separately)
   name = name.replace(/[^\w\s\-+&]/g, ' ').replace(/\s+/g, ' ').trim();
+  // OCR text puts the batch / price fragments right after the item name ("GLUCOPHAGE TAB A92 5",
+  // "CONCOR TAB 1861C 01"). Whatever short digit-bearing scraps follow the dosage-form word are not
+  // part of the name; dropping them lets the catalog match and the new-medicine name stay clean.
+  const words = name.split(' ');
+  const formAt = words.findIndex(w => FORM_WORDS[w.toLowerCase()] !== undefined);
+  if (formAt > 0 && formAt < words.length - 1) {
+    const tail = words.slice(formAt + 1);
+    if (tail.every(w => w.length <= 6 && (/\d/.test(w) || w.length <= 2))) name = words.slice(0, formAt + 1).join(' ');
+  }
   return name;
 }
 
