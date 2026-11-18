@@ -448,30 +448,25 @@ export function getAiModels(provider: AiProvider): { vision: string; text: strin
   return { vision: model, text: model };
 }
 
+// Compact on purpose: one array per row costs ~35 output tokens instead of ~100 for an object, which
+// matters because hosted AI plans cap tokens per minute and invoices can have 40+ rows.
 const INVOICE_JSON_SHAPE = `{
-  "supplierName": string | null,        // the distributor that issued the invoice (top of the page)
+  "supplierName": string | null,        // the distributor / shop that issued the document (top of the page)
   "invoiceNumber": string | null,       // the value after "Invoice #" / "Invoice No" ONLY (not Sale Order, not DSS Id)
-  "invoiceDate": string | null,         // invoice date exactly as printed, e.g. "09/11/2026"
-  "printedNetTotal": number | null,     // "Net Total" / "Grand Total" amount
+  "invoiceDate": string | null,         // date exactly as printed, e.g. "09/11/2026"
+  "printedNetTotal": number | null,     // "Net Total" / "Grand Total" amount if printed
   "printedItemCount": number | null,    // "Total Items : N" if printed
-  "items": [
-    {
-      "productName": string,            // item name exactly as printed, e.g. "007/Clobevate Cream 1x20G 20gm"
-      "packSize": string | null,        // pack text if printed separately, e.g. "1x10'S", "100'S", "120ML"
-      "manufacturer": string | null,    // company group heading above the item, e.g. "GSK"
-      "batchNumber": string | null,     // Batch No. column
-      "expiryDate": string | null,      // Expiry column exactly as printed, e.g. "31/07/2028" or "07/2028"
-      "mfgDate": string | null,
-      "quantity": number | null,        // Qty column (number of packs/boxes invoiced)
-      "bonusQuantity": number | null,   // Bonus column (free packs), null if "-" or blank
-      "rate": number | null,            // Rate / trade price per pack
-      "discountPercent": number | null, // Disc % column
-      "lineTotal": number | null,       // Net Amount of that line
-      "mrp": number | null,             // retail price / MRP ONLY if a separate column prints it
-      "confidence": number              // 0..1, how sure you are that this row was read correctly
-    }
+  "rows": [                             // ONE array per product row, in page order, with exactly 11 values:
+    [productName, packSize, batchNumber, expiryDate, quantity, bonusQuantity, rate, discountPercent, lineTotal, mrp, confidence]
   ]
-}`;
+}
+Row values: productName = item name exactly as printed (string); packSize = pack text if printed separately, e.g.
+"1x10'S" (string|null); batchNumber = Batch column (string|null); expiryDate = Expiry column exactly as printed
+(string|null); quantity = Qty column, number of packs invoiced (number|null); bonusQuantity = free packs
+(number|null, null if "-" or blank); rate = Rate / Sale Price per pack (number|null); discountPercent = Disc %
+(number|null); lineTotal = Net Amount / Total of that line (number|null); mrp = retail price ONLY if a separate
+column prints it (number|null); confidence = 0..1, how sure you are the row was read correctly (number).
+Example row: ["ORAMEL DROPS", null, "OMD626", null, 4, null, 415.2, null, 1660.8, null, 0.9]`;
 
 const EXTRACTION_RULES = `You read Pakistani pharmaceutical distributor sale invoices (e.g. "Sale Invoice" printed by
 distribution software) for a pharmacy's stock receiving screen. Accuracy matters more than completeness:
@@ -479,8 +474,11 @@ the pharmacy admin will review every value, so NEVER guess.
 
 Rules:
 1. Items are ONLY the rows of the product table, between the column header row
-   (Sr. / Item Name / Batch No. / Expiry Date / Qty / Bonus / Rate / Gross / Disc / Net Amount) and the
-   "Total For Invoice" line. Everything else is NOT an item.
+   (e.g. Sr. / Item Name / Batch No. / Expiry Date / Qty / Bonus / Rate / Gross / Disc / Net Amount, or on an
+   estimate / quotation: Qty / Item Name / Batch Number / Sale Price / Disc % / Total) and the totals line.
+   Everything else is NOT an item. The Qty column may be on the LEFT of the item name. "Sale Price" or "Rate"
+   is the per-pack price -> "rate"; the last money column is the line total -> "lineTotal". If the page has no
+   Expiry column, expiryDate is null for every row.
 2. NEVER return these as items: Invoice #, Sale Order #, DSS Id, Booking Man, Delivery Man, Due Date,
    Reference No, Customer, Region, Phone, Address, Plot/Street, License, NTN, GST, CNIC, Filer, MOP, SPO,
    Ship To, Remarks, company group headings like "33 / GSK", "Total For ...", Gross Amount, Discount Amount,
@@ -488,9 +486,59 @@ Rules:
 3. Copy batch numbers and dates character-for-character. If a value is unreadable, blurred or absent,
    return null for it. Do not invent batch numbers, expiry dates, quantities or prices.
 4. Numbers must be plain numbers (no commas, no "Rs").
-5. If the page has no product rows you can read, return "items": [].
+5. If the page has no product rows you can read, return "rows": [].
+6. Return EVERY product row on the page, from the first row to the very last one. Long lists (30-60 rows) are
+   normal: never stop early, never summarize, never skip rows because they are similar (e.g. PANADOL 120ML
+   LIQUID and PANADOL-CF TAB, or LODOPIN V and LODOPIN 5MG, are different rows). Keep the order of the page.
+7. Ignore pen marks: red ticks, underlines, strike-throughs and scribbles. If a quantity was crossed out and
+   rewritten by hand, return the handwritten number and set confidence below 0.6.
 Return ONLY a JSON object with this shape:
 ${INVOICE_JSON_SHAPE}`;
+
+/** Salvages every complete item from an answer that was cut off mid-way (token limit). */
+export function parseJsonLenient(text: string, cutOff = false): unknown {
+  const cleaned = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  const body = stripJsonFences(cleaned);
+  try {
+    const whole = JSON.parse(body);
+    return cutOff && whole && typeof whole === 'object' && !Array.isArray(whole) ? { ...whole, truncated: true } : whole;
+  } catch (firstErr) {
+    const itemsAt = body.search(/"(?:items|rows)"\s*:\s*\[/);
+    if (itemsAt < 0) throw firstErr;
+    const arrayStart = body.indexOf('[', itemsAt);
+    const objects: unknown[] = [];
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let objStart = -1;
+    for (let i = arrayStart + 1; i < body.length; i++) {
+      const ch = body[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') inString = true;
+      else if (ch === '{' || ch === '[') {
+        if (depth === 0) { objStart = i; }
+        depth++;
+      } else if (ch === '}' || ch === ']') {
+        if (depth === 0) break; // end of the rows array
+        depth--;
+        if (depth === 0 && objStart >= 0) {
+          try { objects.push(JSON.parse(body.slice(objStart, i + 1))); } catch { /* skip a damaged row */ }
+          objStart = -1;
+        }
+      }
+    }
+    if (objects.length === 0) throw firstErr;
+    let header: Record<string, unknown> = {};
+    try { header = JSON.parse(body.slice(0, itemsAt).replace(/,\s*$/, '') + '}'); } catch { /* header fields are optional */ }
+    console.warn(`[invoice-ai] answer was cut off; recovered ${objects.length} complete row(s)`);
+    return { ...header, rows: objects, truncated: true };
+  }
+}
 
 function stripJsonFences(text: string): string {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -502,7 +550,30 @@ function stripJsonFences(text: string): string {
 
 type AiImage = { base64: string; mimeType: string };
 
-async function callGroq(key: string, model: string, content: unknown, jsonMode: boolean): Promise<string> {
+/** Reasoning models spend output tokens "thinking" unless told not to; extraction needs the tokens for rows. */
+function groqReasoningParams(model: string): Record<string, unknown> {
+  if (/gpt-oss/i.test(model)) return { reasoning_effort: 'low' };
+  if (/qwen/i.test(model)) return { reasoning_effort: 'none', reasoning_format: 'hidden' };
+  return {};
+}
+
+/**
+ * Rough input size. Hosted plans count input + max answer against a per-minute token cap (8,000 on Groq's
+ * free tier), so an oversized max answer is rejected outright even when the real answer would be small.
+ */
+function estimateInputTokens(content: unknown): number {
+  if (typeof content === 'string') return Math.ceil(content.length / 3);
+  if (!Array.isArray(content)) return 1000;
+  return content.reduce((sum: number, part: any) => sum + (part?.type === 'image_url' ? 1800 : Math.ceil(String(part?.text || '').length / 3)), 0);
+}
+
+const GROQ_PER_MINUTE_TOKEN_BUDGET = 7600;
+// Output caps learned from "Request too large ... Limit N" answers, per model, for later calls.
+const learnedOutputCap = new Map<string, number>();
+
+async function callGroq(key: string, model: string, content: unknown, jsonMode: boolean, withReasoningParams = true, attempt = 0): Promise<{ text: string; truncated: boolean }> {
+  const modelMax = groqModelCache?.maxOut.get(model) || 8192;
+  const maxOut = Math.max(300, Math.min(modelMax, 4096, learnedOutputCap.get(model) ?? Infinity, Math.max(1200, GROQ_PER_MINUTE_TOKEN_BUDGET - estimateInputTokens(content))));
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
@@ -510,19 +581,40 @@ async function callGroq(key: string, model: string, content: unknown, jsonMode: 
       model,
       messages: [{ role: 'user', content }],
       ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+      ...(withReasoningParams ? groqReasoningParams(model) : {}),
       temperature: 0,
-      max_completion_tokens: 4096
+      max_completion_tokens: maxOut
     }),
-    signal: AbortSignal.timeout(45_000)
+    signal: AbortSignal.timeout(120_000)
   });
   if (!res.ok) {
-    const detail = (await res.text().catch(() => '')).slice(0, 200);
-    throw Object.assign(new Error(`Groq ${model} failed with HTTP ${res.status}${detail ? `: ${detail}` : ''}`), { status: res.status });
+    const detail = (await res.text().catch(() => '')).slice(0, 400);
+    if (res.status === 429 && attempt < 3) {
+      // The plan caps output tokens per minute: "Limit 1000, Requested 1925". Ask for less (the caller
+      // continues with the remaining rows when the answer is cut off).
+      const limit = /output tokens per minute[^]*?Limit (\d+)/i.exec(detail);
+      if (limit && Number(limit[1]) - 60 >= 300 && Number(limit[1]) - 60 < maxOut) {
+        learnedOutputCap.set(model, Number(limit[1]) - 60);
+        console.warn(`[invoice-ai] ${model} allows ${limit[1]} output tokens per minute; retrying with a smaller answer size`);
+        return callGroq(key, model, content, jsonMode, withReasoningParams, attempt + 1);
+      }
+      // "Please try again in 9.5s" / "in 1m3s": wait it out instead of giving up.
+      const m = detail.match(/try again in (?:(\d+)m)?\s*([\d.]+)s/i);
+      const waitMs = m ? ((Number(m[1] || 0) * 60) + Number(m[2])) * 1000 + 700 : 0;
+      if (waitMs > 0 && waitMs <= 70_000) {
+        console.warn(`[invoice-ai] Groq rate limit on ${model}; waiting ${(waitMs / 1000).toFixed(1)}s and retrying`);
+        await new Promise(r => setTimeout(r, waitMs));
+        return callGroq(key, model, content, jsonMode, withReasoningParams, attempt + 1);
+      }
+    }
+    throw Object.assign(new Error(`Groq ${model} failed with HTTP ${res.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`), { status: res.status });
   }
   const body = (await res.json()) as any;
   const text = body?.choices?.[0]?.message?.content;
+  const truncated = body?.choices?.[0]?.finish_reason === 'length';
+  if (truncated) console.warn(`[invoice-ai] Groq ${model} hit its output limit (${maxOut} tokens); asking for the remaining rows next`);
   if (typeof text !== 'string' || !text.trim()) throw new Error(`Groq ${model} returned an empty answer`);
-  return text;
+  return { text, truncated };
 }
 
 async function callGemini(key: string, model: string, parts: unknown[]): Promise<string> {
@@ -531,9 +623,9 @@ async function callGemini(key: string, model: string, parts: unknown[]): Promise
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
     body: JSON.stringify({
       contents: [{ parts }],
-      generationConfig: { responseMimeType: 'application/json', temperature: 0 }
+      generationConfig: { responseMimeType: 'application/json', temperature: 0, maxOutputTokens: 16384 }
     }),
-    signal: AbortSignal.timeout(45_000)
+    signal: AbortSignal.timeout(120_000)
   });
   if (!res.ok) throw new Error(`Gemini ${model} failed with HTTP ${res.status}`);
   const body = (await res.json()) as any;
@@ -549,7 +641,7 @@ const GROQ_VISION_PREFERENCE = [/llama-4-scout/i, /llama-4-maverick/i, /vision/i
 const GROQ_TEXT_PREFERENCE = [/llama-3\.3-70b/i, /gpt-oss-120b/i, /llama-4-maverick/i, /kimi-k2/i, /qwen3?-?32b/i, /llama-4-scout/i, /gpt-oss-20b/i, /70b/i, /llama/i];
 const GROQ_NOT_CHAT = /whisper|tts|playai|guard|distil|embed|orpheus|compound|safeguard/i;
 
-let groqModelCache: { key: string; at: number; ids: string[] } | null = null;
+let groqModelCache: { key: string; at: number; ids: string[]; vision: Set<string>; maxOut: Map<string, number> } | null = null;
 
 async function listGroqModels(key: string): Promise<string[]> {
   if (groqModelCache && groqModelCache.key === key && Date.now() - groqModelCache.at < 30 * 60 * 1000) return groqModelCache.ids;
@@ -563,10 +655,13 @@ async function listGroqModels(key: string): Promise<string[]> {
       return [];
     }
     const body = (await res.json()) as any;
-    const ids: string[] = (Array.isArray(body?.data) ? body.data : [])
-      .filter((m: any) => m && typeof m.id === 'string' && m.active !== false && !GROQ_NOT_CHAT.test(m.id))
-      .map((m: any) => m.id);
-    groqModelCache = { key, at: Date.now(), ids };
+    const usable: any[] = (Array.isArray(body?.data) ? body.data : [])
+      .filter((m: any) => m && typeof m.id === 'string' && m.active !== false && !GROQ_NOT_CHAT.test(m.id));
+    const ids: string[] = usable.map(m => m.id);
+    // Groq reports what each model accepts; trust that over guessing from the name.
+    const vision = new Set<string>(usable.filter(m => Array.isArray(m.input_modalities) && m.input_modalities.includes('image') && (!Array.isArray(m.output_modalities) || m.output_modalities.includes('text'))).map(m => m.id));
+    const maxOut = new Map<string, number>(usable.filter(m => Number(m.max_completion_tokens) > 0).map(m => [m.id, Number(m.max_completion_tokens)]));
+    groqModelCache = { key, at: Date.now(), ids, vision, maxOut };
     console.log(`[invoice-ai] Groq models available to this key: ${ids.join(', ') || '(none)'}`);
     return ids;
   } catch (err) {
@@ -582,6 +677,9 @@ async function groqCandidates(key: string, kind: 'vision' | 'text'): Promise<str
   if (available.length === 0) return [configured];
   const ordered: string[] = [];
   if (available.includes(configured)) ordered.push(configured);
+  if (kind === 'vision') {
+    for (const id of groqModelCache?.vision ?? []) if (!ordered.includes(id)) ordered.push(id);
+  }
   for (const pattern of kind === 'vision' ? GROQ_VISION_PREFERENCE : GROQ_TEXT_PREFERENCE) {
     for (const id of available) if (pattern.test(id) && !ordered.includes(id)) ordered.push(id);
   }
@@ -594,29 +692,36 @@ async function callGroqWithFallback(key: string, kind: 'vision' | 'text', conten
   if (candidates.length === 0) throw new Error(`No Groq ${kind} model is available to this API key`);
   let lastError: unknown = null;
   for (const model of candidates) {
-    try {
-      return JSON.parse(stripJsonFences(await callGroq(key, model, content, true)));
-    } catch (err: any) {
-      lastError = err;
-      if (err?.status === 400) {
-        // Some models reject JSON mode (especially together with images); retry once in plain mode.
-        try {
-          return JSON.parse(stripJsonFences(await callGroq(key, model, content, false)));
-        } catch (retryErr) {
-          lastError = retryErr;
-        }
+    // Some models reject JSON mode (especially with images) or the reasoning options: retry with less.
+    const attempts: Array<{ json: boolean; reasoning: boolean }> = [
+      { json: true, reasoning: true }, { json: true, reasoning: false }, { json: false, reasoning: false }
+    ];
+    for (const attempt of attempts) {
+      try {
+        const out = await callGroq(key, model, content, attempt.json, attempt.reasoning);
+        return parseJsonLenient(out.text, out.truncated);
+      } catch (err: any) {
+        lastError = err;
+        if (err?.status !== 400) break;
       }
-      // Wrong key / out of quota will fail the same way on every model - stop early.
-      if (err?.status === 401 || err?.status === 403 || err?.status === 429) break;
-      console.warn(`[invoice-ai] Groq model ${model} failed, trying next:`, err?.message || err);
     }
+    // Wrong key / out of quota will fail the same way on every model - stop early.
+    const status = (lastError as any)?.status;
+    if (status === 401 || status === 403 || status === 429) break;
+    console.warn(`[invoice-ai] Groq model ${model} failed, trying next:`, (lastError as any)?.message || lastError);
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 /** Sends the invoice photo(s) straight to a vision model - far more accurate than OCR on phone photos. */
-async function aiExtractFromImages(ai: { provider: AiProvider; key: string }, images: AiImage[]): Promise<unknown> {
-  const prompt = `${EXTRACTION_RULES}\n\nThe invoice photo(s) follow. Read the printed table carefully, row by row.`;
+async function aiExtractFromImages(ai: { provider: AiProvider; key: string }, images: AiImage[], ocrHint?: string, continueAfter?: string): Promise<unknown> {
+  const hint = ocrHint && ocrHint.trim().length >= 20
+    ? `\n\nOCR text of the same page, as a HINT ONLY. Its spelling of product names is usually right, but its numbers (batch, rate, totals) and column order are unreliable: take numbers from the photo, and use this text to spell the product names correctly:\n${ocrHint.trim().slice(0, 2500)}`
+    : '';
+  const resume = continueAfter
+    ? `\n\nCONTINUATION: an earlier answer already returned every row up to and including the row "${continueAfter}". Return ONLY the rows that come AFTER that row, in page order, in the same format. If there are no more rows, return an empty rows array. Header fields may be null.`
+    : '';
+  const prompt = `${EXTRACTION_RULES}${hint}${resume}\n\nThe invoice photo(s) follow. Read the printed table carefully, row by row.`;
   if (ai.provider === 'groq') {
     const content = [
       { type: 'text', text: prompt },
@@ -626,7 +731,47 @@ async function aiExtractFromImages(ai: { provider: AiProvider; key: string }, im
   }
   const { vision } = getAiModels(ai.provider);
   const parts = [{ text: prompt }, ...images.slice(0, 5).map(img => ({ inline_data: { mime_type: img.mimeType, data: img.base64 } }))];
-  return JSON.parse(stripJsonFences(await callGemini(ai.key, vision, parts)));
+  return parseJsonLenient(await callGemini(ai.key, vision, parts));
+}
+
+const rowKey = (it: { productName: string | null; batchNumber: string | null; lineTotal: number | null; quantity: number | null }) =>
+  `${(it.productName || '').toLowerCase().replace(/[^a-z0-9]/g, '')}|${(it.batchNumber || '').toLowerCase()}|${it.lineTotal ?? ''}|${it.quantity ?? ''}`;
+
+/**
+ * Reads a whole page even when one answer cannot hold every row (plans cap output tokens): while the
+ * answer is cut off, ask for the rows after the last one received.
+ */
+async function visionExtractAllRows(ai: { provider: AiProvider; key: string }, images: AiImage[], ocrHint: string, shouldStop: () => boolean = () => false): Promise<RawExtractedInvoice> {
+  const MAX_ROUNDS = 5;
+  let merged: RawExtractedInvoice | null = null;
+  let continueAfter: string | undefined;
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    if (round > 0 && shouldStop()) { console.warn('[invoice-ai] client disconnected; not requesting more rows'); break; }
+    const answer = await aiExtractFromImages(ai, images, ocrHint, continueAfter);
+    const raw = normalizeAiInvoice(answer);
+    const truncated = Boolean((answer as any)?.truncated);
+    if (!merged) {
+      if (raw.items.length === 0) return raw;
+      merged = raw;
+    } else {
+      // Fill header fields the first answer missed, then append rows not already seen.
+      merged.supplierName ??= raw.supplierName;
+      merged.invoiceNumber ??= raw.invoiceNumber;
+      merged.invoiceDate ??= raw.invoiceDate;
+      merged.printedNetTotal ??= raw.printedNetTotal;
+      merged.printedItemCount ??= raw.printedItemCount;
+      const recent = new Set(merged.items.slice(-4).map(rowKey));
+      const fresh = raw.items.filter(it => !recent.has(rowKey(it)));
+      if (fresh.length === 0) break;
+      merged.items.push(...fresh);
+    }
+    if (!truncated) break;
+    const last = merged.items[merged.items.length - 1];
+    continueAfter = last?.productName ?? undefined;
+    if (!continueAfter) break;
+    console.warn(`[invoice-ai] page not finished after ${merged.items.length} row(s); continuing after "${continueAfter}"`);
+  }
+  return merged ?? normalizeAiInvoice({});
 }
 
 async function aiExtractFromText(ai: { provider: AiProvider; key: string }, text: string): Promise<unknown> {
@@ -635,7 +780,7 @@ characters misread (O/0, I/1, S/5). OCR may also glue words together: return pro
 (e.g. "260GAVISCONLIQUID 120ML" -> "260-GAVISCON LIQUID 120ML"). Only return values you can tie to a product row.\n\nInvoice OCR text:\n${text.slice(0, 12000)}`;
   if (ai.provider === 'groq') return callGroqWithFallback(ai.key, 'text', prompt);
   const { text: model } = getAiModels(ai.provider);
-  return JSON.parse(stripJsonFences(await callGemini(ai.key, model, [{ text: prompt }])));
+  return parseJsonLenient(await callGemini(ai.key, model, [{ text: prompt }]));
 }
 
 /** Short, key-free reason for the admin when the AI could not be used. */
@@ -725,19 +870,33 @@ type AiReadResult =
   | { ok: false; failure: unknown };
 
 /** Tries the vision model, then the text model. Never throws; `ok: false` carries the last error (if any). */
-async function runAiExtraction(ai: { provider: AiProvider; key: string }, inputs: PreparedInvoiceInputs): Promise<AiReadResult> {
+async function runAiExtraction(ai: { provider: AiProvider; key: string }, inputs: PreparedInvoiceInputs, shouldStop: () => boolean = () => false): Promise<AiReadResult> {
   const { images, embeddedTexts, rawImageBuffers } = inputs;
   let failure: unknown = null;
+  let ocrCache: string[] | null = null;
+  const ocrTexts = async (): Promise<string[]> => {
+    if (!ocrCache) {
+      ocrCache = [];
+      for (const buf of rawImageBuffers) ocrCache.push(await ocrImageBuffer(buf));
+    }
+    return ocrCache;
+  };
 
   // 1. Vision: the model sees the actual photo (columns intact, no OCR noise).
   if (images.length > 0 && embeddedTexts.length === 0) {
     // Groq first; if this Groq key has no vision model and a Gemini key is also set, Gemini reads the photo.
     const geminiKey = getGeminiApiKey();
-    const visionProviders: Array<{ provider: AiProvider; key: string }> = [ai];
-    if (ai.provider === 'groq' && geminiKey) visionProviders.push({ provider: 'gemini', key: geminiKey });
+    // Gemini reads a whole long page in one call; Groq's free plan caps output per minute and needs
+    // several slow rounds, so when both keys exist Gemini goes first and Groq is the fallback.
+    const visionProviders: Array<{ provider: AiProvider; key: string }> = [];
+    if (geminiKey) visionProviders.push({ provider: 'gemini', key: geminiKey });
+    if (ai.provider === 'groq') visionProviders.push(ai);
+    if (visionProviders.length === 0) visionProviders.push(ai);
+    // The OCR text only serves as a spelling hint; a failed OCR must never block the vision read.
+    const ocrHint = await ocrTexts().then(t => t.join('\n\n')).catch(() => '');
     for (const visionAi of visionProviders) {
       try {
-        const raw = normalizeAiInvoice(await aiExtractFromImages(visionAi, images));
+        const raw = await visionExtractAllRows(visionAi, images, ocrHint, shouldStop);
         if (raw.items.length > 0) return { ok: true, raw, method: 'AI_VISION', provider: visionAi.provider };
       } catch (err) {
         failure = err;
@@ -748,9 +907,7 @@ async function runAiExtraction(ai: { provider: AiProvider; key: string }, inputs
 
   // 2. Text: OCR (or embedded PDF text) structured by the text model.
   try {
-    const ocrTexts: string[] = [];
-    for (const buf of rawImageBuffers) ocrTexts.push(await ocrImageBuffer(buf));
-    const text = [...embeddedTexts, ...ocrTexts].join('\n\n');
+    const text = [...embeddedTexts, ...(await ocrTexts())].join('\n\n');
     if (text.trim().length >= 5) {
       const raw = normalizeAiInvoice(await aiExtractFromText(ai, text));
       if (raw.items.length > 0) return { ok: true, raw, method: 'AI_TEXT', provider: ai.provider };
@@ -766,7 +923,7 @@ async function runAiExtraction(ai: { provider: AiProvider; key: string }, inputs
  * Reads an invoice (photos and/or PDF pages) and returns a REVIEW DRAFT for the admin.
  * Nothing is written to the database here.
  */
-export async function quickAiExtractInvoice(files: Array<{ buffer: Buffer; mimeType: string }>): Promise<ReviewDraft> {
+export async function quickAiExtractInvoice(files: Array<{ buffer: Buffer; mimeType: string }>, opts: { shouldStop?: () => boolean } = {}): Promise<ReviewDraft> {
   if (files.length === 0) throw new Error('Please select an invoice image or PDF');
 
   const inputs = await prepareInvoiceInputs(files);
@@ -775,7 +932,7 @@ export async function quickAiExtractInvoice(files: Array<{ buffer: Buffer; mimeT
   const warnings: string[] = [];
 
   if (ai) {
-    const result = await runAiExtraction(ai, inputs);
+    const result = await runAiExtraction(ai, inputs, opts.shouldStop);
     if (result.ok) {
       return buildReviewDraft(result.raw, { extractionMethod: result.method, aiProvider: result.provider, warnings });
     }

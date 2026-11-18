@@ -53,6 +53,7 @@ beforeAll(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.GROQ_API_KEY;
+  delete process.env.GEMINI_API_KEY;
 });
 
 describe('Invoice review helpers', () => {
@@ -484,4 +485,152 @@ describe('Scanned Invoice Archive uses the AI reader (not just the regex parser)
     expect(res.body.extractionMethod).toBe('LOCAL_PARSER');
     createdScanIds.push(res.body.scanId);
   }, 60_000);
+});
+
+describe('Long invoices: every row is read (compact answers, continuation, plan limits)', () => {
+  const header = { supplierName: null, invoiceNumber: '42482', invoiceDate: '29/10/2026' };
+  const row = (name: string, batch: string, qty: number, rate: number) => [name, null, batch, null, qty, null, rate, null, Number((qty * rate).toFixed(2)), null, 0.9];
+  const modelsReply = (extra: any[] = []) => new Response(JSON.stringify({ data: [
+    { id: 'openai/gpt-oss-120b', active: true, input_modalities: ['text'], output_modalities: ['text'], max_completion_tokens: 65536 },
+    ...extra
+  ] }), { status: 200 });
+  const visionModel = (id: string) => ({ id, active: true, input_modalities: ['text', 'image'], output_modalities: ['text'], max_completion_tokens: 16384 });
+
+  async function whitePng() {
+    const { Jimp } = await import('jimp');
+    return Buffer.from(await new Jimp({ width: 40, height: 40, color: 0xffffffff }).getBuffer('image/png'));
+  }
+  const extract = async () => request(app).post('/api/purchases/scans/ai-quick-extract').set('Authorization', `Bearer ${adminToken}`)
+    .attach('files', await whitePng(), { filename: 'invoice.png', contentType: 'image/png' });
+
+  it('reads compact array rows and recovers every complete row from a cut-off answer', async () => {
+    const { parseJsonLenient } = await import('../services/invoiceScanService.js');
+    const full = JSON.stringify({ ...header, rows: [row('ORAMEL DROPS', 'OMD626', 4, 415.2), row('SILLIVER SUSP', 'N636', 2, 259.5)] });
+    // Cut mid-way through the third row, as a token limit does.
+    const cut = full.slice(0, full.length - 1) + ',["RIGIX 120ML SYP", null, "JJ0';
+    const salvaged: any = parseJsonLenient(cut, true);
+    expect(salvaged.truncated).toBe(true);
+    expect(salvaged.rows).toHaveLength(2);
+    const normalized = normalizeAiInvoice(salvaged);
+    expect(normalized.invoiceNumber).toBe('42482');
+    expect(normalized.items.map(i => [i.productName, i.batchNumber, i.quantity, i.rate, i.lineTotal])).toEqual([
+      ['ORAMEL DROPS', 'OMD626', 4, 415.2, 1660.8], ['SILLIVER SUSP', 'N636', 2, 259.5, 519]
+    ]);
+    // A clean answer is untouched and not flagged.
+    expect((parseJsonLenient(full) as any).truncated).toBeUndefined();
+    // Reasoning models may prepend a think block containing braces.
+    expect((parseJsonLenient(`<think>{not json}</think>${full}`) as any).rows).toHaveLength(2);
+  });
+
+  it('asks for the remaining rows when the answer is cut off, and merges them without duplicates', async () => {
+    process.env.GROQ_API_KEY = 'test-key-continue';
+    const prompts: string[] = [];
+    let call = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/openai/v1/models')) return modelsReply([visionModel('test/vision-continue')]);
+      const body = JSON.parse(String(init?.body));
+      prompts.push(body.messages[0].content.find((c: any) => c.type === 'text')?.text ?? '');
+      call++;
+      const rows = call === 1
+        ? [row('ORAMEL DROPS', 'OMD626', 4, 415.2), row('SILLIVER SUSP', 'N636', 2, 259.5)]
+        // The continuation repeats the last row (models often do) and adds two more.
+        : [row('SILLIVER SUSP', 'N636', 2, 259.5), row('RIGIX 120ML SYP', 'JJ024M', 4, 173), row('ACSOLVE LOTION', 'AR098M', 2, 207.6)];
+      return new Response(JSON.stringify({ choices: [{ finish_reason: call === 1 ? 'length' : 'stop', message: { content: JSON.stringify({ ...header, rows }) } }] }), { status: 200 });
+    }));
+    const res = await extract();
+    expect(res.status).toBe(200);
+    expect(res.body.extractionMethod).toBe('AI_VISION');
+    expect(call).toBe(2);
+    expect(prompts[1]).toContain('CONTINUATION');
+    expect(prompts[1]).toContain('SILLIVER SUSP');
+    expect(res.body.items.map((i: any) => i.invoiceName)).toEqual(['ORAMEL DROPS', 'SILLIVER SUSP', 'RIGIX 120ML SYP', 'ACSOLVE LOTION']);
+    expect(res.body.invoiceNumber).toBe('42482');
+  });
+
+  it('uses the model Groq says accepts images (not a name guess) and retries with a smaller answer when the plan caps output tokens', async () => {
+    process.env.GROQ_API_KEY = 'test-key-modality';
+    const attempts: Array<{ model: string; max: number }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/openai/v1/models')) return modelsReply([visionModel('test/vision-capped')]);
+      const body = JSON.parse(String(init?.body));
+      attempts.push({ model: body.model, max: body.max_completion_tokens });
+      if (attempts.length === 1) {
+        return new Response(JSON.stringify({ error: { message: `Request too large for model \`${body.model}\` on output tokens per minute (OTPM): Limit 1000, Requested ${body.max_completion_tokens}.` } }), { status: 429 });
+      }
+      return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...header, rows: [row('ORAMEL DROPS', 'OMD626', 4, 415.2)] }) } }] }), { status: 200 });
+    }));
+    const res = await extract();
+    expect(res.status).toBe(200);
+    expect(res.body.extractionMethod).toBe('AI_VISION');
+    expect(attempts[0].model).toBe('test/vision-capped');
+    expect(attempts[1].model).toBe('test/vision-capped');
+    expect(attempts[1].max).toBeLessThanOrEqual(940);
+    expect(attempts[0].max).toBeGreaterThan(attempts[1].max);
+  });
+
+  it('repairs a quantity from amount ÷ rate and keeps a name-only (scribbled) row from the photo', () => {
+    const draft = buildReviewDraft(normalizeAiInvoice({
+      invoiceNumber: 'Q-1', invoiceDate: '29/10/2026',
+      rows: [
+        // Qty column attached to the wrong row: 1 read, but 1660.80 / 415.20 = 4.
+        row('ORAMEL DROPS', 'OMD626', 1, 415.2).map((v, i) => (i === 8 ? 1660.8 : v)),
+        // Handwritten over: only the name could be read.
+        ['ONSET 8MG TAB', null, null, null, null, null, null, null, null, null, 0.5]
+      ]
+    }), { extractionMethod: 'AI_VISION', aiProvider: 'groq', today: '2026-10-30' });
+    expect(draft.items).toHaveLength(2);
+    expect(draft.items[0].boxes).toBe(4);
+    expect(draft.items[0].issues.some(i => /Quantity set to 4/.test(i))).toBe(true);
+    expect(draft.items[1].invoiceName).toBe('ONSET 8MG TAB');
+    // The same bare name from OCR text is still treated as header noise.
+    const fromText = buildReviewDraft(normalizeAiInvoice({ rows: [['ONSET 8MG TAB', null, null, null, null, null, null, null, null, null, 0.5]] }), { extractionMethod: 'AI_TEXT', aiProvider: 'groq' });
+    expect(fromText.items).toHaveLength(0);
+  });
+
+  it('does not touch a quantity that already agrees with the printed amount', () => {
+    const draft = buildReviewDraft(normalizeAiInvoice({ invoiceNumber: 'Q-2', rows: [row('PANADOL-CF TAB', 'Y407', 3, 170)] }), { extractionMethod: 'AI_VISION', aiProvider: 'groq', today: '2026-10-30' });
+    expect(draft.items[0].boxes).toBe(3);
+    expect(draft.items[0].issues.some(i => /Quantity set/.test(i))).toBe(false);
+  });
+
+  const geminiReply = (rows: any[]) => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ ...header, rows }) }] } }] }), { status: 200 });
+
+  it('prefers Gemini for photos when both keys exist (one fast call), and keeps Groq as the fallback', async () => {
+    process.env.GROQ_API_KEY = 'test-key-both-groq';
+    process.env.GEMINI_API_KEY = 'test-key-both-gemini';
+    const hosts: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      hosts.push(new URL(String(url)).hostname);
+      if (String(url).includes('generativelanguage.googleapis.com')) return geminiReply([row('ORAMEL DROPS', 'OMD626', 4, 415.2), row('SILLIVER SUSP', 'N636', 2, 259.5)]);
+      if (String(url).endsWith('/openai/v1/models')) return modelsReply([visionModel('test/vision-both')]);
+      return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...header, rows: [row('FROM GROQ', 'G1', 1, 10)] }) } }] }), { status: 200 });
+    }));
+    const res = await extract();
+    expect(res.status).toBe(200);
+    expect(res.body.aiProvider).toBe('gemini');
+    expect(res.body.items.map((i: any) => i.invoiceName)).toEqual(['ORAMEL DROPS', 'SILLIVER SUSP']);
+    expect(hosts).not.toContain('api.groq.com');
+
+    // Gemini down -> Groq still reads the photo.
+    hosts.length = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      hosts.push(new URL(String(url)).hostname);
+      if (String(url).includes('generativelanguage.googleapis.com')) return new Response('quota', { status: 429 });
+      if (String(url).endsWith('/openai/v1/models')) return modelsReply([visionModel('test/vision-both')]);
+      return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...header, rows: [row('FROM GROQ', 'G1', 1, 10)] }) } }] }), { status: 200 });
+    }));
+    const fallback = await extract();
+    expect(fallback.body.aiProvider).toBe('groq');
+    expect(fallback.body.items[0].invoiceName).toBe('FROM GROQ');
+  });
+
+  it('reads the photo with Gemini alone when that is the only key', async () => {
+    process.env.GEMINI_API_KEY = 'test-key-gemini-only';
+    vi.stubGlobal('fetch', vi.fn(async () => geminiReply([row('ORAMEL DROPS', 'OMD626', 4, 415.2)])));
+    const res = await extract();
+    expect(res.status).toBe(200);
+    expect(res.body.extractionMethod).toBe('AI_VISION');
+    expect(res.body.aiProvider).toBe('gemini');
+    expect(res.body.items).toHaveLength(1);
+  });
 });

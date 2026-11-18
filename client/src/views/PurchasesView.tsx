@@ -18,6 +18,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { ScanUploadModal } from '../components/ScanUploadModal.js';
+import { HOSTED_API_ORIGIN, isHostedSite } from '../utils/hostedApi.js';
 import { InvoiceScanReviewView } from './InvoiceScanReviewView.js';
 
 export interface PurchaseInvoice {
@@ -116,19 +117,6 @@ interface CatalogMedicine {
   tablets_per_pack?: number | null;
   current_sale_price?: number | null;
   is_active?: number;
-}
-
-// The hosted site (Vercel) forwards /api/* to the Fly.io server. Large or slow requests such as
-// invoice photos can fail inside that forwarder, which answers with a plain-text error page
-// ("An error occurred...") instead of JSON. Uploads therefore fall back to calling the API
-// server directly, and every response is parsed defensively.
-const HOSTED_API_ORIGIN = 'https://nmp-api.fly.dev';
-
-function isHostedSite(): boolean {
-  const host = window.location.hostname;
-  if (!host || host === 'localhost' || host === '127.0.0.1' || host.endsWith('.fly.dev')) return false;
-  if (/^(10|127|192\.168|172\.(1[6-9]|2\d|3[01]))\./.test(host)) return false;
-  return true;
 }
 
 async function readJsonResponse(res: Response): Promise<any | null> {
@@ -802,18 +790,22 @@ export const PurchasesView: React.FC = () => {
         body: formData
       });
 
+      // A scan can take a minute or more (the AI reads long invoices in several steps). The Vercel proxy
+      // gives up long before that, and re-sending the upload would make the server read the same invoice
+      // twice, so on the hosted site go straight to the API server.
       let res: Response;
       let data: any = null;
-      try {
+      if (isHostedSite()) {
+        try {
+          res = await sendTo(HOSTED_API_ORIGIN);
+          data = await readJsonResponse(res);
+        } catch (networkErr) {
+          // Only a network-level failure (nothing reached the server) is retried through the proxy.
+          res = await sendTo('');
+          data = await readJsonResponse(res);
+        }
+      } else {
         res = await sendTo('');
-        data = await readJsonResponse(res);
-      } catch (networkErr) {
-        if (!isHostedSite()) throw networkErr;
-        res = await sendTo(HOSTED_API_ORIGIN);
-        data = await readJsonResponse(res);
-      }
-      if (data === null && isHostedSite()) {
-        res = await sendTo(HOSTED_API_ORIGIN);
         data = await readJsonResponse(res);
       }
       if (data === null) {
@@ -1158,6 +1150,13 @@ export const PurchasesView: React.FC = () => {
             <Camera size={17} />
             <span>Scan Invoice Archive</span>
           </button>
+        </div>
+      )}
+
+      {isAiProcessing && (
+        <div style={{ padding: '0.75rem 1rem', background: 'rgba(56, 189, 248, 0.1)', color: '#7dd3fc', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: 'var(--radius-md)', marginBottom: '1rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <Loader2 size={16} className="animate-spin" />
+          <span>Reading the invoice... a long invoice (30+ medicines) can take a few minutes. Please keep this page open.</span>
         </div>
       )}
 

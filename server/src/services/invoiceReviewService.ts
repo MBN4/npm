@@ -162,7 +162,12 @@ function pick(record: Record<string, unknown>, ...keys: string[]): unknown {
 /** Accepts the JSON shapes produced by the AI prompts (and older aliases) and normalizes them. */
 export function normalizeAiInvoice(raw: unknown): RawExtractedInvoice {
   const record = (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) ? raw as Record<string, unknown> : {};
-  const itemsRaw = Array.isArray(record.items) ? record.items : [];
+  // Compact format: each row is [name, pack, batch, expiry, qty, bonus, rate, disc%, lineTotal, mrp, confidence].
+  const ROW_KEYS = ['productName', 'packSize', 'batchNumber', 'expiryDate', 'quantity', 'bonusQuantity', 'rate', 'discountPercent', 'lineTotal', 'mrp', 'confidence'];
+  const compactRows = Array.isArray(record.rows)
+    ? record.rows.map(row => Array.isArray(row) ? Object.fromEntries(ROW_KEYS.map((k, i) => [k, row[i] ?? null])) : row)
+    : [];
+  const itemsRaw = [...(Array.isArray(record.items) ? record.items : []), ...compactRows];
   const items: RawExtractedItem[] = itemsRaw
     .filter((it): it is Record<string, unknown> => typeof it === 'object' && it !== null && !Array.isArray(it))
     .map(it => ({
@@ -262,7 +267,7 @@ const NON_MEDICINE_PATTERNS: RegExp[] = [
 ];
 
 /** Returns a reason when the line is clearly not a medicine row, otherwise null. */
-export function nonMedicineReason(item: RawExtractedItem): string | null {
+export function nonMedicineReason(item: RawExtractedItem, opts: { keepNameOnly?: boolean } = {}): string | null {
   const name = item.productName || '';
   if (!name || name.replace(/[^a-z]/gi, '').length < 3) return 'no readable product name';
   if (/^\+?\d[\d\s\-]{6,}\d$/.test(name)) return 'phone number';
@@ -270,7 +275,9 @@ export function nonMedicineReason(item: RawExtractedItem): string | null {
   const hit = NON_MEDICINE_PATTERNS.find(re => re.test(name));
   if (hit) return 'invoice header/footer text';
   // A real invoice row always carries a quantity, a rate or an amount.
-  if (item.quantity === null && item.rate === null && item.lineTotal === null && item.bonusQuantity === null) return 'no quantity, rate or amount on the line';
+  // (A vision model only returns table rows, so a bare name there is a real row whose numbers were
+  // unreadable - e.g. scribbled over by hand. Keep it so the admin can fill it in.)
+  if (!opts.keepNameOnly && item.quantity === null && item.rate === null && item.lineTotal === null && item.bonusQuantity === null) return 'no quantity, rate or amount on the line';
   // "33 / GSK" style company group headings have no item data of their own.
   if (/^\d+\s*\/\s*[a-z&.\s]+$/i.test(name) && item.rate === null) return 'company group heading';
   return null;
@@ -615,7 +622,7 @@ export function buildReviewDraft(
 
   const items: ReviewItem[] = [];
   for (const raw of extracted.items) {
-    const reason = nonMedicineReason(raw);
+    const reason = nonMedicineReason(raw, { keepNameOnly: meta.extractionMethod === 'AI_VISION' });
     if (reason) {
       if (raw.productName) ignoredLines.push(`${raw.productName} (${reason})`);
       continue;
@@ -738,6 +745,19 @@ export function buildReviewDraft(
             ]
           });
         }
+      }
+    }
+
+    // ---- Quantity repair ----
+    // On wide estimates the Qty column sits far left of the item name, so a model can attach the
+    // wrong row's quantity. When amount / rate is a whole number that differs from the quantity read,
+    // the printed amount and rate agree with each other, so that is the safer quantity.
+    {
+      const impliedRaw = raw.rate && raw.rate > 0 && raw.lineTotal ? raw.lineTotal / (raw.rate * (1 - (raw.discountPercent || 0) / 100)) : null;
+      const implied = impliedRaw !== null ? Math.round(impliedRaw) : null;
+      if (implied !== null && implied >= 1 && implied <= 5000 && Math.abs(impliedRaw! - implied) <= 0.012 * implied + 0.02 && raw.quantity !== implied) {
+        issues.push(raw.quantity ? `Quantity set to ${implied} because amount ÷ rate = ${implied} (the quantity column was read as ${raw.quantity}) - check it against the paper` : `Quantity set to ${implied} from amount ÷ rate - check it against the paper`);
+        raw.quantity = implied;
       }
     }
 

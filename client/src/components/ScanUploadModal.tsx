@@ -1,3 +1,4 @@
+import { HOSTED_API_ORIGIN, isHostedSite } from '../utils/hostedApi.js';
 import React, { useRef, useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.js';
 import { Camera, Upload, X, FileText, Loader2, Sparkles } from 'lucide-react';
@@ -61,13 +62,17 @@ export const ScanUploadModal: React.FC<ScanUploadModalProps> = ({ title, scanId,
       const formData = new FormData();
       files.forEach(f => formData.append('files', f.file));
 
-      const url = scanId ? `/api/purchases/scans/${scanId}/pages` : '/api/purchases/scans';
+      // Reading an invoice with the AI can take a minute or more: skip the hosted proxy's short timeout.
+      const path = scanId ? `/api/purchases/scans/${scanId}/pages` : '/api/purchases/scans';
+      const url = isHostedSite() ? `${HOSTED_API_ORIGIN}${path}` : path;
       const res = await fetch(url, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try { data = text ? JSON.parse(text) : {}; } catch { data = { error: `The server returned an unexpected response (HTTP ${res.status}). Please try again.` }; }
       if (!res.ok) {
         setError(data.error || 'Upload failed');
         setIsSubmitting(false);

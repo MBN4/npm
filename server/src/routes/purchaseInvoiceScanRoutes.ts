@@ -103,7 +103,10 @@ purchaseInvoiceScanRouter.post('/ai-quick-extract', authenticateToken, requirePe
 
   try {
     // Returns a review draft only - no supplier, medicine or stock is created until the purchase is saved.
-    const result = await quickAiExtractInvoice(files.map(f => ({ buffer: f.buffer, mimeType: f.mimetype })));
+    // A long invoice can take minutes on a rate-limited AI plan: stop asking for more rows if the browser left.
+    let clientGone = false;
+    res.on('close', () => { if (!res.writableEnded) clientGone = true; });
+    const result = await quickAiExtractInvoice(files.map(f => ({ buffer: f.buffer, mimeType: f.mimetype })), { shouldStop: () => clientGone });
     logAudit({
       userId: req.user?.id,
       action: 'AI_QUICK_INVOICE_EXTRACT',
