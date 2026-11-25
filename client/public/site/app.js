@@ -341,8 +341,10 @@ const chapters=[
   {id:'launch',tab:'Launch',title:'Preparing the medicine for launch',alt:'Pharmacist presenting a generic medicine carton and blister pack',copy:'After the required reviews and approvals, the team prepares the packaging and patient information so people can identify and use the medicine correctly.'},
   {id:'body',tab:'In the body',title:'From swallowing to an effect',alt:'Conceptual diagram of the digestive tract, bloodstream and a drug binding to a receptor',copy:'Many swallowed medicines are absorbed in the small intestine. After entering the blood, an ingredient can reach a target such as a receptor and change how cells respond. The route and target depend on the medicine.'}
 ];
-let chapter=0, storyTimer=null;
-const chapterButtons=chapters.map(({tab},index)=>btn(tab,()=>{stopStory();showChapter(index);}));
+// The story plays automatically and loops forever; the button pauses/resumes it.
+const STORY_DELAY=3500;
+let chapter=0, storyTimer=null, storyPaused=false;
+const chapterButtons=chapters.map(({tab},index)=>btn(tab,()=>{showChapter(index);restartStory();}));
 $('story-steps').append(...chapterButtons);
 function showChapter(index){
   chapter=index;
@@ -354,33 +356,36 @@ function showChapter(index){
   $('story-title').textContent=current.title;
   $('story-copy').textContent=current.copy;
   $('story-source').hidden=current.id!=='body';
-  $('story-back').disabled=index===0;
-  $('story-next').disabled=index===chapters.length-1;
   chapterButtons.forEach((button,position)=>button.setAttribute('aria-pressed',String(position===index)));
   const frame=$('story-frame');
   frame.classList.remove('enter');
   requestAnimationFrame(()=>requestAnimationFrame(()=>frame.classList.add('enter')));
 }
+function startStory(){
+  clearInterval(storyTimer);
+  storyTimer=setInterval(()=>showChapter((chapter+1)%chapters.length),STORY_DELAY);
+}
 function stopStory(){
   clearInterval(storyTimer);
   storyTimer=null;
-  $('story-play').textContent='Play story';
-  $('story-play').setAttribute('aria-pressed','false');
 }
-$('story-back').onclick=()=>{stopStory();if(chapter>0)showChapter(chapter-1);};
-$('story-next').onclick=()=>{stopStory();if(chapter<chapters.length-1)showChapter(chapter+1);};
-$('story-play').onclick=()=>{
-  if(storyTimer){stopStory();return;}
-  if(chapter===chapters.length-1)showChapter(0);
-  $('story-play').textContent='Pause story';
-  $('story-play').setAttribute('aria-pressed','true');
-  storyTimer=setInterval(()=>{
-    if(chapter===chapters.length-1){stopStory();return;}
-    showChapter(chapter+1);
-  },6500);
-};
-document.addEventListener('visibilitychange',()=>{if(document.hidden)stopStory();});
+// After a manual change, keep looping but give the reader a full interval on that chapter.
+function restartStory(){if(!storyPaused&&!document.hidden)startStory();}
+function setStoryPaused(paused){
+  storyPaused=paused;
+  $('story-play').textContent=paused?'Play story':'Pause story';
+  $('story-play').setAttribute('aria-pressed',String(!paused));
+  paused?stopStory():startStory();
+}
+$('story-back').onclick=()=>{showChapter((chapter-1+chapters.length)%chapters.length);restartStory();};
+$('story-next').onclick=()=>{showChapter((chapter+1)%chapters.length);restartStory();};
+$('story-play').onclick=()=>setStoryPaused(!storyPaused);
+// Hold the current chapter while the reader hovers over it, then carry on.
+$('story-frame').addEventListener('mouseenter',()=>{if(!storyPaused)stopStory();});
+$('story-frame').addEventListener('mouseleave',restartStory);
+document.addEventListener('visibilitychange',()=>{document.hidden?stopStory():restartStory();});
 showChapter(0);
+setStoryPaused(false);
 
 function openChatbook(){
   const transcript=document.createElement('div');
