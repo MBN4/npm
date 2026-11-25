@@ -154,6 +154,12 @@ export const LoginView: React.FC = () => {
           border: '1px solid #1f2937'
         }}
       >
+        <a
+          href="/"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#9ca3af', fontSize: '0.85rem', textDecoration: 'none', marginBottom: '1.25rem' }}
+        >
+          <ArrowLeft size={14} /> Back to website
+        </a>
         {/* Brand Header */}
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <div
