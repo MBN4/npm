@@ -4,12 +4,14 @@ import { resolve } from 'node:path';
 
 export default defineConfig({
   plugins: [react()],
-  // Two pages: the public pharmacy website at "/" (index.html) and the admin
+  // Three pages: the Naveed Medical Complex home at "/" (index.html), the public
+  // pharmacy website at "/pharmacy/" (pharmacy/index.html) and the admin
   // management app at "/admin/" (admin/index.html).
   build: {
     rollupOptions: {
       input: {
         website: resolve(__dirname, 'index.html'),
+        pharmacy: resolve(__dirname, 'pharmacy/index.html'),
         admin: resolve(__dirname, 'admin/index.html')
       }
     }

@@ -158,7 +158,11 @@ if (process.env.SERVE_LOCAL_CLIENT === 'true' || (!process.env.FLY_APP_NAME && p
   const clientDistPath = path.resolve(__dirname, '../../client/dist');
   if (fs.existsSync(path.join(clientDistPath, 'index.html'))) {
     app.use(express.static(clientDistPath));
-    // "/" is the public website (index.html); the admin app lives at /admin/ (admin/index.html).
+    // "/" is the Naveed Medical Complex home (index.html), the pharmacy website lives at
+    // /pharmacy/ (pharmacy/index.html) and the admin app at /admin/ (admin/index.html).
+    app.get(/^\/pharmacy(\/.*)?$/, (_req: Request, res: Response) => {
+      res.sendFile(path.join(clientDistPath, 'pharmacy', 'index.html'));
+    });
     app.get(/^\/admin(\/.*)?$/, (_req: Request, res: Response) => {
       res.sendFile(path.join(clientDistPath, 'admin', 'index.html'));
     });

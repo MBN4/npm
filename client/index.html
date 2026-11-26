@@ -2,54 +2,23 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Naveed Medical Pharmacy | Medicine shop & learning</title>
-<meta name="description" content="Explore medicines at Naveed Medical Pharmacy and preview the Abdul’s Pharma student portal.">
+<title>Naveed Medical Complex | Islampura, Lahore</title>
+<meta name="description" content="Naveed Medical Complex, Islampura, Lahore: pharmacy, clinic, blood donor portal and pharmacology study in one place.">
 <link rel="icon" type="image/jpeg" href="/logo.jpeg">
-<link rel="stylesheet" href="/site/style.css"><script defer src="/site/quiz-data.js"></script><script defer src="/site/quiz.js"></script><script defer src="/site/app.js"></script>
+<link rel="stylesheet" href="/home/home.css"><script defer src="/home/home.js"></script>
 </head>
 <body>
-<header><div class="bar wrap"><a class="brand" href="#"><i>✚</i><span>Naveed Medical<strong>Pharmacy</strong></span></a><nav aria-label="Main navigation"><a href="#catalog">Medicine shop</a><a href="#explore">Medicine explorer</a><a href="#journey">Pharma journey</a><a href="#academy">Student portal</a></nav><div class="header-actions"><a class="admin-link" href="/admin/" title="Staff &amp; admin login">Admin login</a><button id="bag" class="outline">Cart <span id="count">0</span></button></div></div></header>
-<main class="wrap">
-<section class="hero" id="explore" aria-labelledby="hero-title">
-<div class="intro"><p class="eyebrow"><span></span> ISLAMPURA, LAHORE · SINCE 1994</p><h1 id="hero-title">Find your medicine.<br><em>Understand it, too.</em></h1><p>Search by brand or ingredient, explore medicine information, and try guest checkout.</p>
-<form id="search"><label class="sr" for="query">Find a medicine</label><input id="query" type="search" placeholder="Search Panadol, paracetamol…"><button>Search</button></form><a class="small-link" href="#catalog">Browse medicine categories ↓</a></div>
-<div class="stage"><div class="stage-top"><span>MEDICINE EXPLORER</span><button id="rotate" aria-pressed="false">Pause rotation</button></div>
-<div id="pack-stage" class="orbit" data-variant="extra">
-  <div class="rings" aria-hidden="true"></div>
-  <div class="scene" aria-hidden="true">
-    <div id="box" class="box">
-      <div class="pack front"><div class="pack-swoosh"></div><div class="pack-copy"><strong id="pack-name">Panadol</strong><b id="pack-variant">Extra</b><span id="pack-dose">Paracetamol 500 mg + caffeine 65 mg</span></div><img id="pack-art" alt="" decoding="async" hidden></div>
-      <div class="pack back"><b id="pack-back-name">Panadol Extra</b><span id="pack-back-strength">Paracetamol 500 mg + caffeine 65 mg per tablet</span><span class="pack-lines"></span><span class="barcode"></span></div>
-      <div class="pack side right"><span>Panadol</span></div><div class="pack side left"><span>Panadol</span></div>
-      <div class="pack edge top"><span>Panadol</span></div><div class="pack edge bottom"></div>
-    </div>
-    <div class="blister" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="tablet" id="tablet"></div>
-  </div>
-</div>
-<div class="stage-controls"><span>Drag to turn the pack</span><button id="turn-pack" type="button">Turn pack ↻</button><a href="https://www.haleon.pk/our-brands/panadol/" target="_blank" rel="noopener noreferrer">Manufacturer photos ↗</a></div>
-<div class="stage-bottom"><div><small>FEATURED MEDICINE</small><strong id="featured-name">Panadol Extra</strong></div><button id="extract">Reveal tablet ↗</button></div></div>
-</section>
-<section class="section details" id="details" hidden><div class="section-head"><div><p class="eyebrow">MEDICINE MIND MAP</p><h2 id="detail-name"></h2><p id="detail-strength" class="muted"></p></div><button id="close-map" class="outline">Close</button></div><div id="branches" class="branches"></div><div id="branch-content" class="branch-content" aria-live="polite"></div></section>
-<section class="section" id="catalog"><div class="section-head"><div><p class="eyebrow">MEDICINE SHOP</p><h2>Browse the pharmacy</h2></div><p class="muted">Demo catalogue · Lahore</p></div><div class="chips" id="filters" aria-label="Medicine categories"><button data-cat="All" aria-pressed="true">All medicines</button><button data-cat="Prescription" aria-pressed="false">Prescription</button><button data-cat="OTC" aria-pressed="false">OTC</button><button data-cat="Multivitamins" aria-pressed="false">Multivitamins</button></div><div id="products" class="products" aria-live="polite"></div></section>
-<section class="journey section" id="journey" aria-labelledby="journey-title">
-  <div class="journey-layout">
-    <figure class="journey-cover"><img src="/site/assets/abduls-pharma-cover.webp" width="780" height="1170" loading="lazy" alt="Abdul’s Pharma comic cover with a pharmacist holding a green flask in a blue lab"></figure>
-    <div class="journey-main">
-      <p class="eyebrow">ABDUL’S PHARMA · ILLUSTRATED STORY</p>
-      <h2 id="journey-title">From classroom to patient</h2>
-      <p class="journey-summary">Follow one pharmacist from the first pharmacology class to the lab, production line and the medicine’s journey through the body.</p>
-      <div id="story-steps" class="story-steps" role="group" aria-label="Story chapters"></div>
-      <div class="story-frame" id="story-frame">
-        <img id="story-image" src="/site/assets/story-study.webp" width="506" height="506" loading="lazy" alt="">
-        <div class="story-text" aria-live="polite"><p id="story-chapter" class="eyebrow"></p><h3 id="story-title"></h3><p id="story-copy"></p><a id="story-source" href="https://www.merckmanuals.com/home/drugs/administration-and-kinetics-of-drugs/drug-absorption" target="_blank" rel="noopener noreferrer" hidden>Merck Manual · drug absorption ↗</a></div>
-      </div>
-      <div class="story-actions"><button id="story-back" class="outline" type="button">← Previous</button><button id="story-play" class="outline" type="button" aria-pressed="false">Play story</button><button id="story-next" type="button">Next chapter →</button></div>
-    </div>
-  </div>
-</section>
-<section class="academy section" id="academy"><div><p class="eyebrow">ABDUL’S PHARMA</p><h2>Study pharmacology.</h2><p>Medicine guides, drug interaction infographics and learning resources for health sciences students and professionals.</p><div class="actions"><button id="apply">Request access</button><button id="login" class="outline">Student sign-in</button></div></div><div class="academy-steps"><span>01 <b>Submit your details</b></span><span>02 <b>Pharmacy team reviews</b></span><span>03 <b>Approved students sign in</b></span><button id="review" class="outline">Preview reviewer dashboard</button></div></section>
-</main>
-<footer class="wrap"><b>Naveed Medical Pharmacy</b><span>Islampura, Lahore</span><span>Private preview · Use sample details only</span><a href="/admin/">Staff / Admin</a></footer>
-<button type="button" id="chatbook" class="chatbook" aria-haspopup="dialog">Chatbook</button>
-<dialog id="panel"><div class="panel-top"><h2 id="panel-title"></h2><button id="close" class="outline" aria-label="Close dialog">✕</button></div><div id="panel-body"></div></dialog>
-</body></html>
+<header class="top">
+  <a class="brand" href="#home"><i aria-hidden="true">✚</i><span>Naveed Medical <strong>Complex</strong></span></a>
+  <nav aria-label="Main navigation">
+    <a href="/pharmacy/">Pharmacy</a>
+    <a href="#clinic" data-route="clinic">Clinic</a>
+    <a href="#blood" data-route="blood">Blood Donor Portal</a>
+    <a href="#study" data-route="study">Study</a>
+    <a class="admin-link" href="/admin/">Admin login</a>
+  </nav>
+</header>
+<main id="app" tabindex="-1"></main>
+<footer><span><b>Naveed Medical Complex</b> · Islampura, Lahore</span><a href="/admin/">Staff / Admin</a></footer>
+</body>
+</html>

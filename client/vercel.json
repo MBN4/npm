@@ -7,6 +7,14 @@
       "destination": "https://nmp-api.fly.dev/api/$1"
     },
     {
+      "source": "/pharmacy",
+      "destination": "/pharmacy/index.html"
+    },
+    {
+      "source": "/pharmacy/(.*)",
+      "destination": "/pharmacy/index.html"
+    },
+    {
       "source": "/admin",
       "destination": "/admin/index.html"
     },
